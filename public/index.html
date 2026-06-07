@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OFL Network</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f1419;
+      color: #e7e9ea;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    h1 { font-size: 3rem; margin-bottom: 0.5rem; }
+    p { color: #8b98a5; }
+    #status { margin-top: 1rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>OFL Network</h1>
+  <p>Site is up and running.</p>
+  <div id="status">Checking backend…</div>
+
+  <script>
+    fetch('/api/health')
+      .then(r => r.json())
+      .then(d => {
+        document.getElementById('status').textContent =
+          'Backend status: ' + d.status;
+      })
+      .catch(() => {
+        document.getElementById('status').textContent =
+          'Backend not responding yet.';
+      });
+  </script>
+</body>
+</html>
