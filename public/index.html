@@ -124,13 +124,24 @@
 
     // ask the server if this user is an admin (can't be spoofed client-side)
     if(session && session.access_token){
+      async function refreshSession(){
+        if(!session || !session.refresh_token) return false;
+        try{
+          const rr=await fetch('/api/session/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:session.refresh_token})});
+          const jj=await rr.json();
+          if(rr.ok && jj.session){ session=jj.session; localStorage.setItem('ofl_session',JSON.stringify(session)); return true; }
+        }catch(e){}
+        return false;
+      }
       try{
-        const r=await fetch('/api/me',{headers:{Authorization:'Bearer '+session.access_token}});
+        let r=await fetch('/api/me',{headers:{Authorization:'Bearer '+session.access_token}});
+        if(r.status===401 && await refreshSession()){
+          r=await fetch('/api/me',{headers:{Authorization:'Bearer '+session.access_token}});
+        }
         const j=await r.json();
         if(j.profile && j.profile.is_admin){
           document.getElementById('adminLink').style.display='block';
         }
-        // refresh stored profile with latest
         if(j.profile) localStorage.setItem('ofl_profile', JSON.stringify(j.profile));
       }catch(e){}
     }

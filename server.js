@@ -187,6 +187,19 @@ app.get('/api/me', async (req, res) => {
   }
 });
 
+// refresh an expired session using the stored refresh token
+app.post('/api/session/refresh', async (req, res) => {
+  try {
+    const { refresh_token } = req.body;
+    if (!refresh_token) return res.status(400).json({ error: 'No refresh token' });
+    const { data, error } = await supabase.auth.refreshSession({ refresh_token });
+    if (error || !data.session) return res.status(401).json({ error: 'Refresh failed' });
+    res.json({ session: data.session });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // list all users who currently have admin access
 app.get('/api/admin/users', async (req, res) => {
   const me = await requireAdmin(req, res, 'access');
