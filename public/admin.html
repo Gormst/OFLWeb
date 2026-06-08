@@ -118,6 +118,21 @@
   .team-del:hover{background:var(--red);color:var(--paper);}
 
   @media(max-width:700px){ .team-form{grid-template-columns:1fr;} }
+
+  /* selects in forms */
+  .field select{background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:500;font-size:16px;padding:12px 14px;cursor:pointer;}
+  .field select:focus{outline:none;border-color:var(--navy);}
+
+  /* game list */
+  .game-list{display:flex;flex-direction:column;}
+  .game-item{display:grid;grid-template-columns:70px 1fr auto;gap:16px;align-items:center;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer;transition:background .12s;}
+  .game-item:hover{background:var(--paper);}
+  .game-week{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--red);}
+  .game-matchup{font-family:'Oswald';font-weight:700;font-size:17px;text-transform:uppercase;}
+  .game-matchup .at{color:var(--muted);font-weight:500;font-size:13px;margin:0 8px;}
+  .game-when{font-family:'Space Mono';font-size:11px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:3px;}
+  .game-del{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--red);border:1px solid var(--red);background:none;padding:6px 12px;cursor:pointer;}
+  .game-del:hover{background:var(--red);color:var(--paper);}
 </style>
 </head>
 <body>
@@ -164,6 +179,7 @@
     <div class="tabs" id="tabsBar">
       <button class="tab active" data-tab="access">User Access</button>
       <button class="tab" data-tab="teams">Teams</button>
+      <button class="tab" data-tab="schedule">Schedule</button>
     </div>
 
     <!-- USER ACCESS -->
@@ -246,6 +262,48 @@
       </div>
     </div>
 
+    <!-- SCHEDULE -->
+    <div class="section" id="section-schedule">
+      <div class="panel">
+        <h3 id="gameFormTitle">Add a Game</h3>
+        <div class="desc">Schedule a matchup. Scores can be added later to mark a game final.</div>
+        <div class="team-form">
+          <div class="field">
+            <label>Week</label>
+            <select id="g_week"></select>
+          </div>
+          <div class="field">
+            <label>Date</label>
+            <input type="date" id="g_date">
+          </div>
+          <div class="field">
+            <label>Time</label>
+            <input type="text" id="g_time" placeholder="e.g. 8:00 PM ET">
+          </div>
+          <div class="field"></div>
+          <div class="field">
+            <label>Home Team</label>
+            <select id="g_home"></select>
+          </div>
+          <div class="field">
+            <label>Away Team</label>
+            <select id="g_away"></select>
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:18px;">
+          <button class="save-btn" id="gameSaveBtn">Add Game</button>
+          <button class="cancel-btn" id="gameCancelBtn" style="display:none;">Cancel Edit</button>
+        </div>
+        <div class="msg" id="gameMsg"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Schedule (<span id="gameCount">0</span>)</h3>
+        <div class="desc">Click a game to edit it.</div>
+        <div class="game-list" id="gameList"></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -283,7 +341,7 @@
   function showMsg(t,ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
 
   // friendly label for a tab key
-  const TAB_LABELS = { access:'User Access', teams:'Teams' };
+  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule' };
 
   // ── gate check ──
   (async function(){
@@ -298,6 +356,7 @@
       setupTabs(j.profile.admin_tabs || []);
       loadAdmins();
       loadTeams();
+      loadSchedule();
     }catch(e){ $('gateNoAccess').style.display='block'; }
   })();
 
@@ -436,11 +495,14 @@
   bindColor('t_primary','t_primary_hex');
   bindColor('t_secondary','t_secondary_hex');
 
+  let teamsCache = [];
   async function loadTeams(){
     try{
       const r=await fetch('/api/teams');
       const j=await r.json();
-      renderTeams(j.teams||[]);
+      teamsCache = j.teams || [];
+      renderTeams(teamsCache);
+      populateTeamSelects();
     }catch(e){}
   }
 
@@ -550,6 +612,135 @@
       resetTeamForm();
       loadTeams();
     }catch(e){ teamMsg('Network error'); }
+  });
+  // ── SCHEDULE ──
+  let editingGameId = null;
+  const WEEKS = 18;
+
+  function gameMsg(t,ok){ const m=$('gameMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
+
+  // fill week dropdown once
+  (function fillWeeks(){
+    const sel=$('g_week');
+    if(!sel) return;
+    let opts='';
+    for(let w=1;w<=WEEKS;w++) opts+=`<option value="${w}">Week ${w}</option>`;
+    sel.innerHTML=opts;
+  })();
+
+  function populateTeamSelects(){
+    const opts = '<option value="">— Select team —</option>' +
+      teamsCache.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+    if($('g_home')) $('g_home').innerHTML=opts;
+    if($('g_away')) $('g_away').innerHTML=opts;
+  }
+
+  async function loadSchedule(){
+    try{
+      const r=await fetch('/api/games');
+      const j=await r.json();
+      renderGames(j.games||[]);
+    }catch(e){}
+  }
+
+  function fmtDate(d){
+    if(!d) return '';
+    try{
+      const dt=new Date(d+'T00:00:00');
+      return dt.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
+    }catch(e){ return d; }
+  }
+
+  function renderGames(games){
+    $('gameCount').textContent = games.length;
+    const list=$('gameList');
+    if(games.length===0){ list.innerHTML='<p style="color:var(--muted);font-style:italic;padding:10px 0;">No games scheduled yet.</p>'; return; }
+    list.innerHTML = games.map(g=>{
+      const home=g.home_team?g.home_team.name:'?';
+      const away=g.away_team?g.away_team.name:'?';
+      const when=[fmtDate(g.game_date), g.game_time].filter(Boolean).join(' · ');
+      const score=(g.home_score!=null&&g.away_score!=null)?` (${g.home_score}–${g.away_score})`:'';
+      return `
+        <div class="game-item" data-id="${g.id}">
+          <div class="game-week">${g.week?('Week '+g.week):'—'}</div>
+          <div>
+            <div class="game-matchup">${away}<span class="at">@</span>${home}${score}</div>
+            <div class="game-when">${when||'TBD'}</div>
+          </div>
+          <button class="game-del" data-id="${g.id}">Delete</button>
+        </div>`;
+    }).join('');
+
+    list.querySelectorAll('.game-item').forEach(row=>{
+      row.addEventListener('click',(e)=>{
+        if(e.target.classList.contains('game-del')) return;
+        const g=games.find(x=>x.id===row.dataset.id);
+        startEditGame(g);
+      });
+    });
+    list.querySelectorAll('.game-del').forEach(btn=>{
+      btn.addEventListener('click',async(e)=>{
+        e.stopPropagation();
+        if(!confirm('Delete this game?')) return;
+        await apiFetch('/api/admin/games/'+btn.dataset.id,{method:'DELETE'});
+        gameMsg('Game deleted',true);
+        if(editingGameId===btn.dataset.id) resetGameForm();
+        loadSchedule();
+      });
+    });
+  }
+
+  function readGameForm(){
+    return {
+      week: $('g_week').value,
+      game_date: $('g_date').value,
+      game_time: $('g_time').value,
+      home_team_id: $('g_home').value,
+      away_team_id: $('g_away').value
+    };
+  }
+
+  function resetGameForm(){
+    editingGameId=null;
+    $('g_week').value='1';
+    $('g_date').value='';
+    $('g_time').value='';
+    $('g_home').value='';
+    $('g_away').value='';
+    $('gameFormTitle').textContent='Add a Game';
+    $('gameSaveBtn').textContent='Add Game';
+    $('gameCancelBtn').style.display='none';
+  }
+
+  function startEditGame(g){
+    editingGameId=g.id;
+    $('g_week').value=g.week||'1';
+    $('g_date').value=g.game_date||'';
+    $('g_time').value=g.game_time||'';
+    $('g_home').value=g.home_team_id||'';
+    $('g_away').value=g.away_team_id||'';
+    $('gameFormTitle').textContent='Edit Game';
+    $('gameSaveBtn').textContent='Save Changes';
+    $('gameCancelBtn').style.display='inline-block';
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+
+  $('gameCancelBtn').addEventListener('click',resetGameForm);
+
+  $('gameSaveBtn').addEventListener('click',async()=>{
+    const body=readGameForm();
+    if(!body.home_team_id || !body.away_team_id){ gameMsg('Pick both teams'); return; }
+    if(body.home_team_id===body.away_team_id){ gameMsg('Home and away must differ'); return; }
+    const url = editingGameId ? '/api/admin/games/'+editingGameId : '/api/admin/games';
+    const method = editingGameId ? 'PUT' : 'POST';
+    try{
+      const r=await apiFetch(url,{method,body:JSON.stringify(body)});
+      const j=await r.json();
+      if(!r.ok){ gameMsg(j.error||'Failed to save'); return; }
+      gameMsg(editingGameId?'Game updated':'Game added',true);
+      resetGameForm();
+      loadSchedule();
+    }catch(e){ gameMsg('Network error'); }
   });
 </script>
 </body>

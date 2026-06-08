@@ -18,7 +18,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const SUPERUSER = 'famouskai12';
 
 // All admin tabs that can be granted
-const ALL_ADMIN_TABS = ['access', 'teams'];
+const ALL_ADMIN_TABS = ['access', 'teams', 'schedule'];
 
 // ─────────────────────────────────────────────
 //  HELPERS
@@ -366,6 +366,89 @@ app.delete('/api/admin/teams/:id', async (req, res) => {
   if (!me) return;
   try {
     await supabase.from('teams').delete().eq('id', req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+//  SCHEDULE / GAMES
+// ─────────────────────────────────────────────
+
+// attach lightweight team info to each game
+function attachTeams(games, teams) {
+  const map = {};
+  for (const t of teams) map[t.id] = { id: t.id, name: t.name, abbreviation: t.abbreviation, logo_url: t.logo_url, primary_color: t.primary_color, secondary_color: t.secondary_color };
+  return games.map(g => ({
+    ...g,
+    home_team: map[g.home_team_id] || null,
+    away_team: map[g.away_team_id] || null
+  }));
+}
+
+// public — list all games (schedule + scores)
+app.get('/api/games', async (req, res) => {
+  try {
+    const { data: games } = await supabase
+      .from('games').select('*')
+      .order('week', { ascending: true })
+      .order('game_date', { ascending: true });
+    const { data: teams } = await supabase.from('teams').select('*');
+    res.json({ games: attachTeams(games || [], teams || []) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — create a game
+app.post('/api/admin/games', async (req, res) => {
+  const me = await requireAdmin(req, res, 'schedule');
+  if (!me) return;
+  try {
+    const { week, game_date, game_time, home_team_id, away_team_id } = req.body;
+    if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
+    if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
+    const { data, error } = await supabase.from('games').insert({
+      week: week ? parseInt(week, 10) : null,
+      game_date: game_date || null,
+      game_time: (game_time || '').trim() || null,
+      home_team_id, away_team_id
+    }).select().single();
+    if (error) throw error;
+    res.json({ success: true, game: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — update a game
+app.put('/api/admin/games/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'schedule');
+  if (!me) return;
+  try {
+    const { week, game_date, game_time, home_team_id, away_team_id } = req.body;
+    if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
+    if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
+    const { data, error } = await supabase.from('games').update({
+      week: week ? parseInt(week, 10) : null,
+      game_date: game_date || null,
+      game_time: (game_time || '').trim() || null,
+      home_team_id, away_team_id
+    }).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ success: true, game: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — delete a game
+app.delete('/api/admin/games/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'schedule');
+  if (!me) return;
+  try {
+    await supabase.from('games').delete().eq('id', req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
