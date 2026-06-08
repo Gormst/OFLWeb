@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const crypto = require('crypto');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
@@ -13,6 +14,34 @@ const supabase = createClient(
 app.use(express.json());
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
+
+// Secret for signing our own auth tokens. Set OFL_TOKEN_SECRET in env for production;
+// falls back to the Supabase key so it's always defined.
+const TOKEN_SECRET = process.env.OFL_TOKEN_SECRET || process.env.SUPABASE_KEY || 'ofl-dev-secret';
+
+// Create a signed, long-lived token tying a session to a Roblox user id.
+function signToken(robloxUserId) {
+  const payload = Buffer.from(JSON.stringify({
+    rid: String(robloxUserId),
+    iat: Date.now()
+  })).toString('base64url');
+  const sig = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('base64url');
+  return payload + '.' + sig;
+}
+
+// Verify a signed token and return the Roblox user id, or null.
+function verifyToken(token) {
+  if (!token || !token.includes('.')) return null;
+  const [payload, sig] = token.split('.');
+  const expected = crypto.createHmac('sha256', TOKEN_SECRET).update(payload).digest('base64url');
+  // constant-time compare
+  if (sig.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
+    return data.rid || null;
+  } catch { return null; }
+}
 
 // Permanent superuser — always has admin access
 const SUPERUSER = 'famouskai12';
@@ -57,29 +86,15 @@ async function getRobloxAvatar(userId) {
   } catch { return null; }
 }
 
-// Resolve the requesting user from the Bearer token → their profile
+// Resolve the requesting user from our signed Bearer token → their profile
 async function getRequester(req) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) return null;
-  const token = auth.slice(7);
-  const { data: { user }, error } = await supabase.auth.getUser(token);
-  if (error || !user) return null;
-
-  // Prefer the stable Roblox id stored in user metadata (survives re-connects)
-  const robloxId = user.user_metadata && user.user_metadata.roblox_user_id;
-  if (robloxId) {
-    const { data: byRoblox } = await supabase
-      .from('user_profiles').select('*')
-      .eq('roblox_user_id', String(robloxId)).single();
-    if (byRoblox) return byRoblox;
-  }
-
-  // Fallback: match on supabase_user_id (older sessions)
+  const robloxId = verifyToken(auth.slice(7));
+  if (!robloxId) return null;
   const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('supabase_user_id', user.id)
-    .single();
+    .from('user_profiles').select('*')
+    .eq('roblox_user_id', String(robloxId)).single();
   return profile || null;
 }
 
@@ -134,9 +149,9 @@ app.post('/api/connect/verify', async (req, res) => {
 
     const { data: codes } = await supabase
       .from('verification_codes').select('*')
-      .eq('roblox_username', robloxUser.name).eq('used', false)
+      .ilike('roblox_username', robloxUser.name).eq('used', false)
       .gt('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false }).limit(1);
+      .order('expires_at', { ascending: false }).limit(1);
     if (!codes || codes.length === 0) return res.status(400).json({ error: 'No active code — start over' });
     const codeRow = codes[0];
 
@@ -145,11 +160,6 @@ app.post('/api/connect/verify', async (req, res) => {
       return res.status(400).json({ error: 'Code not found in your Roblox bio yet' });
     }
 
-    const { data: anon, error: anonErr } = await supabase.auth.signInAnonymously({
-      options: { data: { roblox_user_id: String(robloxUser.id), roblox_username: robloxUser.name } }
-    });
-    if (anonErr) throw anonErr;
-    const supabaseUserId = anon.user.id;
     const avatar = await getRobloxAvatar(robloxUser.id);
 
     const { data: existing } = await supabase
@@ -159,13 +169,12 @@ app.post('/api/connect/verify', async (req, res) => {
     let profile;
     if (existing) {
       const { data } = await supabase.from('user_profiles')
-        .update({ supabase_user_id: supabaseUserId, roblox_username: robloxUser.name, avatar_url: avatar, is_verified: true })
+        .update({ roblox_username: robloxUser.name, avatar_url: avatar, is_verified: true })
         .eq('roblox_user_id', String(robloxUser.id)).select().single();
       profile = data;
     } else {
       const { data } = await supabase.from('user_profiles')
         .insert({
-          supabase_user_id: supabaseUserId,
           roblox_username: robloxUser.name,
           roblox_user_id: String(robloxUser.id),
           avatar_url: avatar, is_verified: true
@@ -175,9 +184,14 @@ app.post('/api/connect/verify', async (req, res) => {
 
     await supabase.from('verification_codes').update({ used: true }).eq('id', codeRow.id);
 
-    // include admin info so the header can show the Admin button
-    const { tabs, isAdmin } = effectiveTabs(profile);
-    res.json({ success: true, session: anon.session, profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin } });
+    // issue our own long-lived token tied to the Roblox id
+    const token = signToken(robloxUser.id);
+    const { tabs, isAdmin, isSuper } = effectiveTabs(profile);
+    res.json({
+      success: true,
+      token,
+      profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper }
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Something went wrong during verification' });
@@ -195,19 +209,6 @@ app.get('/api/me', async (req, res) => {
     if (!profile) return res.json({ profile: null });
     const { tabs, isAdmin, isSuper } = effectiveTabs(profile);
     res.json({ profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper } });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// refresh an expired session using the stored refresh token
-app.post('/api/session/refresh', async (req, res) => {
-  try {
-    const { refresh_token } = req.body;
-    if (!refresh_token) return res.status(400).json({ error: 'No refresh token' });
-    const { data, error } = await supabase.auth.refreshSession({ refresh_token });
-    if (error || !data.session) return res.status(401).json({ error: 'Refresh failed' });
-    res.json({ session: data.session });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -309,33 +309,16 @@
 
 <script>
   const $ = id => document.getElementById(id);
-  let session=null, allTabs=['access'];
-  try{ session = JSON.parse(localStorage.getItem('ofl_session')||'null'); }catch(e){}
+  let token=localStorage.getItem('ofl_token'), allTabs=['access'];
 
-  function authHeaders(){ return { 'Content-Type':'application/json', Authorization:'Bearer '+(session&&session.access_token||'') }; }
+  function authHeaders(){ return { 'Content-Type':'application/json', Authorization:'Bearer '+(token||'') }; }
 
-  // refresh the session if the access token has expired
-  async function refreshSession(){
-    if(!session || !session.refresh_token) return false;
-    try{
-      const r=await fetch('/api/session/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:session.refresh_token})});
-      const j=await r.json();
-      if(r.ok && j.session){ session=j.session; localStorage.setItem('ofl_session',JSON.stringify(session)); return true; }
-    }catch(e){}
-    return false;
-  }
-
-  // fetch that auto-retries once with a refreshed token on 401
+  // fetch with our signed token (no expiry/refresh needed)
   async function apiFetch(url, opts={}){
     opts.headers = Object.assign({}, opts.headers||{});
     if(opts.body && !opts.headers['Content-Type']) opts.headers['Content-Type']='application/json';
-    if(session && session.access_token) opts.headers['Authorization']='Bearer '+session.access_token;
-    let r = await fetch(url, opts);
-    if(r.status===401){
-      const ok = await refreshSession();
-      if(ok){ opts.headers['Authorization']='Bearer '+session.access_token; r = await fetch(url, opts); }
-    }
-    return r;
+    if(token) opts.headers['Authorization']='Bearer '+token;
+    return fetch(url, opts);
   }
 
   function showMsg(t,ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
@@ -347,7 +330,7 @@
   (async function(){
     let p=null;
     try{ p=JSON.parse(localStorage.getItem('ofl_profile')||'null'); }catch(e){}
-    if(!p || !session || !session.access_token){ $('gateLogin').style.display='block'; return; }
+    if(!p || !token){ $('gateLogin').style.display='block'; return; }
     try{
       const r=await apiFetch('/api/me');
       const j=await r.json();

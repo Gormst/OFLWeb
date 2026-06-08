@@ -111,9 +111,9 @@
 <script>
   // Render logged-in state, and check admin status server-side
   (async function(){
-    let p=null, session=null;
+    let p=null, token=null;
     try{ p = JSON.parse(localStorage.getItem('ofl_profile')||'null'); }catch(e){}
-    try{ session = JSON.parse(localStorage.getItem('ofl_session')||'null'); }catch(e){}
+    token = localStorage.getItem('ofl_token');
     if(!p || !p.roblox_username) return;
 
     document.getElementById('connectBtn').style.display='none';
@@ -122,22 +122,10 @@
     document.getElementById('accountName').textContent=p.roblox_username;
     if(p.avatar_url) document.getElementById('accountAvatar').src=p.avatar_url;
 
-    // ask the server if this user is an admin (can't be spoofed client-side)
-    if(session && session.access_token){
-      async function refreshSession(){
-        if(!session || !session.refresh_token) return false;
-        try{
-          const rr=await fetch('/api/session/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refresh_token:session.refresh_token})});
-          const jj=await rr.json();
-          if(rr.ok && jj.session){ session=jj.session; localStorage.setItem('ofl_session',JSON.stringify(session)); return true; }
-        }catch(e){}
-        return false;
-      }
+    // ask the server if this user is an admin (verified by signed token, can't be spoofed)
+    if(token){
       try{
-        let r=await fetch('/api/me',{headers:{Authorization:'Bearer '+session.access_token}});
-        if(r.status===401 && await refreshSession()){
-          r=await fetch('/api/me',{headers:{Authorization:'Bearer '+session.access_token}});
-        }
+        const r=await fetch('/api/me',{headers:{Authorization:'Bearer '+token}});
         const j=await r.json();
         if(j.profile && j.profile.is_admin){
           document.getElementById('adminLink').style.display='block';
@@ -159,6 +147,7 @@
     logoutBtn.addEventListener('click',(e)=>{
       e.preventDefault();
       localStorage.removeItem('ofl_profile');
+      localStorage.removeItem('ofl_token');
       localStorage.removeItem('ofl_session');
       location.href='/';
     });

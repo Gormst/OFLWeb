@@ -187,7 +187,7 @@
       const j = await r.json();
       if(!r.ok){ showMsg(j.error || 'Verification failed.'); return; }
       // save session + profile locally
-      if(j.session) localStorage.setItem('ofl_session', JSON.stringify(j.session));
+      if(j.token) localStorage.setItem('ofl_token', j.token);
       if(j.profile) localStorage.setItem('ofl_profile', JSON.stringify(j.profile));
       showMsg('Connected! Redirecting…', true);
       setTimeout(()=>{ location.href = '/'; }, 1200);
