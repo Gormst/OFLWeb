@@ -64,6 +64,17 @@ async function getRequester(req) {
   const token = auth.slice(7);
   const { data: { user }, error } = await supabase.auth.getUser(token);
   if (error || !user) return null;
+
+  // Prefer the stable Roblox id stored in user metadata (survives re-connects)
+  const robloxId = user.user_metadata && user.user_metadata.roblox_user_id;
+  if (robloxId) {
+    const { data: byRoblox } = await supabase
+      .from('user_profiles').select('*')
+      .eq('roblox_user_id', String(robloxId)).single();
+    if (byRoblox) return byRoblox;
+  }
+
+  // Fallback: match on supabase_user_id (older sessions)
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('*')
@@ -74,7 +85,7 @@ async function getRequester(req) {
 
 // Compute a profile's effective admin tabs (superuser always gets ALL tabs)
 function effectiveTabs(profile) {
-  const isSuper = (profile.roblox_username || '').toLowerCase() === SUPERUSER.toLowerCase();
+  const isSuper = (profile.roblox_username || '').trim().toLowerCase() === SUPERUSER.toLowerCase();
   let tabs = Array.isArray(profile.admin_tabs) ? profile.admin_tabs.slice() : [];
   if (isSuper) tabs = ALL_ADMIN_TABS.slice(); // superuser always has everything
   return { tabs, isSuper, isAdmin: isSuper || tabs.length > 0 };
@@ -134,7 +145,9 @@ app.post('/api/connect/verify', async (req, res) => {
       return res.status(400).json({ error: 'Code not found in your Roblox bio yet' });
     }
 
-    const { data: anon, error: anonErr } = await supabase.auth.signInAnonymously();
+    const { data: anon, error: anonErr } = await supabase.auth.signInAnonymously({
+      options: { data: { roblox_user_id: String(robloxUser.id), roblox_username: robloxUser.name } }
+    });
     if (anonErr) throw anonErr;
     const supabaseUserId = anon.user.id;
     const avatar = await getRobloxAvatar(robloxUser.id);
