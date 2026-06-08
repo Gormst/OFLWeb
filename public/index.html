@@ -27,46 +27,24 @@
   a{color:inherit;text-decoration:none;}
   .wrap{max-width:1240px;margin:0 auto;padding:0 40px;}
 
-  /* ---------- HEADER ---------- */
-  header{
-    position:sticky;top:0;z-index:50;
-    background:var(--paper);
-    border-bottom:1px solid var(--navy);
-  }
+  header{position:sticky;top:0;z-index:50;background:var(--paper);border-bottom:1px solid var(--navy);}
   .nav{display:flex;align-items:center;justify-content:space-between;height:78px;}
 
   .brand{display:flex;align-items:center;gap:14px;}
   .brand img{height:44px;width:44px;object-fit:contain;}
-  .brand .logo-fallback{
-    height:44px;width:44px;border:2px solid var(--navy);
-    display:flex;align-items:center;justify-content:center;
-    font-family:'Anton';font-size:15px;letter-spacing:.5px;
-  }
+  .brand .logo-fallback{height:44px;width:44px;border:2px solid var(--navy);display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:15px;letter-spacing:.5px;}
   .brand .bt{font-family:'Anton';font-size:22px;line-height:1;letter-spacing:.5px;}
   .brand .bs{font-family:'Space Mono';font-size:9px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;margin-top:3px;}
 
   nav.links{display:flex;gap:34px;}
-  nav.links a{
-    font-family:'Oswald';font-weight:600;font-size:14px;
-    text-transform:uppercase;letter-spacing:1.5px;
-    padding:4px 0;position:relative;
-  }
+  nav.links a{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1.5px;padding:4px 0;position:relative;}
   nav.links a.active{color:var(--red);}
-  nav.links a::after{
-    content:'';position:absolute;left:0;bottom:-2px;height:2px;width:0;
-    background:var(--red);transition:width .25s ease;
-  }
+  nav.links a::after{content:'';position:absolute;left:0;bottom:-2px;height:2px;width:0;background:var(--red);transition:width .25s ease;}
   nav.links a:hover::after,nav.links a.active::after{width:100%;}
 
-  .connect-btn{
-    background:var(--navy);color:var(--paper);
-    font-family:'Oswald';font-weight:600;font-size:13px;
-    text-transform:uppercase;letter-spacing:2px;
-    padding:14px 26px;transition:background .2s;
-  }
+  .connect-btn{background:var(--navy);color:var(--paper);font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:2px;padding:14px 26px;transition:background .2s;}
   .connect-btn:hover{background:var(--red);}
 
-  /* logged-in account pill + dropdown */
   .account-wrap{position:relative;}
   .account{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;}
   .account img{width:38px;height:38px;border-radius:50%;border:2px solid var(--navy);object-fit:cover;}
@@ -74,20 +52,13 @@
   .account .chev{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--navy);transition:transform .2s;}
   .account-wrap.open .chev{transform:rotate(180deg);}
 
-  .dropdown{
-    position:absolute;top:calc(100% + 12px);right:0;min-width:180px;
-    background:var(--paper);border:1px solid var(--navy);
-    opacity:0;visibility:hidden;transform:translateY(-6px);transition:all .18s ease;
-    box-shadow:0 14px 30px rgba(21,35,62,.16);
-  }
+  .dropdown{position:absolute;top:calc(100% + 12px);right:0;min-width:180px;background:var(--paper);border:1px solid var(--navy);opacity:0;visibility:hidden;transform:translateY(-6px);transition:all .18s ease;box-shadow:0 14px 30px rgba(21,35,62,.16);}
   .account-wrap.open .dropdown{opacity:1;visibility:visible;transform:none;}
-  .dropdown a{
-    display:block;font-family:'Oswald';font-weight:500;font-size:14px;
-    text-transform:uppercase;letter-spacing:1px;padding:14px 18px;
-    border-bottom:1px solid rgba(21,35,62,.1);transition:background .15s,color .15s;
-  }
+  .dropdown a{display:block;font-family:'Oswald';font-weight:500;font-size:14px;text-transform:uppercase;letter-spacing:1px;padding:14px 18px;border-bottom:1px solid rgba(21,35,62,.1);transition:background .15s,color .15s;}
   .dropdown a:last-child{border-bottom:none;}
   .dropdown a:hover{background:var(--navy);color:var(--paper);}
+  .dropdown a.admin{color:var(--red);}
+  .dropdown a.admin:hover{background:var(--red);color:var(--paper);}
   .dropdown a.logout:hover{background:var(--red);color:var(--paper);}
 
   .menu-toggle{display:none;background:none;border:none;cursor:pointer;}
@@ -102,20 +73,14 @@
 </head>
 <body>
 
-<!-- HEADER -->
 <header>
   <div class="wrap nav">
 
-    <!-- Logo (drop your file at logos/league.png; OFL monogram shows until then) -->
     <a class="brand" href="/">
       <img src="/logos/league.png" alt="OFL" onerror="this.outerHTML='<div class=\'logo-fallback\'>OFL</div>'">
-      <div>
-        <div class="bt">OFL</div>
-        <div class="bs">Old Football League</div>
-      </div>
+      <div><div class="bt">OFL</div><div class="bs">Old Football League</div></div>
     </a>
 
-    <!-- Nav links (clean URLs) -->
     <nav class="links">
       <a href="/" class="active">Home</a>
       <a href="/schedule">Schedule</a>
@@ -123,10 +88,8 @@
       <a href="/stats">Stats</a>
     </nav>
 
-    <!-- Connect button (logged out) -->
     <a href="/connect" class="connect-btn" id="connectBtn">Connect Account</a>
 
-    <!-- Account pill + dropdown (logged in) -->
     <div class="account-wrap" id="accountWrap" style="display:none;">
       <div class="account" id="accountPill">
         <img id="accountAvatar" src="" alt="">
@@ -135,6 +98,7 @@
       </div>
       <div class="dropdown">
         <a href="/profile">Profile</a>
+        <a href="/admin" class="admin" id="adminLink" style="display:none;">Admin</a>
         <a href="#" class="logout" id="logoutBtn">Log Out</a>
       </div>
     </div>
@@ -145,21 +109,33 @@
 </header>
 
 <script>
-  // Render logged-in state from saved profile
-  (function(){
-    try{
-      const p = JSON.parse(localStorage.getItem('ofl_profile') || 'null');
-      if(p && p.roblox_username){
-        document.getElementById('connectBtn').style.display='none';
-        const wrap=document.getElementById('accountWrap');
-        wrap.style.display='block';
-        document.getElementById('accountName').textContent=p.roblox_username;
-        if(p.avatar_url) document.getElementById('accountAvatar').src=p.avatar_url;
-      }
-    }catch(e){}
+  // Render logged-in state, and check admin status server-side
+  (async function(){
+    let p=null, session=null;
+    try{ p = JSON.parse(localStorage.getItem('ofl_profile')||'null'); }catch(e){}
+    try{ session = JSON.parse(localStorage.getItem('ofl_session')||'null'); }catch(e){}
+    if(!p || !p.roblox_username) return;
+
+    document.getElementById('connectBtn').style.display='none';
+    const wrap=document.getElementById('accountWrap');
+    wrap.style.display='block';
+    document.getElementById('accountName').textContent=p.roblox_username;
+    if(p.avatar_url) document.getElementById('accountAvatar').src=p.avatar_url;
+
+    // ask the server if this user is an admin (can't be spoofed client-side)
+    if(session && session.access_token){
+      try{
+        const r=await fetch('/api/me',{headers:{Authorization:'Bearer '+session.access_token}});
+        const j=await r.json();
+        if(j.profile && j.profile.is_admin){
+          document.getElementById('adminLink').style.display='block';
+        }
+        // refresh stored profile with latest
+        if(j.profile) localStorage.setItem('ofl_profile', JSON.stringify(j.profile));
+      }catch(e){}
+    }
   })();
 
-  // Toggle dropdown
   const wrap=document.getElementById('accountWrap');
   const pill=document.getElementById('accountPill');
   if(pill){
@@ -167,7 +143,6 @@
     document.addEventListener('click',()=>wrap.classList.remove('open'));
   }
 
-  // Log out
   const logoutBtn=document.getElementById('logoutBtn');
   if(logoutBtn){
     logoutBtn.addEventListener('click',(e)=>{
@@ -178,7 +153,6 @@
     });
   }
 
-  // Mobile menu
   document.querySelector(".menu-toggle").addEventListener("click",()=>{
     const links=document.querySelector("nav.links");
     const open=links.style.display==="flex";

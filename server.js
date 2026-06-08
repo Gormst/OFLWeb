@@ -5,7 +5,6 @@ const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 
-// Supabase client (uses the secret/service key on the server)
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY
@@ -15,11 +14,16 @@ app.use(express.json());
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
+// Permanent superuser — always has admin access
+const SUPERUSER = 'famouskai12';
+
+// All admin tabs that can be granted (just User Access for now)
+const ALL_ADMIN_TABS = ['access'];
+
 // ─────────────────────────────────────────────
-//  ACCOUNT CONNECTION  (Roblox bio verification)
+//  HELPERS
 // ─────────────────────────────────────────────
 
-// Generate a short verification code like "OFL-7K2P"
 function makeCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let s = '';
@@ -27,7 +31,6 @@ function makeCode() {
   return 'OFL-' + s;
 }
 
-// Look up a Roblox user id from a username (public Roblox API)
 async function getRobloxUser(username) {
   const r = await fetch('https://users.roblox.com/v1/usernames/users', {
     method: 'POST',
@@ -36,10 +39,9 @@ async function getRobloxUser(username) {
   });
   const j = await r.json();
   if (!j.data || j.data.length === 0) return null;
-  return j.data[0]; // { id, name, displayName }
+  return j.data[0];
 }
 
-// Read a Roblox user's profile description (public Roblox API)
 async function getRobloxDescription(userId) {
   const r = await fetch(`https://users.roblox.com/v1/users/${userId}`);
   if (!r.ok) return null;
@@ -47,7 +49,6 @@ async function getRobloxDescription(userId) {
   return j.description || '';
 }
 
-// Fetch a Roblox avatar thumbnail URL
 async function getRobloxAvatar(userId) {
   try {
     const r = await fetch(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png&isCircular=true`);
@@ -56,26 +57,56 @@ async function getRobloxAvatar(userId) {
   } catch { return null; }
 }
 
-// STEP 1 — start: given a Roblox username, return a code to paste in their bio
+// Resolve the requesting user from the Bearer token → their profile
+async function getRequester(req) {
+  const auth = req.headers.authorization;
+  if (!auth || !auth.startsWith('Bearer ')) return null;
+  const token = auth.slice(7);
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) return null;
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .eq('supabase_user_id', user.id)
+    .single();
+  return profile || null;
+}
+
+// Compute a profile's effective admin tabs (superuser always gets 'access')
+function effectiveTabs(profile) {
+  let tabs = Array.isArray(profile.admin_tabs) ? profile.admin_tabs.slice() : [];
+  const isSuper = (profile.roblox_username || '').toLowerCase() === SUPERUSER.toLowerCase();
+  if (isSuper && !tabs.includes('access')) tabs.push('access');
+  return { tabs, isSuper, isAdmin: isSuper || tabs.length > 0 };
+}
+
+// Require the requester to have a given admin tab
+async function requireAdmin(req, res, tab) {
+  const profile = await getRequester(req);
+  if (!profile) { res.status(401).json({ error: 'Not authenticated' }); return null; }
+  const { tabs, isAdmin } = effectiveTabs(profile);
+  if (!isAdmin || (tab && !tabs.includes(tab))) {
+    res.status(403).json({ error: 'No admin access' });
+    return null;
+  }
+  return profile;
+}
+
+// ─────────────────────────────────────────────
+//  ACCOUNT CONNECTION
+// ─────────────────────────────────────────────
+
 app.post('/api/connect/start', async (req, res) => {
   try {
     const username = (req.body.username || '').trim();
     if (!username) return res.status(400).json({ error: 'Username required' });
-
     const robloxUser = await getRobloxUser(username);
     if (!robloxUser) return res.status(404).json({ error: 'Roblox user not found' });
-
     const code = makeCode();
-    const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 min
-
-    // store a pending code for this username
+    const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
     await supabase.from('verification_codes').insert({
-      roblox_username: robloxUser.name,
-      code,
-      expires_at: expires,
-      used: false
+      roblox_username: robloxUser.name, code, expires_at: expires, used: false
     });
-
     res.json({ code, robloxUsername: robloxUser.name, robloxUserId: robloxUser.id });
   } catch (err) {
     console.error(err);
@@ -83,56 +114,40 @@ app.post('/api/connect/start', async (req, res) => {
   }
 });
 
-// STEP 2 — verify: check the Roblox bio contains the code, then create the account
 app.post('/api/connect/verify', async (req, res) => {
   try {
     const username = (req.body.username || '').trim();
     if (!username) return res.status(400).json({ error: 'Username required' });
-
     const robloxUser = await getRobloxUser(username);
     if (!robloxUser) return res.status(404).json({ error: 'Roblox user not found' });
 
-    // find the most recent unused, unexpired code for this username
     const { data: codes } = await supabase
-      .from('verification_codes')
-      .select('*')
-      .eq('roblox_username', robloxUser.name)
-      .eq('used', false)
+      .from('verification_codes').select('*')
+      .eq('roblox_username', robloxUser.name).eq('used', false)
       .gt('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (!codes || codes.length === 0) {
-      return res.status(400).json({ error: 'No active code — start over' });
-    }
+      .order('created_at', { ascending: false }).limit(1);
+    if (!codes || codes.length === 0) return res.status(400).json({ error: 'No active code — start over' });
     const codeRow = codes[0];
 
-    // check the Roblox profile description
     const description = await getRobloxDescription(robloxUser.id);
     if (!description || !description.includes(codeRow.code)) {
       return res.status(400).json({ error: 'Code not found in your Roblox bio yet' });
     }
 
-    // matched — create an anonymous Supabase session for this user
     const { data: anon, error: anonErr } = await supabase.auth.signInAnonymously();
     if (anonErr) throw anonErr;
     const supabaseUserId = anon.user.id;
-
     const avatar = await getRobloxAvatar(robloxUser.id);
 
-    // upsert the profile (one account per roblox user id)
     const { data: existing } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('roblox_user_id', String(robloxUser.id))
-      .single();
+      .from('user_profiles').select('*')
+      .eq('roblox_user_id', String(robloxUser.id)).single();
 
     let profile;
     if (existing) {
       const { data } = await supabase.from('user_profiles')
-        .update({ roblox_username: robloxUser.name, avatar_url: avatar, is_verified: true })
-        .eq('roblox_user_id', String(robloxUser.id))
-        .select().single();
+        .update({ supabase_user_id: supabaseUserId, roblox_username: robloxUser.name, avatar_url: avatar, is_verified: true })
+        .eq('roblox_user_id', String(robloxUser.id)).select().single();
       profile = data;
     } else {
       const { data } = await supabase.from('user_profiles')
@@ -140,21 +155,16 @@ app.post('/api/connect/verify', async (req, res) => {
           supabase_user_id: supabaseUserId,
           roblox_username: robloxUser.name,
           roblox_user_id: String(robloxUser.id),
-          avatar_url: avatar,
-          is_verified: true
-        })
-        .select().single();
+          avatar_url: avatar, is_verified: true
+        }).select().single();
       profile = data;
     }
 
-    // mark the code used
     await supabase.from('verification_codes').update({ used: true }).eq('id', codeRow.id);
 
-    res.json({
-      success: true,
-      session: anon.session,   // client stores this
-      profile
-    });
+    // include admin info so the header can show the Admin button
+    const { tabs, isAdmin } = effectiveTabs(profile);
+    res.json({ success: true, session: anon.session, profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Something went wrong during verification' });
@@ -162,30 +172,117 @@ app.post('/api/connect/verify', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
-//  CLEAN URL ROUTING  (no .html in the address)
+//  ADMIN ACCESS
 // ─────────────────────────────────────────────
 
-// serve static assets (css, js, images, logos) but NOT auto-serve .html
-app.use(express.static(PUBLIC_DIR, { extensions: false }));
-
-// "/" → index.html
-app.get('/', (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+// who am I + my admin status (header calls this to decide on the Admin button)
+app.get('/api/me', async (req, res) => {
+  try {
+    const profile = await getRequester(req);
+    if (!profile) return res.json({ profile: null });
+    const { tabs, isAdmin, isSuper } = effectiveTabs(profile);
+    res.json({ profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// if someone hits /something.html directly, redirect to the clean version
+// list all users who currently have admin access
+app.get('/api/admin/users', async (req, res) => {
+  const me = await requireAdmin(req, res, 'access');
+  if (!me) return;
+  try {
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('id, roblox_username, avatar_url, admin_tabs')
+      .order('roblox_username');
+    const admins = (data || [])
+      .map(u => {
+        const { tabs, isSuper, isAdmin } = effectiveTabs(u);
+        return { ...u, admin_tabs: tabs, is_superuser: isSuper, is_admin: isAdmin };
+      })
+      .filter(u => u.is_admin);
+    res.json({ admins, allTabs: ALL_ADMIN_TABS });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// search connected users by roblox username (to add to the panel)
+app.get('/api/admin/search', async (req, res) => {
+  const me = await requireAdmin(req, res, 'access');
+  if (!me) return;
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.json({ users: [] });
+    const { data } = await supabase
+      .from('user_profiles')
+      .select('id, roblox_username, avatar_url, admin_tabs')
+      .ilike('roblox_username', `%${q}%`)
+      .limit(10);
+    res.json({ users: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// grant / update a user's admin tabs
+app.post('/api/admin/grant', async (req, res) => {
+  const me = await requireAdmin(req, res, 'access');
+  if (!me) return;
+  try {
+    const { profileId, tabs } = req.body;
+    if (!profileId) return res.status(400).json({ error: 'profileId required' });
+    const clean = Array.isArray(tabs) ? tabs.filter(t => ALL_ADMIN_TABS.includes(t)) : [];
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .update({ admin_tabs: clean })
+      .eq('id', profileId).select().single();
+    if (error) throw error;
+    res.json({ success: true, profile: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// revoke all admin access from a user
+app.post('/api/admin/revoke', async (req, res) => {
+  const me = await requireAdmin(req, res, 'access');
+  if (!me) return;
+  try {
+    const { profileId } = req.body;
+    if (!profileId) return res.status(400).json({ error: 'profileId required' });
+
+    // don't allow revoking the superuser
+    const { data: target } = await supabase
+      .from('user_profiles').select('roblox_username').eq('id', profileId).single();
+    if (target && (target.roblox_username || '').toLowerCase() === SUPERUSER.toLowerCase()) {
+      return res.status(400).json({ error: 'Cannot revoke the superuser' });
+    }
+
+    await supabase.from('user_profiles').update({ admin_tabs: [] }).eq('id', profileId);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+//  CLEAN URL ROUTING
+// ─────────────────────────────────────────────
+
+app.use(express.static(PUBLIC_DIR, { extensions: false }));
+
+app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
+
 app.get('/:page.html', (req, res) => {
   res.redirect(301, '/' + req.params.page.replace(/index$/, ''));
 });
 
-// "/schedule" → schedule.html, "/connect" → connect.html, etc.
 app.get('/:page', (req, res, next) => {
   const page = req.params.page;
-  // ignore anything that already looks like a file (has a dot) or api routes
   if (page.includes('.') || page === 'api') return next();
-  res.sendFile(path.join(PUBLIC_DIR, page + '.html'), (err) => {
-    if (err) next(); // file doesn't exist → fall through to 404
-  });
+  res.sendFile(path.join(PUBLIC_DIR, page + '.html'), (err) => { if (err) next(); });
 });
 
 const PORT = process.env.PORT || 3000;
