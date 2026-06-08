@@ -212,16 +212,24 @@
             <div class="color-row"><input type="color" id="t_secondary" value="#9F3622"><input type="text" id="t_secondary_hex" value="#9F3622"></div>
           </div>
           <div class="field">
-            <label>Conference</label>
-            <input type="text" id="t_conf" placeholder="e.g. Eastern">
+            <label>Location</label>
+            <input type="text" id="t_location" placeholder="e.g. Atlanta, GA">
           </div>
           <div class="field">
-            <label>Division</label>
-            <input type="text" id="t_div" placeholder="e.g. North">
+            <label>Founded</label>
+            <input type="text" id="t_founded" placeholder="e.g. 2014">
+          </div>
+          <div class="field">
+            <label>Head Coach</label>
+            <input type="text" id="t_coach" placeholder="e.g. username">
+          </div>
+          <div class="field">
+            <label>Director of Franchise Operations</label>
+            <input type="text" id="t_dfo" placeholder="e.g. username">
           </div>
           <div class="field full">
-            <label>Stadium</label>
-            <input type="text" id="t_stadium" placeholder="e.g. OFL Coliseum">
+            <label>Franchise Owner</label>
+            <input type="text" id="t_owner" placeholder="e.g. username">
           </div>
         </div>
         <div style="display:flex;gap:12px;margin-top:18px;">
@@ -447,7 +455,7 @@
     const list=$('teamList');
     if(teams.length===0){ list.innerHTML='<p style="color:var(--muted);font-style:italic;padding:10px 0;">No teams yet — add one above.</p>'; return; }
     list.innerHTML = teams.map(t=>{
-      const meta=[t.abbreviation, t.conference, t.division, t.stadium].filter(Boolean).join(' · ');
+      const meta=[t.abbreviation, t.location, t.founded && ('Est. '+t.founded)].filter(Boolean).join(' · ');
       return `
         <div class="team-item" data-id="${t.id}">
           ${teamLogo(t)}
@@ -491,15 +499,17 @@
       logo_url: $('t_logo').value,
       primary_color: $('t_primary').value,
       secondary_color: $('t_secondary').value,
-      conference: $('t_conf').value,
-      division: $('t_div').value,
-      stadium: $('t_stadium').value
+      location: $('t_location').value,
+      founded: $('t_founded').value,
+      head_coach: $('t_coach').value,
+      director_of_ops: $('t_dfo').value,
+      franchise_owner: $('t_owner').value
     };
   }
 
   function resetTeamForm(){
     editingTeamId=null;
-    ['t_name','t_abbr','t_logo','t_conf','t_div','t_stadium'].forEach(id=>$(id).value='');
+    ['t_name','t_abbr','t_logo','t_location','t_founded','t_coach','t_dfo','t_owner'].forEach(id=>$(id).value='');
     $('t_primary').value='#15233E'; $('t_primary_hex').value='#15233E';
     $('t_secondary').value='#9F3622'; $('t_secondary_hex').value='#9F3622';
     $('teamFormTitle').textContent='Add a Team';
@@ -514,9 +524,11 @@
     $('t_logo').value=t.logo_url||'';
     $('t_primary').value=t.primary_color||'#15233E'; $('t_primary_hex').value=t.primary_color||'#15233E';
     $('t_secondary').value=t.secondary_color||'#9F3622'; $('t_secondary_hex').value=t.secondary_color||'#9F3622';
-    $('t_conf').value=t.conference||'';
-    $('t_div').value=t.division||'';
-    $('t_stadium').value=t.stadium||'';
+    $('t_location').value=t.location||'';
+    $('t_founded').value=t.founded||'';
+    $('t_coach').value=t.head_coach||'';
+    $('t_dfo').value=t.director_of_ops||'';
+    $('t_owner').value=t.franchise_owner||'';
     $('teamFormTitle').textContent='Edit Team';
     $('teamSaveBtn').textContent='Save Changes';
     $('teamCancelBtn').style.display='inline-block';

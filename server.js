@@ -313,7 +313,7 @@ app.post('/api/admin/teams', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
   try {
-    const { name, abbreviation, primary_color, secondary_color, logo_url, conference, division, stadium } = req.body;
+    const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Team name required' });
     const { data, error } = await supabase.from('teams').insert({
       name: name.trim(),
@@ -321,9 +321,11 @@ app.post('/api/admin/teams', async (req, res) => {
       primary_color: primary_color || '#15233E',
       secondary_color: secondary_color || '#9F3622',
       logo_url: (logo_url || '').trim() || null,
-      conference: (conference || '').trim() || null,
-      division: (division || '').trim() || null,
-      stadium: (stadium || '').trim() || null
+      location: (location || '').trim() || null,
+      founded: (founded || '').trim() || null,
+      head_coach: (head_coach || '').trim() || null,
+      director_of_ops: (director_of_ops || '').trim() || null,
+      franchise_owner: (franchise_owner || '').trim() || null
     }).select().single();
     if (error) throw error;
     res.json({ success: true, team: data });
@@ -337,7 +339,7 @@ app.put('/api/admin/teams/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
   try {
-    const { name, abbreviation, primary_color, secondary_color, logo_url, conference, division, stadium } = req.body;
+    const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Team name required' });
     const { data, error } = await supabase.from('teams').update({
       name: name.trim(),
@@ -345,9 +347,11 @@ app.put('/api/admin/teams/:id', async (req, res) => {
       primary_color: primary_color || '#15233E',
       secondary_color: secondary_color || '#9F3622',
       logo_url: (logo_url || '').trim() || null,
-      conference: (conference || '').trim() || null,
-      division: (division || '').trim() || null,
-      stadium: (stadium || '').trim() || null
+      location: (location || '').trim() || null,
+      founded: (founded || '').trim() || null,
+      head_coach: (head_coach || '').trim() || null,
+      director_of_ops: (director_of_ops || '').trim() || null,
+      franchise_owner: (franchise_owner || '').trim() || null
     }).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json({ success: true, team: data });
