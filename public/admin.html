@@ -93,8 +93,9 @@
   .field{display:flex;flex-direction:column;}
   .field.full{grid-column:1/-1;}
   .field label{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;}
-  .field input[type=text]{background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:500;font-size:16px;padding:12px 14px;}
-  .field input[type=text]:focus{outline:none;border-color:var(--navy);}
+  .field input[type=text],.field input[type=date]{background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:500;font-size:16px;padding:12px 14px;}
+  .field input[type=text]:focus,.field input[type=date]:focus{outline:none;border-color:var(--navy);}
+  .field input[type=date]{font-family:'Oswald';color:var(--navy);}
   .color-row{display:flex;gap:10px;align-items:center;}
   .color-row input[type=color]{width:48px;height:46px;border:1px solid var(--line-strong);background:none;cursor:pointer;padding:2px;}
   .color-row input[type=text]{flex:1;}
@@ -598,16 +599,32 @@
   });
   // ── SCHEDULE ──
   let editingGameId = null;
-  const WEEKS = 18;
 
   function gameMsg(t,ok){ const m=$('gameMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
+
+  // week ordering + labels (numbers, then Playoffs, then Championship)
+  function weekRank(w){
+    const t=String(w||'').trim(); const n=parseInt(t,10);
+    if(!isNaN(n)&&String(n)===t) return n;
+    const s=t.toLowerCase();
+    if(s.includes('playoff')) return 1000;
+    if(s.includes('championship')) return 1001;
+    return 999;
+  }
+  function weekLabel(w){
+    const t=String(w||'').trim(); const n=parseInt(t,10);
+    if(!isNaN(n)&&String(n)===t) return 'Week '+n;
+    return t||'—';
+  }
 
   // fill week dropdown once
   (function fillWeeks(){
     const sel=$('g_week');
     if(!sel) return;
     let opts='';
-    for(let w=1;w<=WEEKS;w++) opts+=`<option value="${w}">Week ${w}</option>`;
+    for(let w=1;w<=14;w++) opts+=`<option value="${w}">Week ${w}</option>`;
+    opts+=`<option value="Playoffs">Playoffs</option>`;
+    opts+=`<option value="Championship">Championship</option>`;
     sel.innerHTML=opts;
   })();
 
@@ -635,6 +652,7 @@
   }
 
   function renderGames(games){
+    games = games.slice().sort((a,b)=>weekRank(a.week)-weekRank(b.week) || String(a.game_date||'').localeCompare(String(b.game_date||'')));
     $('gameCount').textContent = games.length;
     const list=$('gameList');
     if(games.length===0){ list.innerHTML='<p style="color:var(--muted);font-style:italic;padding:10px 0;">No games scheduled yet.</p>'; return; }
@@ -645,7 +663,7 @@
       const score=(g.home_score!=null&&g.away_score!=null)?` (${g.home_score}–${g.away_score})`:'';
       return `
         <div class="game-item" data-id="${g.id}">
-          <div class="game-week">${g.week?('Week '+g.week):'—'}</div>
+          <div class="game-week">${weekLabel(g.week)}</div>
           <div>
             <div class="game-matchup">${away}<span class="at">@</span>${home}${score}</div>
             <div class="game-when">${when||'TBD'}</div>

@@ -69,6 +69,27 @@
     nav.links,.connect-btn,.account-wrap{display:none;}
     .menu-toggle{display:block;}
   }
+
+  /* This Week home section */
+  .home-week{padding:54px 40px 80px;}
+  .hw-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:30px;flex-wrap:wrap;}
+  .hw-eyebrow{font-family:'Space Mono';font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--red);margin-bottom:8px;}
+  .hw-title{font-family:'Anton';font-size:clamp(34px,5vw,58px);text-transform:uppercase;line-height:.9;}
+  .hw-link{font-family:'Space Mono';font-size:13px;letter-spacing:1px;color:var(--navy);border-bottom:2px solid var(--red);padding-bottom:3px;transition:color .2s;}
+  .hw-link:hover{color:var(--red);}
+  .hw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:18px;}
+  .hw-card{background:var(--paper-2,#E4DAC0);border:1px solid var(--line-strong);padding:22px;transition:transform .15s,box-shadow .15s;}
+  .hw-card:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(21,35,62,.12);}
+  .hw-meta{display:flex;justify-content:space-between;font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:16px;}
+  .hw-meta .final{color:var(--red);}
+  .hw-team{display:flex;align-items:center;gap:13px;padding:8px 0;}
+  .hw-logo{width:42px;height:42px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:14px;color:#fff;flex-shrink:0;overflow:hidden;}
+  .hw-logo img{width:100%;height:100%;object-fit:contain;}
+  .hw-name{font-family:'Oswald';font-weight:700;font-size:19px;text-transform:uppercase;flex:1;}
+  .hw-score{font-family:'Anton';font-size:26px;color:var(--navy);}
+  .hw-score.dim{color:var(--muted);opacity:.4;}
+  .hw-sep{height:1px;background:var(--line,rgba(21,35,62,.16));margin:2px 0;}
+  .hw-empty{font-style:italic;color:var(--muted);font-size:17px;padding:20px 0;}
 </style>
 </head>
 <body>
@@ -107,6 +128,18 @@
 
   </div>
 </header>
+
+<!-- THIS WEEK -->
+<section class="home-week wrap">
+  <div class="hw-head">
+    <div>
+      <div class="hw-eyebrow">// This Week</div>
+      <h2 class="hw-title" id="hwTitle">Schedule</h2>
+    </div>
+    <a href="/schedule" class="hw-link">Full Schedule →</a>
+  </div>
+  <div class="hw-grid" id="hwGames"></div>
+</section>
 
 <script>
   // Render logged-in state, and check admin status server-side
@@ -158,6 +191,43 @@
     const open=links.style.display==="flex";
     links.style.cssText=open?"":"display:flex;position:absolute;top:78px;left:0;right:0;background:var(--paper);flex-direction:column;padding:20px 22px;gap:18px;border-bottom:1px solid var(--navy);";
   });
+
+  // ---------- This Week schedule preview ----------
+  (async function(){
+    function weekRank(w){ const t=String(w||'').trim(); const n=parseInt(t,10); if(!isNaN(n)&&String(n)===t) return n; const s=t.toLowerCase(); if(s.includes('playoff'))return 1000; if(s.includes('championship'))return 1001; return 999; }
+    function weekLabel(w){ const t=String(w||'').trim(); const n=parseInt(t,10); if(!isNaN(n)&&String(n)===t) return 'Week '+n; return t||'—'; }
+    function fmtDate(d){ if(!d) return ''; try{ return new Date(d+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}); }catch(e){ return d; } }
+    function logoHTML(team){
+      const color=(team&&team.primary_color)||'#15233E';
+      const init=(team&&(team.abbreviation||(team.name||'').slice(0,2))||'?').toUpperCase();
+      if(team&&team.logo_url) return `<div class="hw-logo" style="background:${color}"><img src="${team.logo_url}" onerror="this.style.display='none';this.parentNode.textContent='${init}'"></div>`;
+      return `<div class="hw-logo" style="background:${color}">${init}</div>`;
+    }
+    function teamRow(team,score,final){
+      return `<div class="hw-team">${logoHTML(team)}<span class="hw-name">${team?team.name:'TBD'}</span><span class="hw-score ${final?'':'dim'}">${final?score:'–'}</span></div>`;
+    }
+    try{
+      const r=await fetch('/api/games'); const j=await r.json();
+      const games=j.games||[];
+      const grid=document.getElementById('hwGames');
+      if(games.length===0){ grid.innerHTML='<p class="hw-empty">No games scheduled yet — check back soon.</p>'; return; }
+      // pick the soonest week that still has an upcoming game; else the latest week
+      const weeks=[...new Set(games.map(g=>String(g.week||'').trim()).filter(Boolean))].sort((a,b)=>weekRank(a)-weekRank(b));
+      let chosen = weeks.find(w=>games.some(g=>String(g.week||'').trim()===w && g.home_score==null)) || weeks[weeks.length-1];
+      document.getElementById('hwTitle').textContent = weekLabel(chosen);
+      const wk=games.filter(g=>String(g.week||'').trim()===chosen).sort((a,b)=>String(a.game_date||'').localeCompare(String(b.game_date||'')));
+      grid.innerHTML=wk.map(g=>{
+        const final=(g.home_score!=null&&g.away_score!=null);
+        const when=[fmtDate(g.game_date),g.game_time].filter(Boolean).join(' · ');
+        return `<div class="hw-card">
+          <div class="hw-meta"><span>${when||'TBD'}</span><span class="${final?'final':''}">${final?'Final':'Upcoming'}</span></div>
+          ${teamRow(g.away_team,g.away_score,final)}
+          <div class="hw-sep"></div>
+          ${teamRow(g.home_team,g.home_score,final)}
+        </div>`;
+      }).join('');
+    }catch(e){ document.getElementById('hwGames').innerHTML='<p class="hw-empty">Could not load the schedule.</p>'; }
+  })();
 </script>
 </body>
 </html>

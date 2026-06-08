@@ -393,7 +393,6 @@ app.get('/api/games', async (req, res) => {
   try {
     const { data: games } = await supabase
       .from('games').select('*')
-      .order('week', { ascending: true })
       .order('game_date', { ascending: true });
     const { data: teams } = await supabase.from('teams').select('*');
     res.json({ games: attachTeams(games || [], teams || []) });
@@ -411,7 +410,7 @@ app.post('/api/admin/games', async (req, res) => {
     if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
     if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
     const { data, error } = await supabase.from('games').insert({
-      week: week ? parseInt(week, 10) : null,
+      week: (week !== undefined && week !== null && String(week).trim() !== '') ? String(week).trim() : null,
       game_date: game_date || null,
       game_time: (game_time || '').trim() || null,
       home_team_id, away_team_id
@@ -432,7 +431,7 @@ app.put('/api/admin/games/:id', async (req, res) => {
     if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
     if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
     const { data, error } = await supabase.from('games').update({
-      week: week ? parseInt(week, 10) : null,
+      week: (week !== undefined && week !== null && String(week).trim() !== '') ? String(week).trim() : null,
       game_date: game_date || null,
       game_time: (game_time || '').trim() || null,
       home_team_id, away_team_id
