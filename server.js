@@ -17,8 +17,8 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 // Permanent superuser — always has admin access
 const SUPERUSER = 'famouskai12';
 
-// All admin tabs that can be granted (just User Access for now)
-const ALL_ADMIN_TABS = ['access'];
+// All admin tabs that can be granted
+const ALL_ADMIN_TABS = ['access', 'teams'];
 
 // ─────────────────────────────────────────────
 //  HELPERS
@@ -261,6 +261,81 @@ app.post('/api/admin/revoke', async (req, res) => {
     }
 
     await supabase.from('user_profiles').update({ admin_tabs: [] }).eq('id', profileId);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+//  TEAMS
+// ─────────────────────────────────────────────
+
+// public — list all teams (used later by standings, stats, etc.)
+app.get('/api/teams', async (req, res) => {
+  try {
+    const { data } = await supabase
+      .from('teams').select('*').order('name');
+    res.json({ teams: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — create a team
+app.post('/api/admin/teams', async (req, res) => {
+  const me = await requireAdmin(req, res, 'teams');
+  if (!me) return;
+  try {
+    const { name, abbreviation, primary_color, secondary_color, logo_url, conference, division, stadium } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Team name required' });
+    const { data, error } = await supabase.from('teams').insert({
+      name: name.trim(),
+      abbreviation: (abbreviation || '').trim() || null,
+      primary_color: primary_color || '#15233E',
+      secondary_color: secondary_color || '#9F3622',
+      logo_url: (logo_url || '').trim() || null,
+      conference: (conference || '').trim() || null,
+      division: (division || '').trim() || null,
+      stadium: (stadium || '').trim() || null
+    }).select().single();
+    if (error) throw error;
+    res.json({ success: true, team: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — update a team
+app.put('/api/admin/teams/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'teams');
+  if (!me) return;
+  try {
+    const { name, abbreviation, primary_color, secondary_color, logo_url, conference, division, stadium } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Team name required' });
+    const { data, error } = await supabase.from('teams').update({
+      name: name.trim(),
+      abbreviation: (abbreviation || '').trim() || null,
+      primary_color: primary_color || '#15233E',
+      secondary_color: secondary_color || '#9F3622',
+      logo_url: (logo_url || '').trim() || null,
+      conference: (conference || '').trim() || null,
+      division: (division || '').trim() || null,
+      stadium: (stadium || '').trim() || null
+    }).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ success: true, team: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — delete a team
+app.delete('/api/admin/teams/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'teams');
+  if (!me) return;
+  try {
+    await supabase.from('teams').delete().eq('id', req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

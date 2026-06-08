@@ -87,6 +87,37 @@
   .msg{font-family:'Space Mono';font-size:13px;margin-top:14px;padding:10px 14px;display:none;}
   .msg.err{background:rgba(159,54,34,.12);color:var(--red);display:block;}
   .msg.ok{background:rgba(60,122,78,.14);color:#3c7a4e;display:block;}
+
+  /* team form */
+  .team-form{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .field{display:flex;flex-direction:column;}
+  .field.full{grid-column:1/-1;}
+  .field label{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;}
+  .field input[type=text]{background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:500;font-size:16px;padding:12px 14px;}
+  .field input[type=text]:focus{outline:none;border-color:var(--navy);}
+  .color-row{display:flex;gap:10px;align-items:center;}
+  .color-row input[type=color]{width:48px;height:46px;border:1px solid var(--line-strong);background:none;cursor:pointer;padding:2px;}
+  .color-row input[type=text]{flex:1;}
+  .save-btn{font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:2px;background:var(--navy);color:var(--paper);border:2px solid var(--navy);padding:13px 26px;cursor:pointer;transition:all .2s;}
+  .save-btn:hover{background:var(--red);border-color:var(--red);}
+  .cancel-btn{font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:2px;background:none;color:var(--navy);border:2px solid var(--navy);padding:13px 26px;cursor:pointer;}
+  .cancel-btn:hover{background:var(--navy);color:var(--paper);}
+
+  /* team list */
+  .team-list{display:flex;flex-direction:column;}
+  .team-item{display:flex;align-items:center;gap:16px;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer;transition:background .12s;}
+  .team-item:hover{background:var(--paper);}
+  .team-logo{width:44px;height:44px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:15px;color:#fff;flex-shrink:0;overflow:hidden;}
+  .team-logo img{width:100%;height:100%;object-fit:contain;}
+  .team-info{flex:1;}
+  .team-info .tn{font-family:'Oswald';font-weight:700;font-size:18px;text-transform:uppercase;}
+  .team-info .tmeta{font-family:'Space Mono';font-size:11px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:3px;}
+  .team-colors{display:flex;gap:5px;}
+  .team-colors span{width:18px;height:18px;border-radius:50%;border:1px solid rgba(0,0,0,.15);}
+  .team-del{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--red);border:1px solid var(--red);background:none;padding:6px 12px;cursor:pointer;}
+  .team-del:hover{background:var(--red);color:var(--paper);}
+
+  @media(max-width:700px){ .team-form{grid-template-columns:1fr;} }
 </style>
 </head>
 <body>
@@ -130,8 +161,9 @@
       <h1>Admin Panel</h1>
     </div>
 
-    <div class="tabs">
+    <div class="tabs" id="tabsBar">
       <button class="tab active" data-tab="access">User Access</button>
+      <button class="tab" data-tab="teams">Teams</button>
     </div>
 
     <!-- USER ACCESS -->
@@ -153,6 +185,59 @@
       </div>
     </div>
 
+    <!-- TEAMS -->
+    <div class="section" id="section-teams">
+      <div class="panel">
+        <h3 id="teamFormTitle">Add a Team</h3>
+        <div class="desc">Enter the team's details. Colors are used for team-colored styling across the site.</div>
+        <div class="team-form">
+          <div class="field full">
+            <label>Team Name *</label>
+            <input type="text" id="t_name" placeholder="e.g. Atlanta Phoenix">
+          </div>
+          <div class="field">
+            <label>Abbreviation</label>
+            <input type="text" id="t_abbr" placeholder="e.g. ATL" maxlength="5">
+          </div>
+          <div class="field">
+            <label>Logo URL</label>
+            <input type="text" id="t_logo" placeholder="https://…/logo.png">
+          </div>
+          <div class="field">
+            <label>Primary Color</label>
+            <div class="color-row"><input type="color" id="t_primary" value="#15233E"><input type="text" id="t_primary_hex" value="#15233E"></div>
+          </div>
+          <div class="field">
+            <label>Secondary Color</label>
+            <div class="color-row"><input type="color" id="t_secondary" value="#9F3622"><input type="text" id="t_secondary_hex" value="#9F3622"></div>
+          </div>
+          <div class="field">
+            <label>Conference</label>
+            <input type="text" id="t_conf" placeholder="e.g. Eastern">
+          </div>
+          <div class="field">
+            <label>Division</label>
+            <input type="text" id="t_div" placeholder="e.g. North">
+          </div>
+          <div class="field full">
+            <label>Stadium</label>
+            <input type="text" id="t_stadium" placeholder="e.g. OFL Coliseum">
+          </div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:18px;">
+          <button class="save-btn" id="teamSaveBtn">Add Team</button>
+          <button class="cancel-btn" id="teamCancelBtn" style="display:none;">Cancel Edit</button>
+        </div>
+        <div class="msg" id="teamMsg"></div>
+      </div>
+
+      <div class="panel">
+        <h3>All Teams (<span id="teamCount">0</span>)</h3>
+        <div class="desc">Click a team to edit it.</div>
+        <div class="team-list" id="teamList"></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -165,7 +250,7 @@
   function showMsg(t,ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
 
   // friendly label for a tab key
-  const TAB_LABELS = { access:'User Access' };
+  const TAB_LABELS = { access:'User Access', teams:'Teams' };
 
   // ── gate check ──
   (async function(){
@@ -177,9 +262,32 @@
       const j=await r.json();
       if(!j.profile || !j.profile.is_admin){ $('gateNoAccess').style.display='block'; return; }
       $('panel').style.display='block';
+      setupTabs(j.profile.admin_tabs || []);
       loadAdmins();
+      loadTeams();
     }catch(e){ $('gateNoAccess').style.display='block'; }
   })();
+
+  // show only the tabs this user has access to, and wire up switching
+  function setupTabs(myTabs){
+    const tabBtns = document.querySelectorAll('.tab');
+    let firstVisible = null;
+    tabBtns.forEach(btn=>{
+      const tab = btn.dataset.tab;
+      if(myTabs.includes(tab)){
+        if(!firstVisible) firstVisible = tab;
+        btn.addEventListener('click',()=>switchTab(tab));
+      }else{
+        btn.style.display='none';
+      }
+    });
+    if(firstVisible) switchTab(firstVisible);
+  }
+
+  function switchTab(tab){
+    document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+    document.querySelectorAll('.section').forEach(s=>s.classList.toggle('active', s.id==='section-'+tab));
+  }
 
   // ── load current admins ──
   async function loadAdmins(){
@@ -282,6 +390,130 @@
       });
     });
   }
+  // ── TEAMS ──
+  let editingTeamId = null;
+
+  function teamMsg(t,ok){ const m=$('teamMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
+
+  // sync color pickers with hex text fields
+  function bindColor(picker, hex){
+    $(picker).addEventListener('input',()=>{ $(hex).value=$(picker).value; });
+    $(hex).addEventListener('input',()=>{ if(/^#[0-9a-fA-F]{6}$/.test($(hex).value)) $(picker).value=$(hex).value; });
+  }
+  bindColor('t_primary','t_primary_hex');
+  bindColor('t_secondary','t_secondary_hex');
+
+  async function loadTeams(){
+    try{
+      const r=await fetch('/api/teams');
+      const j=await r.json();
+      renderTeams(j.teams||[]);
+    }catch(e){}
+  }
+
+  function teamLogo(t){
+    if(t.logo_url) return `<div class="team-logo" style="background:${t.primary_color||'#15233E'}"><img src="${t.logo_url}" onerror="this.style.display='none'"></div>`;
+    const init=(t.abbreviation || (t.name||'').slice(0,2)).toUpperCase();
+    return `<div class="team-logo" style="background:${t.primary_color||'#15233E'}">${init}</div>`;
+  }
+
+  function renderTeams(teams){
+    $('teamCount').textContent = teams.length;
+    const list=$('teamList');
+    if(teams.length===0){ list.innerHTML='<p style="color:var(--muted);font-style:italic;padding:10px 0;">No teams yet — add one above.</p>'; return; }
+    list.innerHTML = teams.map(t=>{
+      const meta=[t.abbreviation, t.conference, t.division, t.stadium].filter(Boolean).join(' · ');
+      return `
+        <div class="team-item" data-id="${t.id}">
+          ${teamLogo(t)}
+          <div class="team-info">
+            <div class="tn">${t.name}</div>
+            <div class="tmeta">${meta||'—'}</div>
+          </div>
+          <div class="team-colors">
+            <span style="background:${t.primary_color||'#15233E'}"></span>
+            <span style="background:${t.secondary_color||'#9F3622'}"></span>
+          </div>
+          <button class="team-del" data-id="${t.id}">Delete</button>
+        </div>`;
+    }).join('');
+
+    // click row to edit
+    list.querySelectorAll('.team-item').forEach(row=>{
+      row.addEventListener('click',(e)=>{
+        if(e.target.classList.contains('team-del')) return;
+        const t = teams.find(x=>x.id===row.dataset.id);
+        startEdit(t);
+      });
+    });
+    // delete
+    list.querySelectorAll('.team-del').forEach(btn=>{
+      btn.addEventListener('click',async(e)=>{
+        e.stopPropagation();
+        if(!confirm('Delete this team?')) return;
+        await fetch('/api/admin/teams/'+btn.dataset.id,{method:'DELETE',headers:authHeaders()});
+        teamMsg('Team deleted',true);
+        if(editingTeamId===btn.dataset.id) resetTeamForm();
+        loadTeams();
+      });
+    });
+  }
+
+  function readTeamForm(){
+    return {
+      name: $('t_name').value,
+      abbreviation: $('t_abbr').value,
+      logo_url: $('t_logo').value,
+      primary_color: $('t_primary').value,
+      secondary_color: $('t_secondary').value,
+      conference: $('t_conf').value,
+      division: $('t_div').value,
+      stadium: $('t_stadium').value
+    };
+  }
+
+  function resetTeamForm(){
+    editingTeamId=null;
+    ['t_name','t_abbr','t_logo','t_conf','t_div','t_stadium'].forEach(id=>$(id).value='');
+    $('t_primary').value='#15233E'; $('t_primary_hex').value='#15233E';
+    $('t_secondary').value='#9F3622'; $('t_secondary_hex').value='#9F3622';
+    $('teamFormTitle').textContent='Add a Team';
+    $('teamSaveBtn').textContent='Add Team';
+    $('teamCancelBtn').style.display='none';
+  }
+
+  function startEdit(t){
+    editingTeamId=t.id;
+    $('t_name').value=t.name||'';
+    $('t_abbr').value=t.abbreviation||'';
+    $('t_logo').value=t.logo_url||'';
+    $('t_primary').value=t.primary_color||'#15233E'; $('t_primary_hex').value=t.primary_color||'#15233E';
+    $('t_secondary').value=t.secondary_color||'#9F3622'; $('t_secondary_hex').value=t.secondary_color||'#9F3622';
+    $('t_conf').value=t.conference||'';
+    $('t_div').value=t.division||'';
+    $('t_stadium').value=t.stadium||'';
+    $('teamFormTitle').textContent='Edit Team';
+    $('teamSaveBtn').textContent='Save Changes';
+    $('teamCancelBtn').style.display='inline-block';
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+
+  $('teamCancelBtn').addEventListener('click',resetTeamForm);
+
+  $('teamSaveBtn').addEventListener('click',async()=>{
+    const body=readTeamForm();
+    if(!body.name.trim()){ teamMsg('Team name is required'); return; }
+    const url = editingTeamId ? '/api/admin/teams/'+editingTeamId : '/api/admin/teams';
+    const method = editingTeamId ? 'PUT' : 'POST';
+    try{
+      const r=await fetch(url,{method,headers:authHeaders(),body:JSON.stringify(body)});
+      const j=await r.json();
+      if(!r.ok){ teamMsg(j.error||'Failed to save'); return; }
+      teamMsg(editingTeamId?'Team updated':'Team added',true);
+      resetTeamForm();
+      loadTeams();
+    }catch(e){ teamMsg('Network error'); }
+  });
 </script>
 </body>
 </html>
