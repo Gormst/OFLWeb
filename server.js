@@ -72,11 +72,11 @@ async function getRequester(req) {
   return profile || null;
 }
 
-// Compute a profile's effective admin tabs (superuser always gets 'access')
+// Compute a profile's effective admin tabs (superuser always gets ALL tabs)
 function effectiveTabs(profile) {
-  let tabs = Array.isArray(profile.admin_tabs) ? profile.admin_tabs.slice() : [];
   const isSuper = (profile.roblox_username || '').toLowerCase() === SUPERUSER.toLowerCase();
-  if (isSuper && !tabs.includes('access')) tabs.push('access');
+  let tabs = Array.isArray(profile.admin_tabs) ? profile.admin_tabs.slice() : [];
+  if (isSuper) tabs = ALL_ADMIN_TABS.slice(); // superuser always has everything
   return { tabs, isSuper, isAdmin: isSuper || tabs.length > 0 };
 }
 
