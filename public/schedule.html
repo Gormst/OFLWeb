@@ -83,20 +83,24 @@
   .week-tab.active .wd{color:#c7cdd9;}
   .week-tab:not(.active):hover{background:rgba(21,35,62,.06);}
 
-  /* game cards */
-  .games-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:18px;}
-  .game-card{background:var(--paper-2);border:1px solid var(--line-strong);padding:22px;transition:transform .15s,box-shadow .15s;}
-  .game-card:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(21,35,62,.12);}
-  .gc-meta{display:flex;justify-content:space-between;font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:16px;}
-  .gc-meta .final{color:var(--red);}
-  .gc-team{display:flex;align-items:center;gap:13px;padding:8px 0;}
-  .gc-logo{width:42px;height:42px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:14px;color:#fff;flex-shrink:0;overflow:hidden;}
-  .gc-logo img{width:100%;height:100%;object-fit:contain;}
-  .gc-name{font-family:'Oswald';font-weight:700;font-size:19px;text-transform:uppercase;flex:1;}
-  .gc-score{font-family:'Anton';font-size:26px;color:var(--navy);}
-  .gc-score.dim{color:var(--muted);opacity:.4;}
-  .gc-sep{height:1px;background:var(--line);margin:2px 0;}
-  .gc-win .gc-name,.gc-win .gc-score{color:var(--red);}
+  /* game rows */
+  .sgames{display:flex;flex-direction:column;gap:14px;}
+  .sgame{display:grid;grid-template-columns:1fr auto;background:var(--paper-2);border:1px solid var(--line-strong);align-items:stretch;transition:box-shadow .15s;}
+  .sgame:hover{box-shadow:0 8px 20px rgba(21,35,62,.1);}
+  .sgame-teams{display:flex;flex-direction:column;}
+  .sgame-team{display:flex;align-items:center;gap:14px;padding:14px 20px;border-left:5px solid var(--tc,#15233E);}
+  .sgame-team + .sgame-team{border-top:1px solid var(--line);}
+  .sgame-logo{width:40px;height:40px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:13px;color:#fff;overflow:hidden;flex-shrink:0;}
+  .sgame-logo img{width:100%;height:100%;object-fit:contain;}
+  .sgame-name{font-family:'Oswald';font-weight:700;font-size:21px;text-transform:uppercase;font-style:italic;flex:1;}
+  .sgame-rec{font-family:'Space Mono';font-size:13px;color:var(--muted);}
+  .sgame-score{font-family:'Anton';font-size:24px;color:var(--navy);}
+  .sgame-team.win .sgame-name,.sgame-team.win .sgame-score{color:var(--red);}
+  .sgame-when{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 30px;border-left:1px solid var(--line-strong);min-width:150px;}
+  .sgame-when .d{font-family:'Oswald';font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:1px;}
+  .sgame-when .t{font-family:'Oswald';font-weight:500;font-size:14px;color:var(--muted);margin-top:2px;text-align:center;}
+  .sgame-when .fin{font-family:'Space Mono';font-size:10px;letter-spacing:2px;color:var(--red);text-transform:uppercase;}
+  @media(max-width:600px){ .sgame-when{padding:0 16px;min-width:110px;} .sgame-name{font-size:17px;} }
 
   .empty{font-style:italic;color:var(--muted);padding:30px 0;font-size:17px;}
 
@@ -224,6 +228,21 @@
   function weekRank(w){ const t=String(w||'').trim(); const n=parseInt(t,10); if(!isNaN(n)&&String(n)===t) return n; const s=t.toLowerCase(); if(s.includes('playoff'))return 1000; if(s.includes('championship'))return 1001; return 999; }
   function weekLabel(w){ const t=String(w||'').trim(); const n=parseInt(t,10); if(!isNaN(n)&&String(n)===t) return 'Week '+n; return t||'—'; }
   function fmtDate(d){ if(!d) return ''; try{ return new Date(d+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}); }catch(e){ return d; } }
+  function fmtMonthDay(d){ if(!d) return ''; try{ return new Date(d+'T00:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'}).toUpperCase(); }catch(e){ return d; } }
+  let RECORDS={};
+  function computeRecords(){
+    RECORDS={};
+    GAMES.forEach(g=>{
+      if(g.home_score!=null&&g.away_score!=null){
+        const h=g.home_team_id,a=g.away_team_id;
+        RECORDS[h]=RECORDS[h]||{w:0,l:0}; RECORDS[a]=RECORDS[a]||{w:0,l:0};
+        if(g.home_score>g.away_score){RECORDS[h].w++;RECORDS[a].l++;}
+        else if(g.away_score>g.home_score){RECORDS[a].w++;RECORDS[h].l++;}
+        else {RECORDS[h].w+=0;RECORDS[a].w+=0;}
+      }
+    });
+  }
+  function recLabel(team){ const r=team&&RECORDS[team.id]; return r?`${r.w}-${r.l}`:'0-0'; }
   function logoHTML(team,cls){
     const color=(team&&team.primary_color)||'#15233E';
     const init=(team&&(team.abbreviation||(team.name||'').slice(0,2))||'?').toUpperCase();
@@ -239,6 +258,7 @@
       const [gr,tr]=await Promise.all([fetch('/api/games'),fetch('/api/teams')]);
       const gj=await gr.json(), tj=await tr.json();
       GAMES=gj.games||[]; TEAMS=(tj.teams||[]).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+      computeRecords();
       buildWeeks(); renderWeekTabs(); renderWeekGames(); renderTeamGrid();
     }catch(e){ $('weekGames').innerHTML='<p class="empty">Could not load the schedule.</p>'; }
   })();
@@ -269,16 +289,19 @@
   $('weekPrev').addEventListener('click',()=>{ if(currentWeekIdx>0){currentWeekIdx--;renderWeekTabs();renderWeekGames();scrollActiveIntoView();} });
   $('weekNext').addEventListener('click',()=>{ if(currentWeekIdx<weeksList.length-1){currentWeekIdx++;renderWeekTabs();renderWeekGames();scrollActiveIntoView();} });
 
-  function teamRow(team,score,isWin,final){
-    return `<div class="gc-team ${final&&isWin?'gc-win':''}">
-      ${logoHTML(team,'gc-logo')}
-      <span class="gc-name">${team?team.name:'TBD'}</span>
-      <span class="gc-score ${final?'':'dim'}">${final?score:'–'}</span>
+  function sTeam(team,score,win,final){
+    const color=(team&&team.primary_color)||'#15233E';
+    const right = final ? `<span class="sgame-score">${score}</span>` : `<span class="sgame-rec">${recLabel(team)}</span>`;
+    return `<div class="sgame-team ${final&&win?'win':''}" style="--tc:${color}">
+      ${logoHTML(team,'sgame-logo')}
+      <span class="sgame-name">${team?team.name:'TBD'}</span>
+      ${right}
     </div>`;
   }
 
   function renderWeekGames(){
     const grid=$('weekGames');
+    grid.className='sgames';
     if(weeksList.length===0){ grid.innerHTML='<p class="empty">No games have been scheduled yet.</p>'; return; }
     const w=weeksList[currentWeekIdx];
     const games=GAMES.filter(g=>String(g.week||'').trim()===w)
@@ -287,12 +310,15 @@
     grid.innerHTML=games.map(g=>{
       const final=(g.home_score!=null&&g.away_score!=null);
       const homeWin=final&&g.home_score>g.away_score, awayWin=final&&g.away_score>g.home_score;
-      const when=[fmtDate(g.game_date),g.game_time].filter(Boolean).join(' · ');
-      return `<div class="game-card">
-        <div class="gc-meta"><span>${when||'TBD'}</span><span class="${final?'final':''}">${final?'Final':'Upcoming'}</span></div>
-        ${teamRow(g.away_team,g.away_score,awayWin,final)}
-        <div class="gc-sep"></div>
-        ${teamRow(g.home_team,g.home_score,homeWin,final)}
+      const when = final
+        ? `<div class="fin">Final</div>`
+        : `<div class="d">${fmtMonthDay(g.game_date)||'TBD'}</div>${g.game_time?`<div class="t">${g.game_time}</div>`:''}`;
+      return `<div class="sgame">
+        <div class="sgame-teams">
+          ${sTeam(g.away_team,g.away_score,awayWin,final)}
+          ${sTeam(g.home_team,g.home_score,homeWin,final)}
+        </div>
+        <div class="sgame-when">${when}</div>
       </div>`;
     }).join('');
   }

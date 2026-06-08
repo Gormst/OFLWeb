@@ -377,6 +377,13 @@ app.delete('/api/admin/teams/:id', async (req, res) => {
 //  SCHEDULE / GAMES
 // ─────────────────────────────────────────────
 
+// normalize a score value → integer or null (blank/invalid = null)
+function normScore(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = parseInt(v, 10);
+  return isNaN(n) ? null : (n < 0 ? 0 : n);
+}
+
 // attach lightweight team info to each game
 function attachTeams(games, teams) {
   const map = {};
@@ -406,14 +413,16 @@ app.post('/api/admin/games', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
   try {
-    const { week, game_date, game_time, home_team_id, away_team_id } = req.body;
+    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score } = req.body;
     if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
     if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
+    const hs = normScore(home_score), as = normScore(away_score);
     const { data, error } = await supabase.from('games').insert({
       week: (week !== undefined && week !== null && String(week).trim() !== '') ? String(week).trim() : null,
       game_date: game_date || null,
       game_time: (game_time || '').trim() || null,
-      home_team_id, away_team_id
+      home_team_id, away_team_id,
+      home_score: hs, away_score: as
     }).select().single();
     if (error) throw error;
     res.json({ success: true, game: data });
@@ -427,14 +436,16 @@ app.put('/api/admin/games/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
   try {
-    const { week, game_date, game_time, home_team_id, away_team_id } = req.body;
+    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score } = req.body;
     if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
     if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
+    const hs = normScore(home_score), as = normScore(away_score);
     const { data, error } = await supabase.from('games').update({
       week: (week !== undefined && week !== null && String(week).trim() !== '') ? String(week).trim() : null,
       game_date: game_date || null,
       game_time: (game_time || '').trim() || null,
-      home_team_id, away_team_id
+      home_team_id, away_team_id,
+      home_score: hs, away_score: as
     }).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json({ success: true, game: data });

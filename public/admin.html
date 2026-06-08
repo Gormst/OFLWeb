@@ -134,6 +134,19 @@
   .game-when{font-family:'Space Mono';font-size:11px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:3px;}
   .game-del{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--red);border:1px solid var(--red);background:none;padding:6px 12px;cursor:pointer;}
   .game-del:hover{background:var(--red);color:var(--paper);}
+
+  /* final score block */
+  .score-block{margin-top:22px;border-top:1px solid var(--line-strong);padding-top:20px;}
+  .score-head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
+  .score-head span:first-child{font-family:'Oswald';font-weight:700;font-size:16px;text-transform:uppercase;letter-spacing:1px;}
+  .score-hint{font-family:'Space Mono';font-size:11px;color:var(--muted);font-style:normal;}
+  .score-row{display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap;}
+  .score-field{display:flex;flex-direction:column;}
+  .score-field label{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;}
+  .score-field input{width:120px;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Anton';font-size:22px;padding:8px 14px;text-align:center;}
+  .score-field input:focus{outline:none;border-color:var(--navy);}
+  .clear-score{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);border:1px solid var(--line-strong);background:none;padding:10px 14px;cursor:pointer;transition:all .15s;}
+  .clear-score:hover{border-color:var(--red);color:var(--red);}
 </style>
 </head>
 <body>
@@ -291,6 +304,25 @@
             <select id="g_away"></select>
           </div>
         </div>
+
+        <div class="score-block">
+          <div class="score-head">
+            <span>Final Score</span>
+            <span class="score-hint">Leave blank if the game hasn't been played yet</span>
+          </div>
+          <div class="score-row">
+            <div class="score-field">
+              <label id="g_home_label">Home Score</label>
+              <input type="number" id="g_home_score" min="0" placeholder="—">
+            </div>
+            <div class="score-field">
+              <label id="g_away_label">Away Score</label>
+              <input type="number" id="g_away_score" min="0" placeholder="—">
+            </div>
+            <button type="button" class="clear-score" id="clearScoreBtn">Clear Score</button>
+          </div>
+        </div>
+
         <div style="display:flex;gap:12px;margin-top:18px;">
           <button class="save-btn" id="gameSaveBtn">Add Game</button>
           <button class="cancel-btn" id="gameCancelBtn" style="display:none;">Cancel Edit</button>
@@ -692,12 +724,16 @@
   }
 
   function readGameForm(){
+    const hs=$('g_home_score').value.trim();
+    const as=$('g_away_score').value.trim();
     return {
       week: $('g_week').value,
       game_date: $('g_date').value,
       game_time: $('g_time').value,
       home_team_id: $('g_home').value,
-      away_team_id: $('g_away').value
+      away_team_id: $('g_away').value,
+      home_score: hs===''?null:parseInt(hs,10),
+      away_score: as===''?null:parseInt(as,10)
     };
   }
 
@@ -708,9 +744,20 @@
     $('g_time').value='';
     $('g_home').value='';
     $('g_away').value='';
+    $('g_home_score').value='';
+    $('g_away_score').value='';
+    updateScoreLabels();
     $('gameFormTitle').textContent='Add a Game';
     $('gameSaveBtn').textContent='Add Game';
     $('gameCancelBtn').style.display='none';
+  }
+
+  // label the score inputs with the chosen team names
+  function updateScoreLabels(){
+    const h=teamsCache.find(t=>t.id===$('g_home').value);
+    const a=teamsCache.find(t=>t.id===$('g_away').value);
+    $('g_home_label').textContent=(h?h.name:'Home')+' Score';
+    $('g_away_label').textContent=(a?a.name:'Away')+' Score';
   }
 
   function startEditGame(g){
@@ -720,11 +767,19 @@
     $('g_time').value=g.game_time||'';
     $('g_home').value=g.home_team_id||'';
     $('g_away').value=g.away_team_id||'';
+    $('g_home_score').value=(g.home_score!=null)?g.home_score:'';
+    $('g_away_score').value=(g.away_score!=null)?g.away_score:'';
+    updateScoreLabels();
     $('gameFormTitle').textContent='Edit Game';
     $('gameSaveBtn').textContent='Save Changes';
     $('gameCancelBtn').style.display='inline-block';
     window.scrollTo({top:0,behavior:'smooth'});
   }
+
+  // keep score labels in sync when team picks change
+  if($('g_home')) $('g_home').addEventListener('change',updateScoreLabels);
+  if($('g_away')) $('g_away').addEventListener('change',updateScoreLabels);
+  if($('clearScoreBtn')) $('clearScoreBtn').addEventListener('click',()=>{ $('g_home_score').value=''; $('g_away_score').value=''; });
 
   $('gameCancelBtn').addEventListener('click',resetGameForm);
 
@@ -732,6 +787,8 @@
     const body=readGameForm();
     if(!body.home_team_id || !body.away_team_id){ gameMsg('Pick both teams'); return; }
     if(body.home_team_id===body.away_team_id){ gameMsg('Home and away must differ'); return; }
+    // scores must be entered together (both or neither)
+    if((body.home_score==null) !== (body.away_score==null)){ gameMsg('Enter both scores, or leave both blank'); return; }
     const url = editingGameId ? '/api/admin/games/'+editingGameId : '/api/admin/games';
     const method = editingGameId ? 'PUT' : 'POST';
     try{
