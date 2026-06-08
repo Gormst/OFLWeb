@@ -13,6 +13,7 @@
     --navy:#15233E;
     --red:#9F3622;
     --muted:#6B6253;
+    --line-strong:rgba(21,35,62,.32);
   }
   *{margin:0;padding:0;box-sizing:border-box;}
   html{scroll-behavior:smooth;}
@@ -65,17 +66,36 @@
   }
   .connect-btn:hover{background:var(--red);}
 
-  /* logged-in pill (shows after connecting) */
-  .account{display:flex;align-items:center;gap:10px;cursor:pointer;}
+  /* logged-in account pill + dropdown */
+  .account-wrap{position:relative;}
+  .account{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;}
   .account img{width:38px;height:38px;border-radius:50%;border:2px solid var(--navy);object-fit:cover;}
   .account .uname{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1px;}
+  .account .chev{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--navy);transition:transform .2s;}
+  .account-wrap.open .chev{transform:rotate(180deg);}
+
+  .dropdown{
+    position:absolute;top:calc(100% + 12px);right:0;min-width:180px;
+    background:var(--paper);border:1px solid var(--navy);
+    opacity:0;visibility:hidden;transform:translateY(-6px);transition:all .18s ease;
+    box-shadow:0 14px 30px rgba(21,35,62,.16);
+  }
+  .account-wrap.open .dropdown{opacity:1;visibility:visible;transform:none;}
+  .dropdown a{
+    display:block;font-family:'Oswald';font-weight:500;font-size:14px;
+    text-transform:uppercase;letter-spacing:1px;padding:14px 18px;
+    border-bottom:1px solid rgba(21,35,62,.1);transition:background .15s,color .15s;
+  }
+  .dropdown a:last-child{border-bottom:none;}
+  .dropdown a:hover{background:var(--navy);color:var(--paper);}
+  .dropdown a.logout:hover{background:var(--red);color:var(--paper);}
 
   .menu-toggle{display:none;background:none;border:none;cursor:pointer;}
   .menu-toggle span{display:block;width:26px;height:2px;background:var(--navy);margin:5px 0;}
 
   @media(max-width:820px){
     .wrap{padding:0 22px;}
-    nav.links,.connect-btn,.account{display:none;}
+    nav.links,.connect-btn,.account-wrap{display:none;}
     .menu-toggle{display:block;}
   }
 </style>
@@ -95,7 +115,7 @@
       </div>
     </a>
 
-    <!-- Nav links (clean URLs, no .html) -->
+    <!-- Nav links (clean URLs) -->
     <nav class="links">
       <a href="/" class="active">Home</a>
       <a href="/schedule">Schedule</a>
@@ -103,11 +123,20 @@
       <a href="/stats">Stats</a>
     </nav>
 
-    <!-- Account area: Connect button OR logged-in pill -->
+    <!-- Connect button (logged out) -->
     <a href="/connect" class="connect-btn" id="connectBtn">Connect Account</a>
-    <div class="account" id="accountPill" style="display:none;" onclick="location.href='/profile'">
-      <img id="accountAvatar" src="" alt="">
-      <span class="uname" id="accountName"></span>
+
+    <!-- Account pill + dropdown (logged in) -->
+    <div class="account-wrap" id="accountWrap" style="display:none;">
+      <div class="account" id="accountPill">
+        <img id="accountAvatar" src="" alt="">
+        <span class="uname" id="accountName"></span>
+        <span class="chev"></span>
+      </div>
+      <div class="dropdown">
+        <a href="/profile">Profile</a>
+        <a href="#" class="logout" id="logoutBtn">Log Out</a>
+      </div>
     </div>
 
     <button class="menu-toggle" aria-label="Menu"><span></span><span></span><span></span></button>
@@ -116,20 +145,40 @@
 </header>
 
 <script>
-  // Show logged-in state if a profile is saved locally
+  // Render logged-in state from saved profile
   (function(){
     try{
       const p = JSON.parse(localStorage.getItem('ofl_profile') || 'null');
       if(p && p.roblox_username){
         document.getElementById('connectBtn').style.display='none';
-        const pill=document.getElementById('accountPill');
-        pill.style.display='flex';
+        const wrap=document.getElementById('accountWrap');
+        wrap.style.display='block';
         document.getElementById('accountName').textContent=p.roblox_username;
         if(p.avatar_url) document.getElementById('accountAvatar').src=p.avatar_url;
       }
     }catch(e){}
   })();
 
+  // Toggle dropdown
+  const wrap=document.getElementById('accountWrap');
+  const pill=document.getElementById('accountPill');
+  if(pill){
+    pill.addEventListener('click',(e)=>{ e.stopPropagation(); wrap.classList.toggle('open'); });
+    document.addEventListener('click',()=>wrap.classList.remove('open'));
+  }
+
+  // Log out
+  const logoutBtn=document.getElementById('logoutBtn');
+  if(logoutBtn){
+    logoutBtn.addEventListener('click',(e)=>{
+      e.preventDefault();
+      localStorage.removeItem('ofl_profile');
+      localStorage.removeItem('ofl_session');
+      location.href='/';
+    });
+  }
+
+  // Mobile menu
   document.querySelector(".menu-toggle").addEventListener("click",()=>{
     const links=document.querySelector("nav.links");
     const open=links.style.display==="flex";
