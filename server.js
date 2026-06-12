@@ -47,7 +47,19 @@ function verifyToken(token) {
 const SUPERUSER = 'famouskai12';
 
 // All admin tabs that can be granted
-const ALL_ADMIN_TABS = ['access', 'teams', 'schedule'];
+const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'players'];
+
+// raw stat columns that can be set on a player (no derived stats stored)
+const STAT_KEYS = [
+  'pass_yards','pass_td','pass_int','pass_att','pass_comp',
+  'rush_att','rush_yards','rush_td',
+  'targets','receptions','rec_yards','rec_td',
+  'sacks_allowed','tfls_allowed','pressures_allowed','snaps_played','games_played',
+  'pr_sacks','pr_pressures','pr_tfl','pr_safeties','pr_swats','pr_td',
+  'cov_int','cov_td'
+];
+function normInt(v){ const n=parseInt(v,10); return isNaN(n)?0:(n<0?0:n); }
+function pickStats(body){ const o={}; STAT_KEYS.forEach(k=>{ o[k]=normInt(body[k]); }); return o; }
 
 // ─────────────────────────────────────────────
 //  HELPERS
@@ -460,6 +472,90 @@ app.delete('/api/admin/games/:id', async (req, res) => {
   if (!me) return;
   try {
     await supabase.from('games').delete().eq('id', req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+//  PLAYERS + STATS
+// ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+//  PLAYERS / STATS
+// ─────────────────────────────────────────────
+
+// public — all players with team info attached
+app.get('/api/players', async (req, res) => {
+  try {
+    const { data: players } = await supabase.from('players').select('*').order('roblox_username');
+    const { data: teams } = await supabase.from('teams').select('*');
+    const map = {};
+    for (const t of (teams || [])) map[t.id] = { id: t.id, name: t.name, abbreviation: t.abbreviation, logo_url: t.logo_url, primary_color: t.primary_color, secondary_color: t.secondary_color };
+    res.json({ players: (players || []).map(p => ({ ...p, team: p.team_id ? (map[p.team_id] || null) : null })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — create a player (resolves Roblox avatar from the username)
+app.post('/api/admin/players', async (req, res) => {
+  const me = await requireAdmin(req, res, 'players');
+  if (!me) return;
+  try {
+    const rnameIn = (req.body.roblox_username || '').trim();
+    if (!rnameIn) return res.status(400).json({ error: 'Roblox username required' });
+    let roblox_user_id = null, avatar_url = null, rname = rnameIn;
+    const ru = await getRobloxUser(rnameIn);
+    if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
+    const { data, error } = await supabase.from('players').insert({
+      roblox_username: rname,
+      roblox_user_id, avatar_url,
+      team_id: req.body.team_id || null,
+      ...pickStats(req.body)
+    }).select().single();
+    if (error) throw error;
+    res.json({ success: true, player: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — update a player's info and stats
+app.put('/api/admin/players/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'players');
+  if (!me) return;
+  try {
+    const update = { team_id: req.body.team_id || null, ...pickStats(req.body) };
+
+    // re-resolve avatar if the username changed
+    const rname = (req.body.roblox_username || '').trim();
+    if (rname) {
+      const { data: cur } = await supabase.from('players').select('roblox_username').eq('id', req.params.id).single();
+      if (!cur || (cur.roblox_username || '').toLowerCase() !== rname.toLowerCase()) {
+        const ru = await getRobloxUser(rname);
+        if (ru) { update.roblox_username = ru.name; update.roblox_user_id = String(ru.id); update.avatar_url = await getRobloxAvatar(ru.id); }
+        else { update.roblox_username = rname; }
+      } else {
+        update.roblox_username = cur.roblox_username;
+      }
+    }
+
+    const { data, error } = await supabase.from('players').update(update).eq('id', req.params.id).select().single();
+    if (error) throw error;
+    res.json({ success: true, player: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — delete a player
+app.delete('/api/admin/players/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'players');
+  if (!me) return;
+  try {
+    await supabase.from('players').delete().eq('id', req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

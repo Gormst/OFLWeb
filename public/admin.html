@@ -135,6 +135,30 @@
   .game-del{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--red);border:1px solid var(--red);background:none;padding:6px 12px;cursor:pointer;}
   .game-del:hover{background:var(--red);color:var(--paper);}
 
+  /* stat groups (player form) */
+  .stat-groups{margin-top:24px;display:flex;flex-direction:column;gap:18px;}
+  .stat-group{border:1px solid var(--line);background:var(--paper);padding:18px;}
+  .stat-group h4{font-family:'Oswald';font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:1px;color:var(--red);margin-bottom:14px;}
+  .stat-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:14px;}
+  .sf{display:flex;flex-direction:column;}
+  .sf label{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
+  .sf input{background:var(--paper-2);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:600;font-size:16px;padding:9px 12px;text-align:center;}
+  .sf input:focus{outline:none;border-color:var(--navy);}
+
+  /* player list */
+  .player-list{display:flex;flex-direction:column;}
+  .player-item{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer;transition:background .12s;}
+  .player-item:hover{background:var(--paper);}
+  .player-item:last-child{border-bottom:none;}
+  .player-av{width:42px;height:42px;border-radius:50%;border:2px solid var(--navy);object-fit:cover;background:var(--navy);flex-shrink:0;}
+  .player-info{flex:1;}
+  .player-info .pn{font-family:'Oswald';font-weight:700;font-size:18px;text-transform:uppercase;}
+  .player-info .pt{font-family:'Space Mono';font-size:11px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:2px;}
+  .player-team-logo{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:10px;color:#fff;overflow:hidden;flex-shrink:0;}
+  .player-team-logo img{width:100%;height:100%;object-fit:contain;}
+  .player-del{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--red);border:1px solid var(--red);background:none;padding:6px 12px;cursor:pointer;}
+  .player-del:hover{background:var(--red);color:var(--paper);}
+
   /* final score block */
   .score-block{margin-top:22px;border-top:1px solid var(--line-strong);padding-top:20px;}
   .score-head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
@@ -194,6 +218,7 @@
       <button class="tab active" data-tab="access">User Access</button>
       <button class="tab" data-tab="teams">Teams</button>
       <button class="tab" data-tab="schedule">Schedule</button>
+      <button class="tab" data-tab="players">Players</button>
     </div>
 
     <!-- USER ACCESS -->
@@ -337,6 +362,95 @@
       </div>
     </div>
 
+    <!-- PLAYERS -->
+    <div class="section" id="section-players">
+      <div class="panel">
+        <h3 id="playerFormTitle">Add a Player</h3>
+        <div class="desc">Enter the player's Roblox username (used for their name and profile picture) and team. Fill in stats now or edit them later.</div>
+        <div class="team-form">
+          <div class="field">
+            <label>Roblox Username *</label>
+            <input type="text" id="p_roblox" placeholder="e.g. famouskai12">
+          </div>
+          <div class="field">
+            <label>Team</label>
+            <select id="p_team"></select>
+          </div>
+        </div>
+
+        <!-- stat groups -->
+        <div class="stat-groups" id="statGroups">
+          <div class="stat-group">
+            <h4>Passing</h4>
+            <div class="stat-fields">
+              <div class="sf"><label>Yards</label><input type="number" min="0" data-stat="pass_yards"></div>
+              <div class="sf"><label>TD</label><input type="number" min="0" data-stat="pass_td"></div>
+              <div class="sf"><label>INT</label><input type="number" min="0" data-stat="pass_int"></div>
+              <div class="sf"><label>Att</label><input type="number" min="0" data-stat="pass_att"></div>
+              <div class="sf"><label>Comp</label><input type="number" min="0" data-stat="pass_comp"></div>
+            </div>
+          </div>
+          <div class="stat-group">
+            <h4>Rushing</h4>
+            <div class="stat-fields">
+              <div class="sf"><label>Rushes</label><input type="number" min="0" data-stat="rush_att"></div>
+              <div class="sf"><label>Yards</label><input type="number" min="0" data-stat="rush_yards"></div>
+              <div class="sf"><label>TD</label><input type="number" min="0" data-stat="rush_td"></div>
+            </div>
+          </div>
+          <div class="stat-group">
+            <h4>Receiving</h4>
+            <div class="stat-fields">
+              <div class="sf"><label>Targets</label><input type="number" min="0" data-stat="targets"></div>
+              <div class="sf"><label>Receptions</label><input type="number" min="0" data-stat="receptions"></div>
+              <div class="sf"><label>Yards</label><input type="number" min="0" data-stat="rec_yards"></div>
+              <div class="sf"><label>TD</label><input type="number" min="0" data-stat="rec_td"></div>
+            </div>
+          </div>
+          <div class="stat-group">
+            <h4>Blocking</h4>
+            <div class="stat-fields">
+              <div class="sf"><label>Sacks Allowed</label><input type="number" min="0" data-stat="sacks_allowed"></div>
+              <div class="sf"><label>TFLs Allowed</label><input type="number" min="0" data-stat="tfls_allowed"></div>
+              <div class="sf"><label>Pressures Allowed</label><input type="number" min="0" data-stat="pressures_allowed"></div>
+              <div class="sf"><label>Snaps Played</label><input type="number" min="0" data-stat="snaps_played"></div>
+              <div class="sf"><label>Games Played</label><input type="number" min="0" data-stat="games_played"></div>
+            </div>
+          </div>
+          <div class="stat-group">
+            <h4>Pass Rush</h4>
+            <div class="stat-fields">
+              <div class="sf"><label>Sacks</label><input type="number" min="0" data-stat="pr_sacks"></div>
+              <div class="sf"><label>Pressures</label><input type="number" min="0" data-stat="pr_pressures"></div>
+              <div class="sf"><label>TFL</label><input type="number" min="0" data-stat="pr_tfl"></div>
+              <div class="sf"><label>Safeties</label><input type="number" min="0" data-stat="pr_safeties"></div>
+              <div class="sf"><label>Swats</label><input type="number" min="0" data-stat="pr_swats"></div>
+              <div class="sf"><label>TD</label><input type="number" min="0" data-stat="pr_td"></div>
+            </div>
+          </div>
+          <div class="stat-group">
+            <h4>Coverage</h4>
+            <div class="stat-fields">
+              <div class="sf"><label>INT</label><input type="number" min="0" data-stat="cov_int"></div>
+              <div class="sf"><label>TD</label><input type="number" min="0" data-stat="cov_td"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-top:18px;">
+          <button class="save-btn" id="playerSaveBtn">Add Player</button>
+          <button class="cancel-btn" id="playerCancelBtn" style="display:none;">Cancel Edit</button>
+        </div>
+        <div class="msg" id="playerMsg"></div>
+      </div>
+
+      <div class="panel">
+        <h3>All Players (<span id="playerCount">0</span>)</h3>
+        <div class="desc">Click a player to edit their info and stats.</div>
+        <div class="player-list" id="playerList"></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -357,7 +471,7 @@
   function showMsg(t,ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
 
   // friendly label for a tab key
-  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule' };
+  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Players' };
 
   // ── gate check ──
   (async function(){
@@ -373,6 +487,7 @@
       loadAdmins();
       loadTeams();
       loadSchedule();
+      loadPlayers();
     }catch(e){ $('gateNoAccess').style.display='block'; }
   })();
 
@@ -519,6 +634,7 @@
       teamsCache = j.teams || [];
       renderTeams(teamsCache);
       populateTeamSelects();
+      populatePlayerTeam();
     }catch(e){}
   }
 
@@ -799,6 +915,113 @@
       resetGameForm();
       loadSchedule();
     }catch(e){ gameMsg('Network error'); }
+  });
+  // ── PLAYERS ──
+  let editingPlayerId=null;
+  function playerMsg(t,ok){ const m=$('playerMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
+
+  function populatePlayerTeam(){
+    const sel=$('p_team');
+    if(!sel) return;
+    sel.innerHTML='<option value="">— No team —</option>'+teamsCache.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+  }
+
+  async function loadPlayers(){
+    try{
+      const r=await fetch('/api/players');
+      const j=await r.json();
+      renderPlayers(j.players||[]);
+    }catch(e){}
+  }
+
+  function teamBadge(team){
+    if(!team) return '<span class="player-team-logo" style="background:#999">—</span>';
+    const color=team.primary_color||'#15233E';
+    const init=(team.abbreviation||(team.name||'').slice(0,2)).toUpperCase();
+    if(team.logo_url) return `<span class="player-team-logo" style="background:${color}"><img src="${team.logo_url}" onerror="this.style.display='none';this.parentNode.textContent='${init}'"></span>`;
+    return `<span class="player-team-logo" style="background:${color}">${init}</span>`;
+  }
+
+  function renderPlayers(players){
+    $('playerCount').textContent=players.length;
+    const list=$('playerList');
+    if(players.length===0){ list.innerHTML='<p style="color:var(--muted);font-style:italic;padding:10px 0;">No players yet — add one above.</p>'; return; }
+    list.innerHTML=players.map(p=>{
+      const av=p.avatar_url?`<img class="player-av" src="${p.avatar_url}" alt="">`:`<span class="player-av"></span>`;
+      return `<div class="player-item" data-id="${p.id}">
+        ${av}
+        <div class="player-info">
+          <div class="pn">${p.roblox_username||'—'}</div>
+          <div class="pt">${p.team?p.team.name:'No team'}</div>
+        </div>
+        ${teamBadge(p.team)}
+        <button class="player-del" data-id="${p.id}">Delete</button>
+      </div>`;
+    }).join('');
+
+    list.querySelectorAll('.player-item').forEach(row=>{
+      row.addEventListener('click',e=>{
+        if(e.target.classList.contains('player-del')) return;
+        startEditPlayer(players.find(x=>x.id===row.dataset.id));
+      });
+    });
+    list.querySelectorAll('.player-del').forEach(btn=>{
+      btn.addEventListener('click',async e=>{
+        e.stopPropagation();
+        if(!confirm('Delete this player?')) return;
+        await apiFetch('/api/admin/players/'+btn.dataset.id,{method:'DELETE'});
+        playerMsg('Player deleted',true);
+        if(editingPlayerId===btn.dataset.id) resetPlayerForm();
+        loadPlayers();
+      });
+    });
+  }
+
+  function statInputs(){ return document.querySelectorAll('#statGroups input[data-stat]'); }
+
+  function readPlayerForm(){
+    const body={ roblox_username:$('p_roblox').value, team_id:$('p_team').value||null };
+    statInputs().forEach(inp=>{ const v=inp.value.trim(); body[inp.dataset.stat]= v===''?0:parseInt(v,10)||0; });
+    return body;
+  }
+
+  function resetPlayerForm(){
+    editingPlayerId=null;
+    $('p_roblox').value='';
+    $('p_team').value='';
+    statInputs().forEach(inp=>inp.value='');
+    $('playerFormTitle').textContent='Add a Player';
+    $('playerSaveBtn').textContent='Add Player';
+    $('playerCancelBtn').style.display='none';
+  }
+
+  function startEditPlayer(p){
+    if(!p) return;
+    editingPlayerId=p.id;
+    $('p_roblox').value=p.roblox_username||'';
+    $('p_team').value=p.team_id||'';
+    statInputs().forEach(inp=>{ const v=p[inp.dataset.stat]; inp.value=(v!=null)?v:''; });
+    $('playerFormTitle').textContent='Edit Player';
+    $('playerSaveBtn').textContent='Save Changes';
+    $('playerCancelBtn').style.display='inline-block';
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+
+  if($('playerCancelBtn')) $('playerCancelBtn').addEventListener('click',resetPlayerForm);
+
+  if($('playerSaveBtn')) $('playerSaveBtn').addEventListener('click',async()=>{
+    const body=readPlayerForm();
+    if(!body.roblox_username.trim()){ playerMsg('Roblox username is required'); return; }
+    const url=editingPlayerId?'/api/admin/players/'+editingPlayerId:'/api/admin/players';
+    const method=editingPlayerId?'PUT':'POST';
+    try{
+      const r=await apiFetch(url,{method,body:JSON.stringify(body)});
+      const j=await r.json();
+      if(!r.ok){ playerMsg(j.error||'Failed to save'); return; }
+      playerMsg(editingPlayerId?'Player updated':'Player added',true);
+      resetPlayerForm();
+      loadPlayers();
+    }catch(e){ playerMsg('Network error'); }
   });
 </script>
 </body>
