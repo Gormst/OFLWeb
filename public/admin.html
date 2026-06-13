@@ -122,6 +122,25 @@
 
   @media(max-width:700px){ .team-form{grid-template-columns:1fr;} }
 
+  /* category import cards */
+  .cat-card{background:var(--paper-2);border:1px solid var(--line-strong);padding:24px;margin-bottom:20px;}
+  .cat-card h3{font-family:'Oswald';font-weight:700;font-size:19px;text-transform:uppercase;letter-spacing:1px;color:var(--red);margin-bottom:10px;}
+  .cat-card textarea{width:100%;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Space Mono';font-size:12px;padding:12px 14px;resize:vertical;}
+  .cat-card textarea:focus{outline:none;border-color:var(--navy);}
+  .cat-parse-btn{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--navy);border:1px solid var(--navy);background:none;padding:9px 16px;margin-top:10px;cursor:pointer;transition:all .15s;}
+  .cat-parse-btn:hover{background:var(--navy);color:var(--paper);}
+  .cat-table-wrap{margin-top:16px;overflow-x:auto;}
+  .cat-table{width:100%;border-collapse:collapse;}
+  .cat-table th{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);text-align:center;padding:8px 6px;border-bottom:2px solid var(--navy);white-space:nowrap;}
+  .cat-table th:first-child{text-align:left;}
+  .cat-table td{padding:6px;text-align:center;border-bottom:1px solid var(--line);}
+  .cat-table td:first-child{text-align:left;font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;white-space:nowrap;}
+  .cat-table input{width:64px;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:600;font-size:14px;padding:6px;text-align:center;}
+  .cat-table input:focus{outline:none;border-color:var(--navy);}
+  .cat-row-del{font-family:'Space Mono';font-size:10px;color:var(--red);border:1px solid var(--red);background:none;padding:4px 8px;cursor:pointer;}
+  .cat-row-del:hover{background:var(--red);color:var(--paper);}
+  .cat-empty{font-family:'Space Mono';font-size:12px;color:var(--muted);font-style:italic;padding:10px 0;}
+
   /* selects in forms */
   .field select{background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:500;font-size:16px;padding:12px 14px;cursor:pointer;}
   .field select:focus{outline:none;border-color:var(--navy);}
@@ -136,30 +155,6 @@
   .game-when{font-family:'Space Mono';font-size:11px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:3px;}
   .game-del{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--red);border:1px solid var(--red);background:none;padding:6px 12px;cursor:pointer;}
   .game-del:hover{background:var(--red);color:var(--paper);}
-
-  /* stat groups (player form) */
-  .stat-groups{margin-top:24px;display:flex;flex-direction:column;gap:18px;}
-  .stat-group{border:1px solid var(--line);background:var(--paper);padding:18px;}
-  .stat-group h4{font-family:'Oswald';font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:1px;color:var(--red);margin-bottom:14px;}
-  .stat-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:14px;}
-  .sf{display:flex;flex-direction:column;}
-  .sf label{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;}
-  .sf input{background:var(--paper-2);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:600;font-size:16px;padding:9px 12px;text-align:center;}
-  .sf input:focus{outline:none;border-color:var(--navy);}
-
-  /* player list */
-  .player-list{display:flex;flex-direction:column;}
-  .player-item{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--line);cursor:pointer;transition:background .12s;}
-  .player-item:hover{background:var(--paper);}
-  .player-item:last-child{border-bottom:none;}
-  .player-av{width:42px;height:42px;border-radius:50%;border:2px solid var(--navy);object-fit:cover;background:var(--navy);flex-shrink:0;}
-  .player-info{flex:1;}
-  .player-info .pn{font-family:'Oswald';font-weight:700;font-size:18px;text-transform:uppercase;}
-  .player-info .pt{font-family:'Space Mono';font-size:11px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;margin-top:2px;}
-  .player-team-logo{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:10px;color:#fff;overflow:hidden;flex-shrink:0;}
-  .player-team-logo img{width:100%;height:100%;object-fit:contain;}
-  .player-del{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--red);border:1px solid var(--red);background:none;padding:6px 12px;cursor:pointer;}
-  .player-del:hover{background:var(--red);color:var(--paper);}
 
   /* final score block */
   .score-block{margin-top:22px;border-top:1px solid var(--line-strong);padding-top:20px;}
@@ -220,7 +215,7 @@
       <button class="tab active" data-tab="access">User Access</button>
       <button class="tab" data-tab="teams">Teams</button>
       <button class="tab" data-tab="schedule">Schedule</button>
-      <button class="tab" data-tab="players">Players</button>
+      <button class="tab" data-tab="players">Import Stats</button>
       <button class="tab" data-tab="seasons">Past Seasons</button>
     </div>
 
@@ -365,13 +360,11 @@
       </div>
     </div>
 
-    <!-- PLAYERS -->
+    <!-- IMPORT STATS -->
     <div class="section" id="section-players">
-
-      <!-- IMPORT GAME BOX SCORE -->
       <div class="panel">
-        <h3>Import Game Box Score</h3>
-        <div class="desc">Select the game (or both teams), then paste the box score CSV from the sheet. Stats are added to each player's season totals, and a box score is saved for this game.</div>
+        <h3>Import Game Stats</h3>
+        <div class="desc">Select the game (or both teams), then paste each category's CSV below. Pasted rows become an editable table — adjust any value before importing. Stats are added to each player's season totals.</div>
         <div class="team-form">
           <div class="field full">
             <label>Game (optional)</label>
@@ -386,100 +379,15 @@
             <select id="bx_team2"></select>
           </div>
         </div>
-        <div class="field full" style="margin-top:18px;">
-          <label>Box Score CSV</label>
-          <textarea id="bx_csv" rows="8" placeholder="Paste the CSV here (the two-team box score export from the sheet)"></textarea>
-        </div>
-        <div style="display:flex;gap:12px;margin-top:18px;">
-          <button class="save-btn" id="bxImportBtn">Import Box Score</button>
+      </div>
+
+      <div id="catCardsGame"></div>
+
+      <div class="panel">
+        <div style="display:flex;gap:12px;">
+          <button class="save-btn" id="bxImportBtn">Import All Stats</button>
         </div>
         <div class="msg" id="bxMsg"></div>
-      </div>
-
-      <div class="panel">
-        <h3 id="playerFormTitle">Add a Player</h3>
-        <div class="desc">Enter the player's Roblox username (used for their name and profile picture) and team. Fill in stats now or edit them later.</div>
-        <div class="team-form">
-          <div class="field">
-            <label>Roblox Username *</label>
-            <input type="text" id="p_roblox" placeholder="e.g. famouskai12">
-          </div>
-          <div class="field">
-            <label>Team</label>
-            <select id="p_team"></select>
-          </div>
-        </div>
-
-        <!-- stat groups -->
-        <div class="stat-groups" id="statGroups">
-          <div class="stat-group">
-            <h4>Passing</h4>
-            <div class="stat-fields">
-              <div class="sf"><label>Yards</label><input type="number" min="0" data-stat="pass_yards"></div>
-              <div class="sf"><label>TD</label><input type="number" min="0" data-stat="pass_td"></div>
-              <div class="sf"><label>INT</label><input type="number" min="0" data-stat="pass_int"></div>
-              <div class="sf"><label>Att</label><input type="number" min="0" data-stat="pass_att"></div>
-              <div class="sf"><label>Comp</label><input type="number" min="0" data-stat="pass_comp"></div>
-            </div>
-          </div>
-          <div class="stat-group">
-            <h4>Rushing</h4>
-            <div class="stat-fields">
-              <div class="sf"><label>Rushes</label><input type="number" min="0" data-stat="rush_att"></div>
-              <div class="sf"><label>Yards</label><input type="number" min="0" data-stat="rush_yards"></div>
-              <div class="sf"><label>TD</label><input type="number" min="0" data-stat="rush_td"></div>
-            </div>
-          </div>
-          <div class="stat-group">
-            <h4>Receiving</h4>
-            <div class="stat-fields">
-              <div class="sf"><label>Targets</label><input type="number" min="0" data-stat="targets"></div>
-              <div class="sf"><label>Receptions</label><input type="number" min="0" data-stat="receptions"></div>
-              <div class="sf"><label>Yards</label><input type="number" min="0" data-stat="rec_yards"></div>
-              <div class="sf"><label>TD</label><input type="number" min="0" data-stat="rec_td"></div>
-            </div>
-          </div>
-          <div class="stat-group">
-            <h4>Blocking</h4>
-            <div class="stat-fields">
-              <div class="sf"><label>Sacks Allowed</label><input type="number" min="0" data-stat="sacks_allowed"></div>
-              <div class="sf"><label>TFLs Allowed</label><input type="number" min="0" data-stat="tfls_allowed"></div>
-              <div class="sf"><label>Pressures Allowed</label><input type="number" min="0" data-stat="pressures_allowed"></div>
-              <div class="sf"><label>Snaps Played</label><input type="number" min="0" data-stat="snaps_played"></div>
-              <div class="sf"><label>Games Played</label><input type="number" min="0" data-stat="games_played"></div>
-            </div>
-          </div>
-          <div class="stat-group">
-            <h4>Pass Rush</h4>
-            <div class="stat-fields">
-              <div class="sf"><label>Sacks</label><input type="number" min="0" data-stat="pr_sacks"></div>
-              <div class="sf"><label>Pressures</label><input type="number" min="0" data-stat="pr_pressures"></div>
-              <div class="sf"><label>TFL</label><input type="number" min="0" data-stat="pr_tfl"></div>
-              <div class="sf"><label>Safeties</label><input type="number" min="0" data-stat="pr_safeties"></div>
-              <div class="sf"><label>Swats</label><input type="number" min="0" data-stat="pr_swats"></div>
-              <div class="sf"><label>TD</label><input type="number" min="0" data-stat="pr_td"></div>
-            </div>
-          </div>
-          <div class="stat-group">
-            <h4>Coverage</h4>
-            <div class="stat-fields">
-              <div class="sf"><label>INT</label><input type="number" min="0" data-stat="cov_int"></div>
-              <div class="sf"><label>TD</label><input type="number" min="0" data-stat="cov_td"></div>
-            </div>
-          </div>
-        </div>
-
-        <div style="display:flex;gap:12px;margin-top:18px;">
-          <button class="save-btn" id="playerSaveBtn">Add Player</button>
-          <button class="cancel-btn" id="playerCancelBtn" style="display:none;">Cancel Edit</button>
-        </div>
-        <div class="msg" id="playerMsg"></div>
-      </div>
-
-      <div class="panel">
-        <h3>All Players (<span id="playerCount">0</span>)</h3>
-        <div class="desc">Click a player to edit their info and stats.</div>
-        <div class="player-list" id="playerList"></div>
       </div>
     </div>
 
@@ -487,19 +395,20 @@
     <div class="section" id="section-seasons">
       <div class="panel">
         <h3>Import Past Season Stats</h3>
-        <div class="desc">Enter the season number and paste the season-totals CSV (same layout as a box score, but with full-season numbers). This won't affect current-season player stats — it's stored separately as historical data.</div>
+        <div class="desc">Enter the season number, then paste each category's season-totals CSV below. Edit any value before importing. This is stored separately from current-season stats.</div>
         <div class="team-form">
           <div class="field">
             <label>Season Number *</label>
             <input type="text" id="ss_season" placeholder="e.g. 47">
           </div>
         </div>
-        <div class="field full" style="margin-top:18px;">
-          <label>Season Stats CSV</label>
-          <textarea id="ss_csv" rows="8" placeholder="Paste the season totals CSV here"></textarea>
-        </div>
-        <div style="display:flex;gap:12px;margin-top:18px;">
-          <button class="save-btn" id="ssImportBtn">Import Season</button>
+      </div>
+
+      <div id="catCardsSeason"></div>
+
+      <div class="panel">
+        <div style="display:flex;gap:12px;">
+          <button class="save-btn" id="ssImportBtn">Import Season Stats</button>
         </div>
         <div class="msg" id="ssMsg"></div>
       </div>
@@ -531,7 +440,7 @@
   function showMsg(t,ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
 
   // friendly label for a tab key
-  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Players', seasons:'Past Seasons' };
+  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Import Stats', seasons:'Past Seasons' };
 
   // ── gate check ──
   (async function(){
@@ -547,7 +456,6 @@
       loadAdmins();
       loadTeams();
       loadSchedule();
-      loadPlayers();
       populateBoxScoreGames();
       loadSeasonsList();
     }catch(e){ $('gateNoAccess').style.display='block'; }
@@ -696,7 +604,6 @@
       teamsCache = j.teams || [];
       renderTeams(teamsCache);
       populateTeamSelects();
-      populatePlayerTeam();
       populateBoxScoreSelects();
     }catch(e){}
   }
@@ -979,114 +886,93 @@
       loadSchedule();
     }catch(e){ gameMsg('Network error'); }
   });
-  // ── PLAYERS ──
-  let editingPlayerId=null;
-  function playerMsg(t,ok){ const m=$('playerMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
+  // ── CATEGORY DEFINITIONS (mirror server CATEGORY_DEFS) ──
+  const CATEGORIES = [
+    { key:'passing',   label:'Passing',   cols:[
+      {h:'COMP',k:'pass_comp'},{h:'ATT',k:'pass_att'},{h:'YDS',k:'pass_yards'},{h:'TD',k:'pass_td'},{h:'INT',k:'pass_int'} ] },
+    { key:'rushing',   label:'Rushing',   cols:[
+      {h:'RUSH',k:'rush_att'},{h:'YDS',k:'rush_yards'},{h:'TD',k:'rush_td'} ] },
+    { key:'receiving', label:'Receiving', cols:[
+      {h:'TRGT',k:'targets'},{h:'REC',k:'receptions'},{h:'YDS',k:'rec_yards'},{h:'TD',k:'rec_td'} ] },
+    { key:'blocking',  label:'Blocking',  cols:[
+      {h:'SNAP',k:'snaps_played'},{h:'TFL A',k:'tfls_allowed'},{h:'SCK A',k:'sacks_allowed'},{h:'PRES A',k:'pressures_allowed'},{h:'GP',k:'games_played'} ] },
+    { key:'passrush',  label:'Pass Rush', cols:[
+      {h:'PRESS',k:'pr_pressures'},{h:'TFL',k:'pr_tfl'},{h:'SACKS',k:'pr_sacks'},{h:'SAFETY',k:'pr_safeties'},{h:'SWATS',k:'pr_swats'} ] },
+    { key:'coverage',  label:'Coverage',  cols:[
+      {h:'INT',k:'cov_int'},{h:'TD',k:'cov_td'} ] },
+  ];
 
-  function populatePlayerTeam(){
-    const sel=$('p_team');
-    if(!sel) return;
-    sel.innerHTML='<option value="">— No team —</option>'+teamsCache.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
-  }
+  // build a category import card; mode = 'game' | 'season'
+  function buildCategoryCard(cat, mode){
+    const card=document.createElement('div');
+    card.className='cat-card';
+    card.dataset.cat=cat.key;
+    card.innerHTML=`
+      <h3>${cat.label}</h3>
+      <textarea rows="5" placeholder="Paste the ${cat.label} CSV here (header row + player rows)"></textarea>
+      <button type="button" class="cat-parse-btn">Parse CSV</button>
+      <div class="cat-table-wrap"><p class="cat-empty">No rows parsed yet.</p></div>
+    `;
+    const textarea=card.querySelector('textarea');
+    const tableWrap=card.querySelector('.cat-table-wrap');
+    const parseBtn=card.querySelector('.cat-parse-btn');
 
-  async function loadPlayers(){
-    try{
-      const r=await fetch('/api/players');
-      const j=await r.json();
-      renderPlayers(j.players||[]);
-    }catch(e){}
-  }
-
-  function teamBadge(team){
-    if(!team) return '<span class="player-team-logo" style="background:#999">—</span>';
-    const color=team.primary_color||'#15233E';
-    const init=(team.abbreviation||(team.name||'').slice(0,2)).toUpperCase();
-    if(team.logo_url) return `<span class="player-team-logo" style="background:${color}"><img src="${team.logo_url}" onerror="this.style.display='none';this.parentNode.textContent='${init}'"></span>`;
-    return `<span class="player-team-logo" style="background:${color}">${init}</span>`;
-  }
-
-  function renderPlayers(players){
-    $('playerCount').textContent=players.length;
-    const list=$('playerList');
-    if(players.length===0){ list.innerHTML='<p style="color:var(--muted);font-style:italic;padding:10px 0;">No players yet — add one above.</p>'; return; }
-    list.innerHTML=players.map(p=>{
-      const av=p.avatar_url?`<img class="player-av" src="${p.avatar_url}" alt="">`:`<span class="player-av"></span>`;
-      return `<div class="player-item" data-id="${p.id}">
-        ${av}
-        <div class="player-info">
-          <div class="pn">${p.roblox_username||'—'}</div>
-          <div class="pt">${p.team?p.team.name:'No team'}</div>
-        </div>
-        ${teamBadge(p.team)}
-        <button class="player-del" data-id="${p.id}">Delete</button>
-      </div>`;
-    }).join('');
-
-    list.querySelectorAll('.player-item').forEach(row=>{
-      row.addEventListener('click',e=>{
-        if(e.target.classList.contains('player-del')) return;
-        startEditPlayer(players.find(x=>x.id===row.dataset.id));
+    function renderTable(rows){
+      if(!rows.length){ tableWrap.innerHTML='<p class="cat-empty">No rows parsed yet.</p>'; return; }
+      const head=`<tr><th>Username</th>${cat.cols.map(c=>`<th>${c.h}</th>`).join('')}<th></th></tr>`;
+      const body=rows.map((row,i)=>`
+        <tr data-i="${i}">
+          <td>${row.username}</td>
+          ${cat.cols.map(c=>`<td><input type="number" step="any" data-k="${c.k}" value="${row.stats[c.k]!=null?row.stats[c.k]:0}"></td>`).join('')}
+          <td><button type="button" class="cat-row-del">×</button></td>
+        </tr>`).join('');
+      tableWrap.innerHTML=`<table class="cat-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+      tableWrap.querySelectorAll('.cat-row-del').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          const tr=btn.closest('tr');
+          rows.splice(+tr.dataset.i,1);
+          renderTable(rows);
+        });
       });
+    }
+
+    card._rows=[];
+    card._renderTable=renderTable;
+
+    parseBtn.addEventListener('click',async()=>{
+      const csv=textarea.value;
+      if(!csv.trim()) return;
+      parseBtn.disabled=true; parseBtn.textContent='Parsing…';
+      try{
+        const r=await apiFetch('/api/admin/parse-category',{method:'POST',body:JSON.stringify({csv,category:cat.key})});
+        const j=await r.json();
+        if(!r.ok){ alert(j.error||'Parse failed'); return; }
+        // merge newly parsed rows with any existing edited rows (by username)
+        const existing={}; card._rows.forEach(r=>existing[r.username.toLowerCase()]=r);
+        (j.rows||[]).forEach(r=>{ existing[r.username.toLowerCase()]=r; });
+        card._rows=Object.values(existing);
+        renderTable(card._rows);
+      }catch(e){ alert('Network error parsing CSV'); }
+      finally{ parseBtn.disabled=false; parseBtn.textContent='Parse CSV'; }
     });
-    list.querySelectorAll('.player-del').forEach(btn=>{
-      btn.addEventListener('click',async e=>{
-        e.stopPropagation();
-        if(!confirm('Delete this player?')) return;
-        await apiFetch('/api/admin/players/'+btn.dataset.id,{method:'DELETE'});
-        playerMsg('Player deleted',true);
-        if(editingPlayerId===btn.dataset.id) resetPlayerForm();
-        loadPlayers();
+
+    // read current table values (post-edit) back into card._rows-shaped data
+    card._collect=function(){
+      const out=[];
+      tableWrap.querySelectorAll('tbody tr').forEach(tr=>{
+        const i=+tr.dataset.i;
+        const username=card._rows[i].username;
+        const stats={};
+        tr.querySelectorAll('input[data-k]').forEach(inp=>{ stats[inp.dataset.k]=parseFloat(inp.value)||0; });
+        out.push({username, stats});
       });
-    });
+      return out;
+    };
+
+    return card;
   }
 
-  function statInputs(){ return document.querySelectorAll('#statGroups input[data-stat]'); }
-
-  function readPlayerForm(){
-    const body={ roblox_username:$('p_roblox').value, team_id:$('p_team').value||null };
-    statInputs().forEach(inp=>{ const v=inp.value.trim(); body[inp.dataset.stat]= v===''?0:parseInt(v,10)||0; });
-    return body;
-  }
-
-  function resetPlayerForm(){
-    editingPlayerId=null;
-    $('p_roblox').value='';
-    $('p_team').value='';
-    statInputs().forEach(inp=>inp.value='');
-    $('playerFormTitle').textContent='Add a Player';
-    $('playerSaveBtn').textContent='Add Player';
-    $('playerCancelBtn').style.display='none';
-  }
-
-  function startEditPlayer(p){
-    if(!p) return;
-    editingPlayerId=p.id;
-    $('p_roblox').value=p.roblox_username||'';
-    $('p_team').value=p.team_id||'';
-    statInputs().forEach(inp=>{ const v=p[inp.dataset.stat]; inp.value=(v!=null)?v:''; });
-    $('playerFormTitle').textContent='Edit Player';
-    $('playerSaveBtn').textContent='Save Changes';
-    $('playerCancelBtn').style.display='inline-block';
-    window.scrollTo({top:0,behavior:'smooth'});
-  }
-
-  if($('playerCancelBtn')) $('playerCancelBtn').addEventListener('click',resetPlayerForm);
-
-  if($('playerSaveBtn')) $('playerSaveBtn').addEventListener('click',async()=>{
-    const body=readPlayerForm();
-    if(!body.roblox_username.trim()){ playerMsg('Roblox username is required'); return; }
-    const url=editingPlayerId?'/api/admin/players/'+editingPlayerId:'/api/admin/players';
-    const method=editingPlayerId?'PUT':'POST';
-    try{
-      const r=await apiFetch(url,{method,body:JSON.stringify(body)});
-      const j=await r.json();
-      if(!r.ok){ playerMsg(j.error||'Failed to save'); return; }
-      playerMsg(editingPlayerId?'Player updated':'Player added',true);
-      resetPlayerForm();
-      loadPlayers();
-    }catch(e){ playerMsg('Network error'); }
-  });
-  // ── BOX SCORE IMPORT ──
+  // ── GAME STATS IMPORT ──
   function bxMsg(t,ok){ const m=$('bxMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},3000); }
 
   function populateBoxScoreSelects(){
@@ -1109,35 +995,72 @@
     }catch(e){}
   }
 
-  // when a game is picked, auto-fill the team selects
   if($('bx_game')) $('bx_game').addEventListener('change',()=>{
     const opt=$('bx_game').selectedOptions[0];
     if(opt && opt.dataset.away){ $('bx_team1').value=opt.dataset.away; $('bx_team2').value=opt.dataset.home; }
   });
 
+  // build the game category cards once
+  const gameCards={};
+  if($('catCardsGame')){
+    CATEGORIES.forEach(cat=>{
+      const card=buildCategoryCard(cat,'game');
+      gameCards[cat.key]=card;
+      $('catCardsGame').appendChild(card);
+    });
+  }
+
   if($('bxImportBtn')) $('bxImportBtn').addEventListener('click',async()=>{
-    const csv=$('bx_csv').value;
-    if(!csv.trim()){ bxMsg('Paste the box score CSV first'); return; }
+    // merge all category rows into one per-player payload
+    const merged={};
+    let any=false;
+    Object.values(gameCards).forEach(card=>{
+      const rows=card._collect();
+      rows.forEach(r=>{
+        any=true;
+        const key=r.username.toLowerCase();
+        if(!merged[key]) merged[key]={username:r.username, stats:{}};
+        Object.assign(merged[key].stats, r.stats);
+      });
+    });
+    if(!any){ bxMsg('Parse at least one category first'); return; }
+
+    const team1Id=$('bx_team1').value||null, team2Id=$('bx_team2').value||null;
+    const team1Opt=$('bx_team1').selectedOptions[0], team2Opt=$('bx_team2').selectedOptions[0];
+
     const body={
-      csv,
-      game_id: $('bx_game').value || null,
-      team1_id: $('bx_team1').value || null,
-      team2_id: $('bx_team2').value || null
+      players: Object.values(merged).map(p=>({...p, team_id:team1Id||team2Id||null})),
+      game_id: $('bx_game').value||null,
+      team1_id: team1Id, team2_id: team2Id,
+      team1_name: team1Opt?team1Opt.textContent:null,
+      team2_name: team2Opt?team2Opt.textContent:null
     };
+
     $('bxImportBtn').disabled=true; $('bxImportBtn').textContent='Importing…';
     try{
       const r=await apiFetch('/api/admin/import-game',{method:'POST',body:JSON.stringify(body)});
       const j=await r.json();
       if(!r.ok){ bxMsg(j.error||'Import failed'); return; }
-      bxMsg('Box score imported — player stats updated',true);
-      $('bx_csv').value='';
-      loadPlayers();
+      bxMsg('Stats imported — player totals updated',true);
+      Object.values(gameCards).forEach(card=>{
+        card.querySelector('textarea').value='';
+        card._rows=[]; card._renderTable([]);
+      });
     }catch(e){ bxMsg('Network error'); }
-    finally{ $('bxImportBtn').disabled=false; $('bxImportBtn').textContent='Import Box Score'; }
+    finally{ $('bxImportBtn').disabled=false; $('bxImportBtn').textContent='Import All Stats'; }
   });
 
   // ── PAST SEASONS ──
   function ssMsg(t,ok){ const m=$('ssMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},3000); }
+
+  const seasonCards={};
+  if($('catCardsSeason')){
+    CATEGORIES.forEach(cat=>{
+      const card=buildCategoryCard(cat,'season');
+      seasonCards[cat.key]=card;
+      $('catCardsSeason').appendChild(card);
+    });
+  }
 
   async function loadSeasonsList(){
     const box=$('seasonList');
@@ -1151,23 +1074,37 @@
   }
 
   if($('ssImportBtn')) $('ssImportBtn').addEventListener('click',async()=>{
-    const csv=$('ss_csv').value;
     const season=$('ss_season').value.trim();
     if(!season){ ssMsg('Enter a season number'); return; }
-    if(!csv.trim()){ ssMsg('Paste the season stats CSV first'); return; }
+
+    const merged={};
+    let any=false;
+    Object.values(seasonCards).forEach(card=>{
+      const rows=card._collect();
+      rows.forEach(r=>{
+        any=true;
+        const key=r.username.toLowerCase();
+        if(!merged[key]) merged[key]={username:r.username, stats:{}};
+        Object.assign(merged[key].stats, r.stats);
+      });
+    });
+    if(!any){ ssMsg('Parse at least one category first'); return; }
+
     $('ssImportBtn').disabled=true; $('ssImportBtn').textContent='Importing…';
     try{
-      const r=await apiFetch('/api/admin/import-season',{method:'POST',body:JSON.stringify({csv,season})});
+      const r=await apiFetch('/api/admin/import-season',{method:'POST',body:JSON.stringify({players:Object.values(merged),season})});
       const j=await r.json();
       if(!r.ok){ ssMsg(j.error||'Import failed'); return; }
       ssMsg(`Imported stats for ${j.imported} players`,true);
-      $('ss_csv').value='';
+      Object.values(seasonCards).forEach(card=>{
+        card.querySelector('textarea').value='';
+        card._rows=[]; card._renderTable([]);
+      });
       loadSeasonsList();
     }catch(e){ ssMsg('Network error'); }
-    finally{ $('ssImportBtn').disabled=false; $('ssImportBtn').textContent='Import Season'; }
+    finally{ $('ssImportBtn').disabled=false; $('ssImportBtn').textContent='Import Season Stats'; }
   });
 
-  // load seasons list when the Past Seasons tab becomes visible
   document.querySelectorAll('.tab').forEach(b=>{
     if(b.dataset.tab==='seasons') b.addEventListener('click',loadSeasonsList);
   });

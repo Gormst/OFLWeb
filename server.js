@@ -80,6 +80,79 @@ const SECTION_COL_MAP = {
 };
 const KNOWN_SECTIONS = Object.keys(SECTION_COL_MAP);
 
+// Category keys exposed to the admin UI, and their column definitions.
+// Each column: { label, key } — key is the stat field, or null for derived/ignored columns.
+const CATEGORY_DEFS = {
+  passing:   { section:'PASSING',   cols:['USERNAME','COMP','ATT','YDS','COMP%','TD','INT','YPA','RTG'],
+               keys:{COMP:'pass_comp',ATT:'pass_att',YDS:'pass_yards',TD:'pass_td',INT:'pass_int'} },
+  rushing:   { section:'RUSHING',   cols:['USERNAME','RUSH','YDS','TD','YPR'],
+               keys:{RUSH:'rush_att',YDS:'rush_yards',TD:'rush_td'} },
+  receiving: { section:'RECEIVING', cols:['USERNAME','TRGT','REC','YDS','TD','CATCH%','YPT'],
+               keys:{TRGT:'targets',REC:'receptions',YDS:'rec_yards',TD:'rec_td'} },
+  blocking:  { section:'BLOCKING',  cols:['USERNAME','SNAP','TFL A','SCK A','PRES A','GP'],
+               keys:{SNAP:'snaps_played','TFL A':'tfls_allowed','SCK A':'sacks_allowed','PRES A':'pressures_allowed',GP:'games_played'} },
+  passrush:  { section:'DEFENSE',   cols:['USERNAME','PRESS','TFL','SACKS','SAFETY','SWATS'],
+               keys:{PRESS:'pr_pressures',TFL:'pr_tfl',SACKS:'pr_sacks',SAFETY:'pr_safeties',SWATS:'pr_swats'} },
+  coverage:  { section:'DEFENSE',   cols:['USERNAME','INT','TD'],
+               keys:{INT:'cov_int',TD:'cov_td'} }
+};
+// stat keys belonging to each category (used to know which fields a category's table edits)
+const CATEGORY_STAT_KEYS = {
+  passing: ['pass_comp','pass_att','pass_yards','pass_td','pass_int'],
+  rushing: ['rush_att','rush_yards','rush_td'],
+  receiving: ['targets','receptions','rec_yards','rec_td'],
+  blocking: ['snaps_played','tfls_allowed','sacks_allowed','pressures_allowed','games_played'],
+  passrush: ['pr_pressures','pr_tfl','pr_sacks','pr_safeties','pr_swats'],
+  coverage: ['cov_int','cov_td']
+};
+
+function normFloatVal(v) {
+  if (v === undefined || v === null) return 0;
+  const s = String(v).replace('%', '').trim();
+  if (s === '' || s.toUpperCase() === 'X') return 0;
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+}
+
+// Parse a single-category CSV paste into rows of { username, stats: {key: value} }.
+// Tolerant of stray section/team-name rows above the header.
+function parseCategoryCSV(text, category) {
+  const def = CATEGORY_DEFS[category];
+  if (!def) return [];
+  const rows = parseCSVText(text).filter(r => r.length && r.some(c => (c || '').trim() !== ''));
+  if (rows.length === 0) return [];
+
+  // find the header row: a row whose first cell is USERNAME (case-insensitive)
+  let headerIdx = rows.findIndex(r => (r[0] || '').trim().toUpperCase().startsWith('USERNAME'));
+  let headerRow;
+  if (headerIdx === -1) {
+    headerIdx = -1;
+    headerRow = def.cols; // assume canonical column order
+  } else {
+    headerRow = rows[headerIdx];
+  }
+
+  const idxToKey = {};
+  headerRow.forEach((h, i) => {
+    if (i === 0) return;
+    const key = def.keys[(h || '').trim().toUpperCase()];
+    if (key) idxToKey[i] = key;
+  });
+
+  const out = [];
+  for (let r = headerIdx + 1; r < rows.length; r++) {
+    const row = rows[r];
+    const username = (row[0] || '').trim();
+    if (!username) continue;
+    const upper = username.toUpperCase();
+    if (Object.values(CATEGORY_DEFS).some(c => c.section === upper) || upper.startsWith('USERNAME')) continue;
+    const stats = {};
+    for (const [idx, key] of Object.entries(idxToKey)) stats[key] = normFloatVal(row[idx]);
+    out.push({ username, stats });
+  }
+  return out;
+}
+
 // parse raw CSV text into rows of cells (handles quoted fields with commas)
 function parseCSVText(text) {
   const rows = [];
@@ -618,56 +691,73 @@ app.delete('/api/admin/games/:id', async (req, res) => {
 //  BOX SCORE / STATS IMPORT
 // ─────────────────────────────────────────────
 
-// admin — import a game box score CSV: adds to player season totals + stores the box score
+// admin — parse a single-category CSV paste into editable rows
+app.post('/api/admin/parse-category', async (req, res) => {
+  const me = await requireAdmin(req, res, 'players');
+  if (!me) return;
+  try {
+    const { csv, category } = req.body;
+    if (!csv || !csv.trim()) return res.status(400).json({ error: 'CSV is required' });
+    if (!CATEGORY_DEFS[category]) return res.status(400).json({ error: 'Unknown category' });
+    const rows = parseCategoryCSV(csv, category);
+    res.json({ rows, statKeys: CATEGORY_STAT_KEYS[category] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — import edited per-player stat increments across categories (adds to season totals)
 app.post('/api/admin/import-game', async (req, res) => {
   const me = await requireAdmin(req, res, 'players');
   if (!me) return;
   try {
-    const { csv, game_id, team1_id, team2_id } = req.body;
-    if (!csv || !csv.trim()) return res.status(400).json({ error: 'CSV is required' });
-
-    const parsed = parseBoxScoreCSV(csv);
-    if (!parsed || !parsed.team1) return res.status(400).json({ error: 'Could not parse CSV' });
+    const { players, game_id, team1_id, team2_id, team1_name, team2_name } = req.body;
+    if (!Array.isArray(players) || players.length === 0) return res.status(400).json({ error: 'No player rows to import' });
 
     const { data: allPlayers } = await supabase.from('players').select('*');
     const byUsername = {};
     (allPlayers || []).forEach(p => { byUsername[(p.roblox_username || '').toLowerCase()] = p; });
 
-    // apply increments for one team's players
-    async function applyTeam(block, teamId) {
-      if (!block) return;
-      for (const [username, deltas] of Object.entries(block.players)) {
-        const key = username.toLowerCase();
-        let player = byUsername[key];
-        if (!player) {
-          // create the player (resolve roblox avatar)
-          let roblox_user_id = null, avatar_url = null, rname = username;
-          const ru = await getRobloxUser(username);
-          if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
-          const insertRow = { roblox_username: rname, roblox_user_id, avatar_url, team_id: teamId || null };
-          STAT_KEYS.forEach(k => insertRow[k] = 0);
-          const { data } = await supabase.from('players').insert(insertRow).select().single();
-          player = data;
-          byUsername[key] = player;
-        }
-        const update = {};
-        STAT_KEYS.forEach(k => { update[k] = (player[k] || 0) + Math.round(deltas[k] || 0); });
-        const { data: updated } = await supabase.from('players').update(update).eq('id', player.id).select().single();
-        byUsername[key] = updated;
+    const boxData = { team1: { teamName: team1_name || null, players: {} }, team2: { teamName: team2_name || null, players: {} } };
+
+    for (const row of players) {
+      const username = (row.username || '').trim();
+      if (!username) continue;
+      const key = username.toLowerCase();
+      let player = byUsername[key];
+      const deltas = pickStats(row.stats || {});
+
+      if (!player) {
+        let roblox_user_id = null, avatar_url = null, rname = username;
+        const ru = await getRobloxUser(username);
+        if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
+        const insertRow = { roblox_username: rname, roblox_user_id, avatar_url, team_id: row.team_id || null };
+        STAT_KEYS.forEach(k => insertRow[k] = 0);
+        const { data } = await supabase.from('players').insert(insertRow).select().single();
+        player = data;
+        byUsername[key] = player;
+      } else if (row.team_id && row.team_id !== player.team_id) {
+        await supabase.from('players').update({ team_id: row.team_id }).eq('id', player.id);
+        player.team_id = row.team_id;
       }
+
+      const update = {};
+      STAT_KEYS.forEach(k => { update[k] = (player[k] || 0) + (deltas[k] || 0); });
+      const { data: updated } = await supabase.from('players').update(update).eq('id', player.id).select().single();
+      byUsername[key] = updated;
+
+      // record this player's contribution to the box score, grouped by team
+      const slot = (player.team_id === team1_id) ? 'team1' : (player.team_id === team2_id) ? 'team2' : (row.side === 2 ? 'team2' : 'team1');
+      boxData[slot].players[username] = deltas;
     }
 
-    await applyTeam(parsed.team1, team1_id);
-    await applyTeam(parsed.team2, team2_id);
-
-    // store the box score record
     const { data: box, error } = await supabase.from('box_scores').insert({
       game_id: game_id || null,
-      team1_name: parsed.team1.teamName || null,
-      team2_name: parsed.team2 ? parsed.team2.teamName : null,
+      team1_name: team1_name || null,
+      team2_name: team2_name || null,
       team1_id: team1_id || null,
       team2_id: team2_id || null,
-      data: parsed
+      data: boxData
     }).select().single();
     if (error) throw error;
 
@@ -699,30 +789,37 @@ app.get('/api/box-scores', async (req, res) => {
   }
 });
 
-// admin — import previous-season stats CSV (same layout, season totals)
+// admin — import previous-season stats (category rows, merged by username for the season)
 app.post('/api/admin/import-season', async (req, res) => {
   const me = await requireAdmin(req, res, 'seasons');
   if (!me) return;
   try {
-    const { csv, season } = req.body;
-    if (!csv || !csv.trim()) return res.status(400).json({ error: 'CSV is required' });
+    const { players, season } = req.body;
     const seasonNum = parseInt(season, 10);
     if (isNaN(seasonNum)) return res.status(400).json({ error: 'Season number is required' });
+    if (!Array.isArray(players) || players.length === 0) return res.status(400).json({ error: 'No player rows to import' });
 
-    const parsed = parseBoxScoreCSV(csv);
-    if (!parsed || !parsed.team1) return res.status(400).json({ error: 'Could not parse CSV' });
-
-    const blocks = [parsed.team1, parsed.team2].filter(Boolean);
     let count = 0;
-    for (const block of blocks) {
-      for (const [username, totals] of Object.entries(block.players)) {
-        const row = { season: seasonNum, roblox_username: username, team_name: block.teamName || null };
-        STAT_KEYS.forEach(k => row[k] = Math.round(totals[k] || 0));
-        // remove any existing row for this player+season, then insert fresh (replace, not add)
-        await supabase.from('season_stats').delete().eq('season', seasonNum).ilike('roblox_username', username);
-        await supabase.from('season_stats').insert(row);
-        count++;
+    for (const row of players) {
+      const username = (row.username || '').trim();
+      if (!username) continue;
+      const stats = pickStats(row.stats || {});
+
+      const { data: existing } = await supabase
+        .from('season_stats').select('*')
+        .eq('season', seasonNum).ilike('roblox_username', username).maybeSingle();
+
+      if (existing) {
+        const update = {};
+        STAT_KEYS.forEach(k => { if (row.stats && row.stats[k] !== undefined) update[k] = stats[k]; });
+        if (row.team_name) update.team_name = row.team_name;
+        await supabase.from('season_stats').update(update).eq('id', existing.id);
+      } else {
+        const insertRow = { season: seasonNum, roblox_username: username, team_name: row.team_name || null };
+        STAT_KEYS.forEach(k => insertRow[k] = stats[k] || 0);
+        await supabase.from('season_stats').insert(insertRow);
       }
+      count++;
     }
     res.json({ success: true, imported: count });
   } catch (err) {
