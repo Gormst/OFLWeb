@@ -96,6 +96,8 @@
   .field input[type=text],.field input[type=date]{background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:500;font-size:16px;padding:12px 14px;}
   .field input[type=text]:focus,.field input[type=date]:focus{outline:none;border-color:var(--navy);}
   .field input[type=date]{font-family:'Oswald';color:var(--navy);}
+  .field textarea{background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Space Mono';font-size:13px;padding:12px 14px;resize:vertical;width:100%;}
+  .field textarea:focus{outline:none;border-color:var(--navy);}
   .color-row{display:flex;gap:10px;align-items:center;}
   .color-row input[type=color]{width:48px;height:46px;border:1px solid var(--line-strong);background:none;cursor:pointer;padding:2px;}
   .color-row input[type=text]{flex:1;}
@@ -219,6 +221,7 @@
       <button class="tab" data-tab="teams">Teams</button>
       <button class="tab" data-tab="schedule">Schedule</button>
       <button class="tab" data-tab="players">Players</button>
+      <button class="tab" data-tab="seasons">Past Seasons</button>
     </div>
 
     <!-- USER ACCESS -->
@@ -364,6 +367,35 @@
 
     <!-- PLAYERS -->
     <div class="section" id="section-players">
+
+      <!-- IMPORT GAME BOX SCORE -->
+      <div class="panel">
+        <h3>Import Game Box Score</h3>
+        <div class="desc">Select the game (or both teams), then paste the box score CSV from the sheet. Stats are added to each player's season totals, and a box score is saved for this game.</div>
+        <div class="team-form">
+          <div class="field full">
+            <label>Game (optional)</label>
+            <select id="bx_game"><option value="">— No specific game —</option></select>
+          </div>
+          <div class="field">
+            <label>Team 1</label>
+            <select id="bx_team1"></select>
+          </div>
+          <div class="field">
+            <label>Team 2</label>
+            <select id="bx_team2"></select>
+          </div>
+        </div>
+        <div class="field full" style="margin-top:18px;">
+          <label>Box Score CSV</label>
+          <textarea id="bx_csv" rows="8" placeholder="Paste the CSV here (the two-team box score export from the sheet)"></textarea>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:18px;">
+          <button class="save-btn" id="bxImportBtn">Import Box Score</button>
+        </div>
+        <div class="msg" id="bxMsg"></div>
+      </div>
+
       <div class="panel">
         <h3 id="playerFormTitle">Add a Player</h3>
         <div class="desc">Enter the player's Roblox username (used for their name and profile picture) and team. Fill in stats now or edit them later.</div>
@@ -451,6 +483,34 @@
       </div>
     </div>
 
+    <!-- PAST SEASONS -->
+    <div class="section" id="section-seasons">
+      <div class="panel">
+        <h3>Import Past Season Stats</h3>
+        <div class="desc">Enter the season number and paste the season-totals CSV (same layout as a box score, but with full-season numbers). This won't affect current-season player stats — it's stored separately as historical data.</div>
+        <div class="team-form">
+          <div class="field">
+            <label>Season Number *</label>
+            <input type="text" id="ss_season" placeholder="e.g. 47">
+          </div>
+        </div>
+        <div class="field full" style="margin-top:18px;">
+          <label>Season Stats CSV</label>
+          <textarea id="ss_csv" rows="8" placeholder="Paste the season totals CSV here"></textarea>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:18px;">
+          <button class="save-btn" id="ssImportBtn">Import Season</button>
+        </div>
+        <div class="msg" id="ssMsg"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Imported Seasons</h3>
+        <div class="desc">Seasons currently available on the public stats page.</div>
+        <div id="seasonList"><p style="color:var(--muted);font-style:italic;padding:10px 0;">Loading…</p></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -471,7 +531,7 @@
   function showMsg(t,ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
 
   // friendly label for a tab key
-  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Players' };
+  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Players', seasons:'Past Seasons' };
 
   // ── gate check ──
   (async function(){
@@ -488,6 +548,8 @@
       loadTeams();
       loadSchedule();
       loadPlayers();
+      populateBoxScoreGames();
+      loadSeasonsList();
     }catch(e){ $('gateNoAccess').style.display='block'; }
   })();
 
@@ -635,6 +697,7 @@
       renderTeams(teamsCache);
       populateTeamSelects();
       populatePlayerTeam();
+      populateBoxScoreSelects();
     }catch(e){}
   }
 
@@ -1022,6 +1085,91 @@
       resetPlayerForm();
       loadPlayers();
     }catch(e){ playerMsg('Network error'); }
+  });
+  // ── BOX SCORE IMPORT ──
+  function bxMsg(t,ok){ const m=$('bxMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},3000); }
+
+  function populateBoxScoreSelects(){
+    const teamOpts='<option value="">— Select team —</option>'+teamsCache.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+    if($('bx_team1')) $('bx_team1').innerHTML=teamOpts;
+    if($('bx_team2')) $('bx_team2').innerHTML=teamOpts;
+  }
+
+  async function populateBoxScoreGames(){
+    const sel=$('bx_game');
+    if(!sel) return;
+    try{
+      const r=await fetch('/api/games'); const j=await r.json();
+      const games=(j.games||[]).slice().sort((a,b)=>String(b.game_date||'').localeCompare(String(a.game_date||'')));
+      sel.innerHTML='<option value="">— No specific game —</option>'+games.map(g=>{
+        const away=g.away_team?g.away_team.name:'?', home=g.home_team?g.home_team.name:'?';
+        const wk=g.week?('Wk '+g.week+' — '):'';
+        return `<option value="${g.id}" data-home="${g.home_team_id}" data-away="${g.away_team_id}">${wk}${away} @ ${home}</option>`;
+      }).join('');
+    }catch(e){}
+  }
+
+  // when a game is picked, auto-fill the team selects
+  if($('bx_game')) $('bx_game').addEventListener('change',()=>{
+    const opt=$('bx_game').selectedOptions[0];
+    if(opt && opt.dataset.away){ $('bx_team1').value=opt.dataset.away; $('bx_team2').value=opt.dataset.home; }
+  });
+
+  if($('bxImportBtn')) $('bxImportBtn').addEventListener('click',async()=>{
+    const csv=$('bx_csv').value;
+    if(!csv.trim()){ bxMsg('Paste the box score CSV first'); return; }
+    const body={
+      csv,
+      game_id: $('bx_game').value || null,
+      team1_id: $('bx_team1').value || null,
+      team2_id: $('bx_team2').value || null
+    };
+    $('bxImportBtn').disabled=true; $('bxImportBtn').textContent='Importing…';
+    try{
+      const r=await apiFetch('/api/admin/import-game',{method:'POST',body:JSON.stringify(body)});
+      const j=await r.json();
+      if(!r.ok){ bxMsg(j.error||'Import failed'); return; }
+      bxMsg('Box score imported — player stats updated',true);
+      $('bx_csv').value='';
+      loadPlayers();
+    }catch(e){ bxMsg('Network error'); }
+    finally{ $('bxImportBtn').disabled=false; $('bxImportBtn').textContent='Import Box Score'; }
+  });
+
+  // ── PAST SEASONS ──
+  function ssMsg(t,ok){ const m=$('ssMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},3000); }
+
+  async function loadSeasonsList(){
+    const box=$('seasonList');
+    if(!box) return;
+    try{
+      const r=await fetch('/api/seasons'); const j=await r.json();
+      const seasons=j.seasons||[];
+      if(seasons.length===0){ box.innerHTML='<p style="color:var(--muted);font-style:italic;padding:10px 0;">No past seasons imported yet.</p>'; return; }
+      box.innerHTML=seasons.map(s=>`<span class="chip on" style="margin:4px 6px 4px 0;display:inline-block;">Season ${s}</span>`).join('');
+    }catch(e){}
+  }
+
+  if($('ssImportBtn')) $('ssImportBtn').addEventListener('click',async()=>{
+    const csv=$('ss_csv').value;
+    const season=$('ss_season').value.trim();
+    if(!season){ ssMsg('Enter a season number'); return; }
+    if(!csv.trim()){ ssMsg('Paste the season stats CSV first'); return; }
+    $('ssImportBtn').disabled=true; $('ssImportBtn').textContent='Importing…';
+    try{
+      const r=await apiFetch('/api/admin/import-season',{method:'POST',body:JSON.stringify({csv,season})});
+      const j=await r.json();
+      if(!r.ok){ ssMsg(j.error||'Import failed'); return; }
+      ssMsg(`Imported stats for ${j.imported} players`,true);
+      $('ss_csv').value='';
+      loadSeasonsList();
+    }catch(e){ ssMsg('Network error'); }
+    finally{ $('ssImportBtn').disabled=false; $('ssImportBtn').textContent='Import Season'; }
+  });
+
+  // load seasons list when the Past Seasons tab becomes visible
+  document.querySelectorAll('.tab').forEach(b=>{
+    if(b.dataset.tab==='seasons') b.addEventListener('click',loadSeasonsList);
   });
 </script>
 </body>

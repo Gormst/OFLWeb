@@ -58,6 +58,8 @@
   .page-head{display:flex;align-items:baseline;gap:20px;margin-bottom:30px;flex-wrap:wrap;}
   .eyebrow{font-family:'Space Mono';font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--red);}
   h1{font-family:'Anton';font-size:clamp(46px,7vw,84px);text-transform:uppercase;line-height:.9;}
+  .season-select{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1px;background:var(--paper-2);border:1px solid var(--line-strong);color:var(--navy);padding:10px 16px;cursor:pointer;margin-left:auto;}
+  .season-select:focus{outline:none;border-color:var(--navy);}
 
   /* category tabs */
   .cat-tabs{display:flex;gap:0;border-bottom:2px solid var(--navy);margin-bottom:30px;overflow-x:auto;scrollbar-width:none;}
@@ -128,6 +130,7 @@
   <div class="page-head">
     <span class="eyebrow">// Season 48</span>
     <h1>Stats</h1>
+    <select id="seasonSelect" class="season-select"><option value="current">Current Season</option></select>
   </div>
 
   <div class="cat-tabs" id="catTabs"></div>
@@ -236,6 +239,25 @@
     catch(e){ $('statBody').innerHTML='<tr><td class="empty">Could not load stats.</td></tr>'; return; }
     renderTabs();
     selectCat('passing');
+
+    // populate past-season options
+    try{
+      const sj=await (await fetch('/api/seasons')).json();
+      const sel=$('seasonSelect');
+      (sj.seasons||[]).forEach(s=>{
+        const o=document.createElement('option'); o.value='s'+s; o.textContent='Season '+s; sel.appendChild(o);
+      });
+      sel.addEventListener('change',async()=>{
+        if(sel.value==='current'){
+          PLAYERS=(await (await fetch('/api/players')).json()).players||[];
+        } else {
+          const seasonNum=sel.value.slice(1);
+          const pj=await (await fetch('/api/seasons/'+seasonNum)).json();
+          PLAYERS=pj.players||[];
+        }
+        render();
+      });
+    }catch(e){}
   })();
 
   function renderTabs(){
@@ -259,6 +281,8 @@
       const init=(t.abbreviation||(t.name||'').slice(0,2)).toUpperCase();
       tb = t.logo_url ? `<span class="pl-team" style="background:${color}"><img src="${t.logo_url}" onerror="this.style.display='none';this.parentNode.textContent='${init}'"></span>`
                       : `<span class="pl-team" style="background:${color}">${init}</span>`;
+    } else if(p.team_name){
+      tb = `<span class="pl-team" style="background:#15233E">${(p.team_name||'').slice(0,2).toUpperCase()}</span>`;
     }
     return `<div class="pl-cell">${av}<span class="pl-name">${p.roblox_username||'—'}</span>${tb}</div>`;
   }

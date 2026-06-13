@@ -47,7 +47,7 @@ function verifyToken(token) {
 const SUPERUSER = 'famouskai12';
 
 // All admin tabs that can be granted
-const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'players'];
+const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'players', 'seasons'];
 
 // raw stat columns that can be set on a player (no derived stats stored)
 const STAT_KEYS = [
@@ -60,6 +60,138 @@ const STAT_KEYS = [
 ];
 function normInt(v){ const n=parseInt(v,10); return isNaN(n)?0:(n<0?0:n); }
 function pickStats(body){ const o={}; STAT_KEYS.forEach(k=>{ o[k]=normInt(body[k]); }); return o; }
+
+// ─────────────────────────────────────────────
+//  BOX SCORE CSV PARSING
+// ─────────────────────────────────────────────
+//
+// Layout: two team blocks side-by-side. Each block is a column range.
+// Within a block, rows are: TEAM NAME header, then sections (PASSING,
+// RUSHING, RECEIVING, BLOCKING, DEFENSE), each with a column-header row
+// followed by player rows until a blank row or the next ALL-CAPS section.
+
+// maps a section's column header label -> our stat key, per section
+const SECTION_COL_MAP = {
+  PASSING:   { COMP:'pass_comp', ATT:'pass_att', YDS:'pass_yards', TD:'pass_td', INT:'pass_int' }, // COMP%/YPA/RTG are derived, ignored
+  RUSHING:   { RUSH:'rush_att', YDS:'rush_yards', TD:'rush_td' }, // YPR derived
+  RECEIVING: { TRGT:'targets', REC:'receptions', YDS:'rec_yards', TD:'rec_td' }, // CATCH%/YPT derived
+  BLOCKING:  { SNAP:'snaps_played', 'TFL A':'tfls_allowed', 'SCK A':'sacks_allowed', 'PRES A':'pressures_allowed' },
+  DEFENSE:   { PRESS:'pr_pressures', TFL:'pr_tfl', SACKS:'pr_sacks', SAFETY:'pr_safeties', SWATS:'pr_swats', INT:'cov_int', TD:'cov_td' }
+};
+const KNOWN_SECTIONS = Object.keys(SECTION_COL_MAP);
+
+// parse raw CSV text into rows of cells (handles quoted fields with commas)
+function parseCSVText(text) {
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (line === '') { rows.push([]); continue; }
+    const cells = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; continue; }
+      if (ch === ',' && !inQ) { cells.push(cur); cur = ''; continue; }
+      cur += ch;
+    }
+    cells.push(cur);
+    rows.push(cells.map(c => c.trim()));
+  }
+  return rows;
+}
+
+// is this row effectively empty (all cells blank) within a column range?
+function rowEmpty(row, c0, c1) {
+  for (let c = c0; c <= c1; c++) if ((row[c] || '').trim() !== '') return false;
+  return true;
+}
+
+// parse one team's block of columns [c0..c1] starting at row index r0.
+// returns { teamName, players: { username: { ...stat increments... } } }
+function parseTeamBlock(rows, c0, c1, r0) {
+  const players = {}; // username -> accumulated stat object
+  const teamName = (rows[r0] && rows[r0][c0] || '').trim();
+  let r = r0 + 1;
+
+  function addStat(username, key, value) {
+    if (!username) return;
+    if (!players[username]) players[username] = {};
+    players[username][key] = (players[username][key] || 0) + (normFloat(value) || 0);
+  }
+  function normFloat(v) {
+    if (v === undefined || v === null) return 0;
+    const s = String(v).replace('%', '').trim();
+    if (s === '' || s.toUpperCase() === 'X') return 0;
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+  }
+
+  while (r < rows.length) {
+    const row = rows[r] || [];
+    const label = (row[c0] || '').trim().toUpperCase();
+
+    if (rowEmpty(row, c0, c1)) { r++; continue; }
+
+    if (KNOWN_SECTIONS.includes(label)) {
+      const section = label;
+      const colMap = SECTION_COL_MAP[section];
+      // next row is the column-header row
+      const headerRow = rows[r + 1] || [];
+      // build column index -> stat key for this block's columns
+      const idxToKey = {};
+      for (let c = c0; c <= c1; c++) {
+        const h = (headerRow[c] || '').trim().toUpperCase();
+        if (colMap[h]) idxToKey[c] = colMap[h];
+      }
+      const usernameCol = c0; // first column of the block is always the username
+      const posCol = (section === 'RECEIVING' || section === 'DEFENSE') ? c0 + 1 : null;
+
+      r += 2; // skip section header + column header rows
+      // consume player rows until blank row or a new known section
+      while (r < rows.length) {
+        const pr = rows[r] || [];
+        if (rowEmpty(pr, c0, c1)) break;
+        const nextLabel = (pr[c0] || '').trim().toUpperCase();
+        if (KNOWN_SECTIONS.includes(nextLabel) || nextLabel === 'QB THROWAWAYS') break;
+        const username = (pr[usernameCol] || '').trim();
+        if (username) {
+          for (const [colIdx, key] of Object.entries(idxToKey)) {
+            addStat(username, key, pr[colIdx]);
+          }
+        }
+        r++;
+      }
+      continue;
+    }
+
+    // unknown row (e.g. "QB THROWAWAYS" marker row) — skip
+    r++;
+  }
+
+  return { teamName, players };
+}
+
+// parse a full two-team box score CSV. Returns { team1, team2 } each
+// shaped { teamName, players: { username: {statkey: value, ...} } }
+function parseBoxScoreCSV(text) {
+  const rows = parseCSVText(text);
+  if (rows.length === 0) return null;
+  // find the split point: first row, first non-empty cell after a gap = team2 start col
+  const firstRow = rows[0] || [];
+  let team1Col = 0;
+  let team2Col = null;
+  for (let c = 1; c < firstRow.length; c++) {
+    if ((firstRow[c] || '').trim() !== '') { team2Col = c; break; }
+  }
+  if (team2Col == null) {
+    // only one team block in the CSV
+    const t1 = parseTeamBlock(rows, 0, firstRow.length - 1, 0);
+    return { team1: t1, team2: null };
+  }
+  const t1 = parseTeamBlock(rows, team1Col, team2Col - 1, 0);
+  const t2 = parseTeamBlock(rows, team2Col, firstRow.length - 1, 0);
+  return { team1: t1, team2: t2 };
+}
+
 
 // ─────────────────────────────────────────────
 //  HELPERS
@@ -481,6 +613,145 @@ app.delete('/api/admin/games/:id', async (req, res) => {
 // ─────────────────────────────────────────────
 //  PLAYERS + STATS
 // ─────────────────────────────────────────────
+
+// ─────────────────────────────────────────────
+//  BOX SCORE / STATS IMPORT
+// ─────────────────────────────────────────────
+
+// admin — import a game box score CSV: adds to player season totals + stores the box score
+app.post('/api/admin/import-game', async (req, res) => {
+  const me = await requireAdmin(req, res, 'players');
+  if (!me) return;
+  try {
+    const { csv, game_id, team1_id, team2_id } = req.body;
+    if (!csv || !csv.trim()) return res.status(400).json({ error: 'CSV is required' });
+
+    const parsed = parseBoxScoreCSV(csv);
+    if (!parsed || !parsed.team1) return res.status(400).json({ error: 'Could not parse CSV' });
+
+    const { data: allPlayers } = await supabase.from('players').select('*');
+    const byUsername = {};
+    (allPlayers || []).forEach(p => { byUsername[(p.roblox_username || '').toLowerCase()] = p; });
+
+    // apply increments for one team's players
+    async function applyTeam(block, teamId) {
+      if (!block) return;
+      for (const [username, deltas] of Object.entries(block.players)) {
+        const key = username.toLowerCase();
+        let player = byUsername[key];
+        if (!player) {
+          // create the player (resolve roblox avatar)
+          let roblox_user_id = null, avatar_url = null, rname = username;
+          const ru = await getRobloxUser(username);
+          if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
+          const insertRow = { roblox_username: rname, roblox_user_id, avatar_url, team_id: teamId || null };
+          STAT_KEYS.forEach(k => insertRow[k] = 0);
+          const { data } = await supabase.from('players').insert(insertRow).select().single();
+          player = data;
+          byUsername[key] = player;
+        }
+        const update = {};
+        STAT_KEYS.forEach(k => { update[k] = (player[k] || 0) + Math.round(deltas[k] || 0); });
+        const { data: updated } = await supabase.from('players').update(update).eq('id', player.id).select().single();
+        byUsername[key] = updated;
+      }
+    }
+
+    await applyTeam(parsed.team1, team1_id);
+    await applyTeam(parsed.team2, team2_id);
+
+    // store the box score record
+    const { data: box, error } = await supabase.from('box_scores').insert({
+      game_id: game_id || null,
+      team1_name: parsed.team1.teamName || null,
+      team2_name: parsed.team2 ? parsed.team2.teamName : null,
+      team1_id: team1_id || null,
+      team2_id: team2_id || null,
+      data: parsed
+    }).select().single();
+    if (error) throw error;
+
+    res.json({ success: true, box_score_id: box.id });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// public — fetch a stored box score by id
+app.get('/api/box-scores/:id', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('box_scores').select('*').eq('id', req.params.id).single();
+    if (error || !data) return res.status(404).json({ error: 'Not found' });
+    res.json({ box_score: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// public — list box scores (most recent first)
+app.get('/api/box-scores', async (req, res) => {
+  try {
+    const { data } = await supabase.from('box_scores').select('id, game_id, team1_name, team2_name, team1_id, team2_id, created_at').order('created_at', { ascending: false });
+    res.json({ box_scores: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — import previous-season stats CSV (same layout, season totals)
+app.post('/api/admin/import-season', async (req, res) => {
+  const me = await requireAdmin(req, res, 'seasons');
+  if (!me) return;
+  try {
+    const { csv, season } = req.body;
+    if (!csv || !csv.trim()) return res.status(400).json({ error: 'CSV is required' });
+    const seasonNum = parseInt(season, 10);
+    if (isNaN(seasonNum)) return res.status(400).json({ error: 'Season number is required' });
+
+    const parsed = parseBoxScoreCSV(csv);
+    if (!parsed || !parsed.team1) return res.status(400).json({ error: 'Could not parse CSV' });
+
+    const blocks = [parsed.team1, parsed.team2].filter(Boolean);
+    let count = 0;
+    for (const block of blocks) {
+      for (const [username, totals] of Object.entries(block.players)) {
+        const row = { season: seasonNum, roblox_username: username, team_name: block.teamName || null };
+        STAT_KEYS.forEach(k => row[k] = Math.round(totals[k] || 0));
+        // remove any existing row for this player+season, then insert fresh (replace, not add)
+        await supabase.from('season_stats').delete().eq('season', seasonNum).ilike('roblox_username', username);
+        await supabase.from('season_stats').insert(row);
+        count++;
+      }
+    }
+    res.json({ success: true, imported: count });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// public — list available past seasons
+app.get('/api/seasons', async (req, res) => {
+  try {
+    const { data } = await supabase.from('season_stats').select('season');
+    const seasons = [...new Set((data || []).map(r => r.season))].sort((a, b) => b - a);
+    res.json({ seasons });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// public — stats for a given past season
+app.get('/api/seasons/:season', async (req, res) => {
+  try {
+    const seasonNum = parseInt(req.params.season, 10);
+    const { data } = await supabase.from('season_stats').select('*').eq('season', seasonNum);
+    res.json({ season: seasonNum, players: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ─────────────────────────────────────────────
 //  PLAYERS / STATS
