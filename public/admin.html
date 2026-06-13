@@ -141,6 +141,37 @@
   .cat-row-del:hover{background:var(--red);color:var(--paper);}
   .cat-empty{font-family:'Space Mono';font-size:12px;color:var(--muted);font-style:italic;padding:10px 0;}
 
+  /* team import grid (Home/Away style) */
+  .team-import-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;}
+  @media(max-width:900px){ .team-import-grid{grid-template-columns:1fr;} }
+  .team-import-card{background:var(--paper-2);border:1px solid var(--line-strong);padding:24px;}
+  .team-import-card h3{font-family:'Oswald';font-weight:700;font-size:19px;text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;}
+  .team-import-card h3 .side{color:var(--red);}
+
+  .cat-subtabs{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line-strong);margin-bottom:16px;padding-bottom:0;}
+  .cat-subtab{font-family:'Oswald';font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:1px;padding:9px 14px;cursor:pointer;border:none;background:none;color:var(--muted);border-bottom:2px solid transparent;}
+  .cat-subtab.active{color:var(--navy);border-bottom-color:var(--red);}
+  .cat-subtab:hover:not(.active){color:var(--navy);}
+
+  .csv-label{font-family:'Space Mono';font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;display:block;}
+  .team-import-card textarea{width:100%;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Space Mono';font-size:12px;padding:10px 12px;resize:vertical;}
+  .team-import-card textarea:focus{outline:none;border-color:var(--navy);}
+
+  .roster-table-wrap{margin-top:14px;overflow-x:auto;}
+  .roster-table{width:100%;border-collapse:collapse;}
+  .roster-table th{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);text-align:center;padding:8px 6px;border-bottom:2px solid var(--navy);white-space:nowrap;}
+  .roster-table th:first-child{text-align:left;}
+  .roster-table td{padding:6px;text-align:center;border-bottom:1px solid var(--line);}
+  .roster-table td:first-child{text-align:left;min-width:140px;}
+  .roster-table select{width:100%;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:600;font-size:13px;padding:6px 8px;}
+  .roster-table input{width:56px;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:600;font-size:13px;padding:6px;text-align:center;}
+  .roster-table select:focus,.roster-table input:focus{outline:none;border-color:var(--navy);}
+  .roster-row-del{font-family:'Space Mono';font-size:12px;color:var(--red);border:1px solid var(--red);background:none;padding:4px 8px;cursor:pointer;}
+  .roster-row-del:hover{background:var(--red);color:var(--paper);}
+
+  .add-player-btn{font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--navy);border:1px solid var(--navy);background:none;padding:10px 18px;margin-top:14px;cursor:pointer;transition:all .15s;}
+  .add-player-btn:hover{background:var(--navy);color:var(--paper);}
+
   /* selects in forms */
   .field select{background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:500;font-size:16px;padding:12px 14px;cursor:pointer;}
   .field select:focus{outline:none;border-color:var(--navy);}
@@ -364,7 +395,7 @@
     <div class="section" id="section-players">
       <div class="panel">
         <h3>Import Game Stats</h3>
-        <div class="desc">Select the game (or both teams), then paste each category's CSV below. Pasted rows become an editable table — adjust any value before importing. Stats are added to each player's season totals.</div>
+        <div class="desc">Select the game (or both teams). For each team, switch between stat categories, paste a CSV to fill the table or use Add Player to enter stats manually. Stats are added to each player's season totals.</div>
         <div class="team-form">
           <div class="field full">
             <label>Game (optional)</label>
@@ -381,11 +412,11 @@
         </div>
       </div>
 
-      <div id="catCardsGame"></div>
+      <div class="team-import-grid" id="teamImportGrid"></div>
 
       <div class="panel">
         <div style="display:flex;gap:12px;">
-          <button class="save-btn" id="bxImportBtn">Import All Stats</button>
+          <button class="save-btn" id="bxImportBtn">Submit All Stats</button>
         </div>
         <div class="msg" id="bxMsg"></div>
       </div>
@@ -972,7 +1003,7 @@
     return card;
   }
 
-  // ── GAME STATS IMPORT ──
+  // ── GAME STATS IMPORT (team cards w/ category sub-tabs) ──
   function bxMsg(t,ok){ const m=$('bxMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},3000); }
 
   function populateBoxScoreSelects(){
@@ -995,59 +1026,216 @@
     }catch(e){}
   }
 
+  let allPlayersCache=[];
+  async function loadAllPlayers(){
+    try{ allPlayersCache=(await (await fetch('/api/players')).json()).players||[]; }catch(e){ allPlayersCache=[]; }
+  }
+
+  // ---- TeamImportCard: one Home/Away card with category sub-tabs ----
+  function buildTeamImportCard(side){
+    const card=document.createElement('div');
+    card.className='team-import-card';
+    card.dataset.side=side;
+    card.innerHTML=`
+      <h3><span class="side-label">Team ${side}</span></h3>
+      <div class="cat-subtabs"></div>
+      <label class="csv-label">Paste CSV (optional)</label>
+      <textarea rows="4" placeholder="Paste this category's CSV here"></textarea>
+      <button type="button" class="cat-parse-btn">Parse CSV</button>
+      <div class="roster-table-wrap"></div>
+      <button type="button" class="add-player-btn">+ Add Player</button>
+    `;
+
+    card._players=[]; // [{playerId|null, username, stats:{...}}]
+    card._activeCat='passing';
+    card._teamId=null;
+
+    const subtabsEl=card.querySelector('.cat-subtabs');
+    const textarea=card.querySelector('textarea');
+    const parseBtn=card.querySelector('.cat-parse-btn');
+    const tableWrap=card.querySelector('.roster-table-wrap');
+    const addBtn=card.querySelector('.add-player-btn');
+
+    subtabsEl.innerHTML=CATEGORIES.map(c=>`<button type="button" class="cat-subtab ${c.key===card._activeCat?'active':''}" data-cat="${c.key}">${c.label}</button>`).join('');
+    subtabsEl.querySelectorAll('.cat-subtab').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        card._activeCat=btn.dataset.cat;
+        subtabsEl.querySelectorAll('.cat-subtab').forEach(b=>b.classList.toggle('active',b===btn));
+        textarea.value='';
+        renderTable();
+      });
+    });
+
+    function rosterOptions(){
+      const roster=allPlayersCache.filter(p=>p.team_id===card._teamId);
+      return '<option value="">— Player —</option>'+roster.map(p=>`<option value="${p.id}" data-name="${p.roblox_username}">${p.roblox_username}</option>`).join('');
+    }
+
+    function renderTable(){
+      const cat=CATEGORIES.find(c=>c.key===card._activeCat);
+      if(card._players.length===0){
+        tableWrap.innerHTML='<p class="cat-empty">No players added yet — paste a CSV or click "+ Add Player".</p>';
+        return;
+      }
+      const head=`<tr><th>Player</th>${cat.cols.map(c=>`<th>${c.h}</th>`).join('')}<th></th></tr>`;
+      const body=card._players.map((row,i)=>{
+        const opts=rosterOptions().replace(
+          row.playerId ? `value="${row.playerId}"` : '###none###',
+          row.playerId ? `value="${row.playerId}" selected` : '###none###'
+        );
+        const playerCell = row.playerId
+          ? `<select data-i="${i}" class="roster-select">${opts}</select>`
+          : `<select data-i="${i}" class="roster-select">${rosterOptions()}</select>`;
+        return `<tr data-i="${i}">
+          <td>${playerCell}</td>
+          ${cat.cols.map(c=>`<td><input type="number" step="any" data-k="${c.k}" value="${(row.stats[c.k]!=null?row.stats[c.k]:0)}"></td>`).join('')}
+          <td><button type="button" class="roster-row-del">×</button></td>
+        </tr>`;
+      }).join('');
+      tableWrap.innerHTML=`<table class="roster-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+
+      // wire stat inputs -> update card._players live
+      tableWrap.querySelectorAll('input[data-k]').forEach(inp=>{
+        inp.addEventListener('change',()=>{
+          const tr=inp.closest('tr'); const i=+tr.dataset.i;
+          card._players[i].stats[inp.dataset.k]=parseFloat(inp.value)||0;
+        });
+      });
+      // wire roster selects -> set username/playerId
+      tableWrap.querySelectorAll('.roster-select').forEach(sel=>{
+        sel.addEventListener('change',()=>{
+          const i=+sel.dataset.i;
+          const opt=sel.selectedOptions[0];
+          card._players[i].playerId=sel.value||null;
+          card._players[i].username=opt?(opt.dataset.name||''):'';
+        });
+      });
+      // wire delete
+      tableWrap.querySelectorAll('.roster-row-del').forEach(btn=>{
+        btn.addEventListener('click',()=>{
+          const tr=btn.closest('tr');
+          card._players.splice(+tr.dataset.i,1);
+          renderTable();
+        });
+      });
+    }
+
+    function emptyStats(){
+      const o={};
+      CATEGORIES.forEach(c=>c.cols.forEach(col=>{ o[col.k]=0; }));
+      return o;
+    }
+
+    addBtn.addEventListener('click',()=>{
+      card._players.push({playerId:null, username:'', stats:emptyStats()});
+      renderTable();
+    });
+
+    parseBtn.addEventListener('click',async()=>{
+      const csv=textarea.value;
+      if(!csv.trim()) return;
+      parseBtn.disabled=true; parseBtn.textContent='Parsing…';
+      try{
+        const r=await apiFetch('/api/admin/parse-category',{method:'POST',body:JSON.stringify({csv,category:card._activeCat})});
+        const j=await r.json();
+        if(!r.ok){ alert(j.error||'Parse failed'); return; }
+        (j.rows||[]).forEach(row=>{
+          const key=row.username.toLowerCase();
+          let existing=card._players.find(p=>p.username.toLowerCase()===key);
+          if(!existing){
+            // try to match an existing roster player by name
+            const match=allPlayersCache.find(p=>p.team_id===card._teamId && (p.roblox_username||'').toLowerCase()===key);
+            existing={playerId: match?match.id:null, username:row.username, stats:emptyStats()};
+            card._players.push(existing);
+          }
+          Object.assign(existing.stats, row.stats);
+        });
+        renderTable();
+      }catch(e){ alert('Network error parsing CSV'); }
+      finally{ parseBtn.disabled=false; parseBtn.textContent='Parse CSV'; }
+    });
+
+    card._renderTable=renderTable;
+    card._setTeam=function(teamId, teamName){
+      card._teamId=teamId||null;
+      card.querySelector('.side-label').textContent = teamName ? `${side === 1 ? 'Team 1' : 'Team 2'} — ${teamName}` : `Team ${side}`;
+      // refresh roster dropdowns in place
+      renderTable();
+    };
+    card._collect=function(){
+      return card._players
+        .filter(p=>p.username && p.username.trim())
+        .map(p=>({username:p.username.trim(), stats:p.stats, team_id: card._teamId}));
+    };
+    card._reset=function(){
+      card._players=[];
+      textarea.value='';
+      renderTable();
+    };
+
+    renderTable();
+    return card;
+  }
+
+  const teamCards={};
+  if($('teamImportGrid')){
+    teamCards[1]=buildTeamImportCard(1);
+    teamCards[2]=buildTeamImportCard(2);
+    $('teamImportGrid').appendChild(teamCards[1]);
+    $('teamImportGrid').appendChild(teamCards[2]);
+    loadAllPlayers().then(()=>{ teamCards[1]._renderTable(); teamCards[2]._renderTable(); });
+  }
+
   if($('bx_game')) $('bx_game').addEventListener('change',()=>{
     const opt=$('bx_game').selectedOptions[0];
     if(opt && opt.dataset.away){ $('bx_team1').value=opt.dataset.away; $('bx_team2').value=opt.dataset.home; }
+    syncTeamCards();
   });
+  if($('bx_team1')) $('bx_team1').addEventListener('change',syncTeamCards);
+  if($('bx_team2')) $('bx_team2').addEventListener('change',syncTeamCards);
 
-  // build the game category cards once
-  const gameCards={};
-  if($('catCardsGame')){
-    CATEGORIES.forEach(cat=>{
-      const card=buildCategoryCard(cat,'game');
-      gameCards[cat.key]=card;
-      $('catCardsGame').appendChild(card);
-    });
+  function syncTeamCards(){
+    const t1=$('bx_team1').selectedOptions[0], t2=$('bx_team2').selectedOptions[0];
+    if(teamCards[1]) teamCards[1]._setTeam($('bx_team1').value||null, t1&&t1.value?t1.textContent:'');
+    if(teamCards[2]) teamCards[2]._setTeam($('bx_team2').value||null, t2&&t2.value?t2.textContent:'');
   }
 
   if($('bxImportBtn')) $('bxImportBtn').addEventListener('click',async()=>{
-    // merge all category rows into one per-player payload
     const merged={};
     let any=false;
-    Object.values(gameCards).forEach(card=>{
-      const rows=card._collect();
-      rows.forEach(r=>{
+    [teamCards[1],teamCards[2]].forEach(card=>{
+      if(!card) return;
+      card._collect().forEach(r=>{
         any=true;
         const key=r.username.toLowerCase();
-        if(!merged[key]) merged[key]={username:r.username, stats:{}};
+        if(!merged[key]) merged[key]={username:r.username, stats:{}, team_id:r.team_id};
         Object.assign(merged[key].stats, r.stats);
       });
     });
-    if(!any){ bxMsg('Parse at least one category first'); return; }
+    if(!any){ bxMsg('Add or paste at least one player'); return; }
 
     const team1Id=$('bx_team1').value||null, team2Id=$('bx_team2').value||null;
     const team1Opt=$('bx_team1').selectedOptions[0], team2Opt=$('bx_team2').selectedOptions[0];
 
     const body={
-      players: Object.values(merged).map(p=>({...p, team_id:team1Id||team2Id||null})),
+      players: Object.values(merged),
       game_id: $('bx_game').value||null,
       team1_id: team1Id, team2_id: team2Id,
-      team1_name: team1Opt?team1Opt.textContent:null,
-      team2_name: team2Opt?team2Opt.textContent:null
+      team1_name: team1Opt&&team1Opt.value?team1Opt.textContent:null,
+      team2_name: team2Opt&&team2Opt.value?team2Opt.textContent:null
     };
 
-    $('bxImportBtn').disabled=true; $('bxImportBtn').textContent='Importing…';
+    $('bxImportBtn').disabled=true; $('bxImportBtn').textContent='Submitting…';
     try{
       const r=await apiFetch('/api/admin/import-game',{method:'POST',body:JSON.stringify(body)});
       const j=await r.json();
       if(!r.ok){ bxMsg(j.error||'Import failed'); return; }
-      bxMsg('Stats imported — player totals updated',true);
-      Object.values(gameCards).forEach(card=>{
-        card.querySelector('textarea').value='';
-        card._rows=[]; card._renderTable([]);
-      });
+      bxMsg('Stats submitted — player totals updated',true);
+      if(teamCards[1]) teamCards[1]._reset();
+      if(teamCards[2]) teamCards[2]._reset();
+      await loadAllPlayers();
     }catch(e){ bxMsg('Network error'); }
-    finally{ $('bxImportBtn').disabled=false; $('bxImportBtn').textContent='Import All Stats'; }
+    finally{ $('bxImportBtn').disabled=false; $('bxImportBtn').textContent='Submit All Stats'; }
   });
 
   // ── PAST SEASONS ──
