@@ -516,15 +516,43 @@ app.post('/api/admin/revoke', async (req, res) => {
 // ─────────────────────────────────────────────
 
 // public — list all teams (used later by standings, stats, etc.)
+// helper — convert team name to URL slug
+function slugify(name) {
+  return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
 app.get('/api/teams', async (req, res) => {
   try {
     const { data } = await supabase
       .from('teams').select('*').order('name');
-    res.json({ teams: data || [] });
+    res.json({ teams: (data || []).map(t => ({ ...t, slug: slugify(t.name) })) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+// public — get a single team by slug + its roster
+app.get('/api/teams/:slug', async (req, res) => {
+  try {
+    const { data: teams } = await supabase.from('teams').select('*').order('name');
+    const team = (teams || []).find(t => slugify(t.name) === req.params.slug);
+    if (!team) return res.status(404).json({ error: 'Team not found' });
+    const { data: players } = await supabase
+      .from('players').select('id, roblox_username, avatar_url, position, cap_value, team_id')
+      .eq('team_id', team.id)
+      .order('cap_value', { ascending: false });
+    const TEAM_CAP = 100_000_000;
+    const usedCap = (players || []).reduce((s, p) => s + (p.cap_value || 0), 0);
+    res.json({
+      team: { ...team, slug: slugify(team.name) },
+      players: players || [],
+      cap: { total: TEAM_CAP, used: usedCap, remaining: TEAM_CAP - usedCap }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // admin — create a team
 app.post('/api/admin/teams', async (req, res) => {
@@ -937,6 +965,9 @@ app.delete('/api/admin/players/:id', async (req, res) => {
 app.use(express.static(PUBLIC_DIR, { extensions: false }));
 
 app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
+
+// /teams/:id -> teams.html (the page reads the id from the URL client-side)
+app.get('/teams/:id', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'teams.html')));
 
 app.get('/:page.html', (req, res) => {
   res.redirect(301, '/' + req.params.page.replace(/index$/, ''));
