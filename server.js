@@ -537,10 +537,21 @@ app.get('/api/teams/:slug', async (req, res) => {
     const { data: teams } = await supabase.from('teams').select('*').order('name');
     const team = (teams || []).find(t => slugify(t.name) === req.params.slug);
     if (!team) return res.status(404).json({ error: 'Team not found' });
-    const { data: players } = await supabase
-      .from('players').select('id, roblox_username, avatar_url, position, cap_value, team_id')
+    const { data: players, error: playerErr } = await supabase
+      .from('players').select('*')
       .eq('team_id', team.id)
       .order('cap_value', { ascending: false });
+    if (playerErr) {
+      // cap_value column may not exist yet — fall back to name-only query
+      const { data: playersBasic } = await supabase
+        .from('players').select('id, roblox_username, avatar_url, team_id')
+        .eq('team_id', team.id);
+      return res.json({
+        team: { ...team, slug: slugify(team.name) },
+        players: (playersBasic || []).map(p => ({ ...p, position: null, cap_value: 0 })),
+        cap: { total: 100_000_000, used: 0, remaining: 100_000_000 }
+      });
+    }
     const TEAM_CAP = 100_000_000;
     const usedCap = (players || []).reduce((s, p) => s + (p.cap_value || 0), 0);
     res.json({
