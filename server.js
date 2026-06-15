@@ -991,35 +991,78 @@ function parseCapRegistryCSV(text) {
   const players = [];
   let currentCap = 0;
 
-  function splitCSVLine(line) {
-    const cells = []; let cur = '', inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') { inQ = !inQ; continue; }
-      if (ch === ',' && !inQ) { cells.push(cur.trim()); cur = ''; continue; }
-      cur += ch;
-    }
-    cells.push(cur.trim()); return cells;
-  }
-
   for (const raw of text.split(/\r?\n/)) {
-    const cells = splitCSVLine(raw);
-    const col1 = cells[1] || '', col2 = cells[2] || '';
-    if (!col1 && !col2) continue;
-    const capMatch = col1.match(/\(\$([0-9,]+)\)/);
-    if (capMatch) { currentCap = parseInt(capMatch[1].replace(/,/g,''), 10); continue; }
-    if (col1.toUpperCase() === 'USERNAME' || col1.includes('MILLION')) continue;
-    const rawUsername = col1;
-    if (!rawUsername || rawUsername === '-') continue;
+    const line = raw.trim();
+    if (!line) continue;
+
+    // split on comma or tab, then clean each cell
+    const cells = line.split(/[,\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
+
+    // detect tier header — any cell contains "$X,XXX,XXX" or "MILLION PLAYERS"
+    const fullLine = cells.join(' ');
+    const capMatch = fullLine.match(/\(\$([0-9,]+)\)/);
+    if (capMatch) { currentCap = parseInt(capMatch[1].replace(/,/g, ''), 10); continue; }
+    if (fullLine.match(/MILLION PLAYERS/i)) continue;
+
+    // skip column header rows
+    if (cells.some(c => c.toUpperCase() === 'USERNAME')) continue;
+
+    // find the username cell — first non-empty, non-dash cell
+    let username = '', eligibility = 'DPP-ELIGIBLE';
+    const meaningful = cells.filter(c => c && c !== '-');
+    if (!meaningful.length) continue;
+
+    // if only one meaningful cell, try splitting on last whitespace
+    // e.g. "famouskai12 ESTABLISHED" or "intaged (QB) ESTABLISHED"
+    if (meaningful.length === 1) {
+      const single = meaningful[0];
+      const eligWords = ['ESTABLISHED', 'DPP-ELIGIBLE', 'DPP ELIGIBLE'];
+      for (const ew of eligWords) {
+        if (single.toUpperCase().endsWith(ew)) {
+          eligibility = ew === 'ESTABLISHED' ? 'ESTABLISHED' : 'DPP-ELIGIBLE';
+          meaningful[0] = single.slice(0, single.length - ew.length).trim().replace(/,\s*$/, '').trim();
+          break;
+        }
+      }
+    }
+
+    // last cell is eligibility if it matches known values
+    const lastCell = meaningful[meaningful.length - 1].toUpperCase();
+    if (lastCell === 'ESTABLISHED' || lastCell === 'DPP-ELIGIBLE' || lastCell === 'DPP ELIGIBLE') {
+      eligibility = lastCell === 'ESTABLISHED' ? 'ESTABLISHED' : 'DPP-ELIGIBLE';
+      meaningful.pop();
+    }
+
+    // merge any standalone position-tag cell (e.g. "(QB)") back with the username
+    const merged = [];
+    for (const cell of meaningful) {
+      if (merged.length && /^\([^)]+\)$/.test(cell)) {
+        merged[merged.length - 1] = merged[merged.length - 1] + ' ' + cell;
+      } else {
+        merged.push(cell);
+      }
+    }
+
+    // what's left is the username — join remaining cells
+    const rawUsername = merged.join(' ').trim();
+    if (!rawUsername) continue;
+
+    // extract position tag like (QB) — must be at end of string
     const posMatch = rawUsername.match(/\s*\(([^)]+)\)\s*$/);
     const positionTag = posMatch ? posMatch[1].trim() : null;
-    const username = rawUsername.replace(/\s*\([^)]+\)\s*$/, '').trim();
+    username = rawUsername.replace(/\s*\([^)]+\)\s*$/, '').trim();
     if (!username) continue;
-    const rawElig = col2.toUpperCase().trim();
-    const eligibility = rawElig === 'ESTABLISHED' ? 'ESTABLISHED' : 'DPP-ELIGIBLE';
+
+    // skip anything that looks like a header or tier label
+    if (username.toUpperCase().includes('MILLION') || username.toUpperCase() === 'USERNAME') continue;
+
     players.push({ username, eligibility, cap_value: currentCap, position_tag: positionTag });
   }
-  return players.filter(p => !p.username.includes('MILLION'));
+
+  // deduplicate within the parsed list
+  const seen = new Map();
+  players.forEach(p => seen.set(p.username.toLowerCase(), p));
+  return [...seen.values()];
 }
 
 // public — get all registry players (with current team info joined)
