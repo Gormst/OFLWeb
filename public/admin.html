@@ -187,6 +187,27 @@
   .game-del{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--red);border:1px solid var(--red);background:none;padding:6px 12px;cursor:pointer;}
   .game-del:hover{background:var(--red);color:var(--paper);}
 
+  /* request cards */
+  .req-card{background:var(--paper);border:1px solid var(--line-strong);padding:20px;margin-bottom:14px;}
+  .req-card .rq-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px;flex-wrap:wrap;}
+  .req-card .rq-type{font-family:'Oswald';font-weight:700;font-size:16px;text-transform:uppercase;}
+  .req-card .rq-team{font-family:'Space Mono';font-size:11px;letter-spacing:1px;color:var(--red);}
+  .req-card .rq-role{font-family:'Space Mono';font-size:11px;color:var(--muted);}
+  .req-card .rq-detail{font-family:'Space Mono';font-size:12px;margin-bottom:12px;line-height:1.8;}
+  .req-card .rq-detail span{color:var(--muted);margin-right:4px;}
+  .req-card .rq-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+  .req-card textarea.admin-note{width:100%;background:var(--paper-2);border:1px solid var(--line-strong);font-family:'Space Mono';font-size:12px;padding:8px 12px;resize:none;color:var(--navy);margin-bottom:10px;}
+  .req-card textarea.admin-note:focus{outline:none;border-color:var(--navy);}
+  .approve-btn{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;background:var(--green);color:#fff;border:none;padding:9px 16px;cursor:pointer;}
+  .approve-btn:hover{opacity:.85;}
+  .reject-btn{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;background:var(--red);color:#fff;border:none;padding:9px 16px;cursor:pointer;}
+  .reject-btn:hover{opacity:.85;}
+  .req-status{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;padding:6px 12px;}
+  .req-status.pending{background:rgba(194,122,43,.15);color:#c27a2b;}
+  .req-status.approved{background:rgba(60,122,78,.14);color:var(--green);}
+  .req-status.rejected{background:rgba(159,54,34,.12);color:var(--red);}
+  .req-status.logged{background:rgba(21,35,62,.08);color:var(--muted);}
+
   /* final score block */
   .score-block{margin-top:22px;border-top:1px solid var(--line-strong);padding-top:20px;}
   .score-head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
@@ -214,6 +235,7 @@
       <a href="/schedule">Schedule</a>
       <a href="/standings">Standings</a>
       <a href="/stats">Stats</a>
+      <a href="/teams">Teams</a>
     </nav>
     <span></span>
   </div>
@@ -248,6 +270,7 @@
       <button class="tab" data-tab="schedule">Schedule</button>
       <button class="tab" data-tab="players">Import Stats</button>
       <button class="tab" data-tab="seasons">Past Seasons</button>
+      <button class="tab" data-tab="requests">Requests</button>
     </div>
 
     <!-- USER ACCESS -->
@@ -451,6 +474,20 @@
       </div>
     </div>
 
+    <!-- REQUESTS -->
+    <div class="section" id="section-requests">
+      <div class="panel">
+        <h3>Pending Requests</h3>
+        <div class="desc">Signing and trade requests from team coaches awaiting your approval. Releases and scheduled games are logged automatically.</div>
+        <div id="pendingRequests"><p style="color:var(--muted);font-style:italic;padding:10px 0;">Loading…</p></div>
+      </div>
+      <div class="panel">
+        <h3>All Actions Log</h3>
+        <div class="desc">Full history of all coach actions across every team.</div>
+        <div id="allRequests"><p style="color:var(--muted);font-style:italic;padding:10px 0;">Loading…</p></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -471,7 +508,7 @@
   function showMsg(t,ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
 
   // friendly label for a tab key
-  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Import Stats', seasons:'Past Seasons' };
+  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Import Stats', seasons:'Past Seasons', requests:'Requests' };
 
   // ── gate check ──
   (async function(){
@@ -1293,8 +1330,82 @@
     finally{ $('ssImportBtn').disabled=false; $('ssImportBtn').textContent='Import Season Stats'; }
   });
 
+  // ── REQUESTS ──
+  async function loadRequests(){
+    try{
+      const r=await apiFetch('/api/admin/moves');
+      const j=await r.json();
+      const moves=j.moves||[];
+
+      const pending=moves.filter(m=>m.status==='pending');
+      const all=moves;
+
+      function fmtCap(v){ if(!v) return '—'; if(v>=1_000_000) return '$'+(v/1_000_000).toFixed(2)+'M'; if(v>=1_000) return '$'+(v/1_000).toFixed(0)+'K'; return '$'+v; }
+      function typeLabel(t){ return {sign:'Signing Request',release:'Release',trade:'Trade Request',schedule:'Game Schedule'}[t]||t; }
+
+      function detailHtml(m){
+        const d=m.details||{};
+        const lines=[];
+        if(m.player_username) lines.push(`<span>Player:</span>${m.player_username}`);
+        if(d.position) lines.push(`<span>Position:</span>${d.position}`);
+        if(d.cap_value!=null) lines.push(`<span>Cap Value:</span>${fmtCap(d.cap_value)}`);
+        if(d.destination_team_id) lines.push(`<span>Trade To:</span>${d.destination_team_id}`);
+        if(d.proposed_week) lines.push(`<span>Week:</span>${d.proposed_week}`);
+        if(d.proposed_date) lines.push(`<span>Date:</span>${d.proposed_date}`);
+        if(d.proposed_time) lines.push(`<span>Time:</span>${d.proposed_time}`);
+        if(d.notes) lines.push(`<span>Notes:</span>${d.notes}`);
+        if(d.reason) lines.push(`<span>Reason:</span>${d.reason}`);
+        return lines.join('<br>');
+      }
+
+      function renderCard(m, showActions){
+        const teamName=m.team?m.team.name:'Unknown';
+        const date=new Date(m.created_at).toLocaleDateString();
+        return `<div class="req-card" data-id="${m.id}">
+          <div class="rq-head">
+            <span class="rq-type">${typeLabel(m.move_type)}</span>
+            <span class="rq-team">${teamName}</span>
+            <span class="rq-role">${m.requesting_role} · ${m.requesting_username} · ${date}</span>
+          </div>
+          <div class="rq-detail">${detailHtml(m)||'No details'}</div>
+          ${showActions && m.status==='pending' ? `
+            <textarea class="admin-note" rows="2" placeholder="Optional admin note…"></textarea>
+            <div class="rq-actions">
+              <button class="approve-btn">Approve</button>
+              <button class="reject-btn">Reject</button>
+            </div>` : `<span class="req-status ${m.status}">${m.status}</span>${m.admin_note?`<div style="font-family:Space Mono;font-size:11px;color:var(--muted);margin-top:6px;">Note: ${m.admin_note}</div>`:''}`}
+        </div>`;
+      }
+
+      $('pendingRequests').innerHTML = pending.length
+        ? pending.map(m=>renderCard(m,true)).join('')
+        : '<p style="color:var(--muted);font-style:italic;padding:10px 0;">No pending requests.</p>';
+
+      $('allRequests').innerHTML = all.length
+        ? all.map(m=>renderCard(m,false)).join('')
+        : '<p style="color:var(--muted);font-style:italic;padding:10px 0;">No actions yet.</p>';
+
+      // wire approve/reject buttons
+      $('pendingRequests').querySelectorAll('.req-card').forEach(card=>{
+        const id=card.dataset.id;
+        const note=card.querySelector('.admin-note');
+        card.querySelector('.approve-btn')?.addEventListener('click',async()=>{ await doMoveAction(id,'approve',note?.value||''); loadRequests(); });
+        card.querySelector('.reject-btn')?.addEventListener('click',async()=>{ await doMoveAction(id,'reject',note?.value||''); loadRequests(); });
+      });
+    }catch(e){ $('pendingRequests').innerHTML='<p style="color:var(--muted);">Could not load requests.</p>'; }
+  }
+
+  async function doMoveAction(id, action, admin_note){
+    try{
+      const r=await apiFetch('/api/admin/moves/'+id+'/action',{method:'POST',body:JSON.stringify({action,admin_note})});
+      const j=await r.json();
+      if(!r.ok) alert(j.error||'Action failed');
+    }catch(e){ alert('Network error'); }
+  }
+
   document.querySelectorAll('.tab').forEach(b=>{
     if(b.dataset.tab==='seasons') b.addEventListener('click',loadSeasonsList);
+    if(b.dataset.tab==='requests') b.addEventListener('click',loadRequests);
   });
 </script>
 </body>

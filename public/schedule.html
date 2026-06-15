@@ -146,6 +146,7 @@
       <a href="/schedule" class="active">Schedule</a>
       <a href="/standings">Standings</a>
       <a href="/stats">Stats</a>
+      <a href="/teams">Teams</a>
     </nav>
     <a href="/connect" class="connect-btn" id="connectBtn">Connect Account</a>
     <div class="account-wrap" id="accountWrap" style="display:none;">
@@ -154,6 +155,7 @@
       </div>
       <div class="dropdown">
         <a href="/profile">Profile</a>
+        <a href="/coaches" class="coaches" id="coachesLink" style="display:none;">Coaches Suite</a>
         <a href="/admin" class="admin" id="adminLink" style="display:none;">Admin</a>
         <a href="#" class="logout" id="logoutBtn">Log Out</a>
       </div>
@@ -215,6 +217,11 @@
           const r=await fetch('/api/me',{headers:{Authorization:'Bearer '+token}});
           const j=await r.json();
           if(j.profile && j.profile.is_admin) $('adminLink').style.display='block';
+        }catch(e){}
+        try{
+          const r=await fetch('/api/coach/me',{headers:{Authorization:'Bearer '+token}});
+          const j=await r.json();
+          if(j.coach){ const cl=$('coachesLink'); if(cl){ cl.href='/coaches/'+j.team.slug; cl.style.display='block'; } }
         }catch(e){}
       }
     }

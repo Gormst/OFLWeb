@@ -110,6 +110,7 @@
       <a href="/schedule">Schedule</a>
       <a href="/standings">Standings</a>
       <a href="/stats">Stats</a>
+      <a href="/teams">Teams</a>
     </nav>
 
     <a href="/connect" class="connect-btn" id="connectBtn">Connect Account</a>
@@ -122,6 +123,7 @@
       </div>
       <div class="dropdown">
         <a href="/profile">Profile</a>
+        <a href="/coaches" class="coaches" id="coachesLink" style="display:none;">Coaches Suite</a>
         <a href="/admin" class="admin" id="adminLink" style="display:none;">Admin</a>
         <a href="#" class="logout" id="logoutBtn">Log Out</a>
       </div>
@@ -171,6 +173,15 @@
           document.getElementById('adminLink').style.display='block';
         }
         if(j.profile) localStorage.setItem('ofl_profile', JSON.stringify(j.profile));
+      }catch(e){}
+      try{
+        const r=await fetch('/api/coach/me',{headers:{Authorization:'Bearer '+token}});
+        const j=await r.json();
+        if(j.coach){
+          const link=document.getElementById('coachesLink');
+          link.href='/coaches/'+j.team.slug;
+          link.style.display='block';
+        }
       }catch(e){}
     }
   })();

@@ -47,7 +47,7 @@ function verifyToken(token) {
 const SUPERUSER = 'famouskai12';
 
 // All admin tabs that can be granted
-const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'players', 'seasons'];
+const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'players', 'seasons', 'requests'];
 
 // raw stat columns that can be set on a player (no derived stats stored)
 const STAT_KEYS = [
@@ -959,6 +959,202 @@ app.delete('/api/admin/players/:id', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+//  COACHES SUITE
+// ─────────────────────────────────────────────
+
+// Resolve the coach identity — returns { profile, team, role } or null
+async function getCoach(req) {
+  const profile = await getRequester(req);
+  if (!profile) return null;
+  const username = (profile.roblox_username || '').toLowerCase().trim();
+  const { data: teams } = await supabase.from('teams').select('*');
+  for (const team of (teams || [])) {
+    const hc  = (team.head_coach      || '').toLowerCase().trim();
+    const dfo = (team.director_of_ops || '').toLowerCase().trim();
+    const own = (team.franchise_owner || '').toLowerCase().trim();
+    if (username === hc)  return { profile, team, role: 'HC'    };
+    if (username === dfo) return { profile, team, role: 'DFO'   };
+    if (username === own) return { profile, team, role: 'Owner' };
+  }
+  return null;
+}
+
+// who am I as a coach?
+app.get('/api/coach/me', async (req, res) => {
+  try {
+    const coach = await getCoach(req);
+    if (!coach) return res.json({ coach: null });
+    const { data: players } = await supabase
+      .from('players')
+      .select('id, roblox_username, avatar_url, position, cap_value')
+      .eq('team_id', coach.team.id)
+      .order('cap_value', { ascending: false });
+    const TEAM_CAP = 100_000_000;
+    const used = (players || []).reduce((s, p) => s + (p.cap_value || 0), 0);
+    res.json({
+      coach: { username: coach.profile.roblox_username, role: coach.role },
+      team: { ...coach.team, slug: slugify(coach.team.name) },
+      players: players || [],
+      cap: { total: TEAM_CAP, used, remaining: TEAM_CAP - used }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// submit a roster move
+app.post('/api/coach/move', async (req, res) => {
+  try {
+    const coach = await getCoach(req);
+    if (!coach) return res.status(403).json({ error: 'Not a registered coach' });
+    const { move_type, player_username, details } = req.body;
+    const validTypes = ['sign', 'release', 'trade', 'schedule'];
+    if (!validTypes.includes(move_type)) return res.status(400).json({ error: 'Invalid move type' });
+
+    const instantTypes = ['release', 'schedule'];
+    const status = instantTypes.includes(move_type) ? 'logged' : 'pending';
+
+    // execute instant moves immediately
+    if (move_type === 'release') {
+      const { data: player } = await supabase
+        .from('players').select('*')
+        .ilike('roblox_username', player_username)
+        .eq('team_id', coach.team.id).maybeSingle();
+      if (!player) return res.status(404).json({ error: 'Player not found on this roster' });
+      await supabase.from('players').update({ team_id: null, position: null, cap_value: 0 }).eq('id', player.id);
+    }
+
+    if (move_type === 'schedule') {
+      const { proposed_week, proposed_date, proposed_time, opponent_team_id } = details || {};
+      if (!opponent_team_id) return res.status(400).json({ error: 'Opponent team required' });
+      // insert into games table immediately
+      const { data: game } = await supabase.from('games').insert({
+        week: proposed_week || null,
+        game_date: proposed_date || null,
+        game_time: proposed_time || null,
+        home_team_id: coach.team.id,
+        away_team_id: opponent_team_id
+      }).select().single();
+      // log the game request
+      await supabase.from('game_requests').insert({
+        requesting_team_id: coach.team.id,
+        opponent_team_id: opponent_team_id || null,
+        proposed_week: proposed_week || null,
+        proposed_date: proposed_date || null,
+        proposed_time: proposed_time || null,
+        status: 'logged',
+        game_id: game?.id || null
+      });
+    }
+
+    // always log the roster move
+    const { data: move } = await supabase.from('roster_moves').insert({
+      team_id: coach.team.id,
+      requesting_username: coach.profile.roblox_username,
+      requesting_role: coach.role,
+      move_type,
+      player_username: player_username || null,
+      details: details || {},
+      status
+    }).select().single();
+
+    res.json({ success: true, move, status });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// coach — view their team's move history
+app.get('/api/coach/moves', async (req, res) => {
+  try {
+    const coach = await getCoach(req);
+    if (!coach) return res.status(403).json({ error: 'Not a registered coach' });
+    const { data: moves } = await supabase
+      .from('roster_moves').select('*')
+      .eq('team_id', coach.team.id)
+      .order('created_at', { ascending: false });
+    res.json({ moves: moves || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — list all pending moves (all teams)
+app.get('/api/admin/moves', async (req, res) => {
+  const me = await requireAdmin(req, res, 'requests');
+  if (!me) return;
+  try {
+    const { data: moves } = await supabase
+      .from('roster_moves').select('*')
+      .order('created_at', { ascending: false });
+    const { data: teams } = await supabase.from('teams').select('id, name, abbreviation, logo_url, primary_color');
+    const teamMap = {};
+    (teams || []).forEach(t => teamMap[t.id] = t);
+    res.json({ moves: (moves || []).map(m => ({ ...m, team: teamMap[m.team_id] || null })) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — approve or reject a move
+app.post('/api/admin/moves/:id/action', async (req, res) => {
+  const me = await requireAdmin(req, res, 'requests');
+  if (!me) return;
+  try {
+    const { action, admin_note } = req.body; // action: 'approve' | 'reject'
+    if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
+    const { data: move } = await supabase.from('roster_moves').select('*').eq('id', req.params.id).single();
+    if (!move) return res.status(404).json({ error: 'Move not found' });
+    if (move.status !== 'pending') return res.status(400).json({ error: 'Move is not pending' });
+
+    if (action === 'approve') {
+      const details = move.details || {};
+      if (move.move_type === 'sign') {
+        // create or update player row
+        const { data: existing } = await supabase.from('players').select('*')
+          .ilike('roblox_username', move.player_username).maybeSingle();
+        if (existing) {
+          await supabase.from('players').update({
+            team_id: move.team_id,
+            position: details.position || existing.position,
+            cap_value: details.cap_value != null ? details.cap_value : existing.cap_value
+          }).eq('id', existing.id);
+        } else {
+          // resolve Roblox avatar
+          let avatar_url = null, roblox_user_id = null, rname = move.player_username;
+          const ru = await getRobloxUser(move.player_username);
+          if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
+          const row = { roblox_username: rname, roblox_user_id, avatar_url, team_id: move.team_id, position: details.position || null, cap_value: details.cap_value || 0 };
+          STAT_KEYS.forEach(k => row[k] = 0);
+          await supabase.from('players').insert(row);
+        }
+      }
+      if (move.move_type === 'trade') {
+        const { data: player } = await supabase.from('players').select('*').ilike('roblox_username', move.player_username).maybeSingle();
+        if (player) {
+          await supabase.from('players').update({
+            team_id: details.destination_team_id || null,
+            position: details.position || player.position,
+            cap_value: details.cap_value != null ? details.cap_value : player.cap_value
+          }).eq('id', player.id);
+        }
+      }
+    }
+
+    await supabase.from('roster_moves').update({
+      status: action === 'approve' ? 'approved' : 'rejected',
+      admin_note: admin_note || null
+    }).eq('id', move.id);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
 //  CLEAN URL ROUTING
 // ─────────────────────────────────────────────
 
@@ -967,7 +1163,8 @@ app.use(express.static(PUBLIC_DIR, { extensions: false }));
 app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
 
 // /teams/:id -> teams.html (the page reads the id from the URL client-side)
-app.get('/teams/:id', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'teams.html')));
+app.get('/coaches/:slug', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'coaches.html')));
+app.get('/coaches', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'coaches.html')));
 
 app.get('/:page.html', (req, res) => {
   res.redirect(301, '/' + req.params.page.replace(/index$/, ''));
