@@ -1063,19 +1063,23 @@ app.post('/api/admin/registry/import', async (req, res) => {
       position_tag: p.position_tag || null
     }));
 
-    // delete existing entries for these usernames, then insert fresh
-    const usernames = rows.map(r => r.roblox_username);
-    const { error: delErr } = await supabase
-      .from('league_players')
-      .delete()
-      .in('roblox_username', usernames);
-    if (delErr) console.error('Registry delete error:', delErr.message);
+    // deduplicate by username (last occurrence wins)
+    const seen = new Map();
+    rows.forEach(r => seen.set(r.roblox_username.toLowerCase(), r));
+    const dedupedRows = [...seen.values()];
+
+    // delete matching usernames in chunks to avoid query size limits
+    const CHUNK = 100;
+    const usernames = dedupedRows.map(r => r.roblox_username);
+    for (let i = 0; i < usernames.length; i += CHUNK) {
+      await supabase.from('league_players').delete().in('roblox_username', usernames.slice(i, i + CHUNK));
+    }
 
     // insert in batches of 50
     let imported = 0;
     const BATCH = 50;
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const batch = rows.slice(i, i + BATCH);
+    for (let i = 0; i < dedupedRows.length; i += BATCH) {
+      const batch = dedupedRows.slice(i, i + BATCH);
       const { error: insErr } = await supabase.from('league_players').insert(batch);
       if (insErr) {
         console.error('Registry insert error:', insErr.message);
