@@ -599,6 +599,7 @@ app.post('/api/admin/teams', async (req, res) => {
       is_dpp: is_dpp === true || is_dpp === 'true'
     }).select().single();
     if (error) throw error;
+    ensureHCOnRoster(data).catch(e => console.error('HC roster err:', e.message));
     res.json({ success: true, team: data });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1187,104 +1188,149 @@ async function getCoach(req) {
 }
 
 // who am I as a coach?
+// helper — ensure HC is on their team roster with registry cap
+async function ensureHCOnRoster(team) {
+  if (!team.head_coach) return;
+  const hcName = team.head_coach.trim();
+  if (!hcName) return;
+  const { data: regEntry } = await supabase.from('league_players').select('cap_value').ilike('roblox_username', hcName).maybeSingle();
+  const capVal = regEntry?.cap_value ?? 0;
+  const { data: existing } = await supabase.from('players').select('*').ilike('roblox_username', hcName).maybeSingle();
+  if (existing) {
+    if (existing.team_id !== team.id) await supabase.from('players').update({ team_id: team.id, cap_value: capVal }).eq('id', existing.id);
+  } else {
+    let avatar_url = null, roblox_user_id = null, rname = hcName;
+    const ru = await getRobloxUser(hcName);
+    if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
+    const row = { roblox_username: rname, roblox_user_id, avatar_url, team_id: team.id, cap_value: capVal, position: null };
+    STAT_KEYS.forEach(k => row[k] = 0);
+    await supabase.from('players').insert(row);
+  }
+}
+
 app.get('/api/coach/me', async (req, res) => {
   try {
     const coach = await getCoach(req);
     if (!coach) return res.json({ coach: null });
-    const { data: players } = await supabase
-      .from('players')
-      .select('id, roblox_username, avatar_url, position, cap_value')
-      .eq('team_id', coach.team.id)
-      .order('cap_value', { ascending: false });
+    const { data: players } = await supabase.from('players').select('id, roblox_username, avatar_url, position, cap_value').eq('team_id', coach.team.id).order('cap_value', { ascending: false });
+    const { data: games } = await supabase.from('games').select('*').or(`home_team_id.eq.${coach.team.id},away_team_id.eq.${coach.team.id}`).order('week');
+    const { data: allTeams } = await supabase.from('teams').select('id, name, abbreviation');
+    const teamMap = {}; (allTeams || []).forEach(t => teamMap[t.id] = t);
+    const opponents = (games || []).map(g => {
+      const oppId = g.home_team_id === coach.team.id ? g.away_team_id : g.home_team_id;
+      return { game_id: g.id, week: g.week, opponent_team_id: oppId, opponent_name: teamMap[oppId]?.name || 'TBD' };
+    }).filter(o => o.opponent_team_id);
     const TEAM_CAP = 100_000_000;
     const used = (players || []).reduce((s, p) => s + (p.cap_value || 0), 0);
-    res.json({
-      coach: { username: coach.profile.roblox_username, role: coach.role },
-      team: { ...coach.team, slug: slugify(coach.team.name) },
-      players: players || [],
-      cap: { total: TEAM_CAP, used, remaining: TEAM_CAP - used }
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+    res.json({ coach: { username: coach.profile.roblox_username, role: coach.role }, team: { ...coach.team, slug: slugify(coach.team.name) }, players: players || [], cap: { total: TEAM_CAP, used, remaining: TEAM_CAP - used }, opponents });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// submit a roster move
+// search free agents in registry
+app.get('/api/registry/search', async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (q.length < 2) return res.json({ players: [] });
+    const { data: rostered } = await supabase.from('players').select('roblox_username').not('team_id', 'is', null);
+    const rosteredSet = new Set((rostered || []).map(p => p.roblox_username.toLowerCase()));
+    const { data: results } = await supabase.from('league_players').select('roblox_username, eligibility, cap_value, position_tag').ilike('roblox_username', `${q}%`).limit(10);
+    const free = (results || []).filter(p => !rosteredSet.has(p.roblox_username.toLowerCase()));
+    res.json({ players: free });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.post('/api/coach/move', async (req, res) => {
   try {
     const coach = await getCoach(req);
     if (!coach) return res.status(403).json({ error: 'Not a registered coach' });
     const { move_type, player_username, details } = req.body;
-    const validTypes = ['sign', 'release', 'trade', 'schedule'];
-    if (!validTypes.includes(move_type)) return res.status(400).json({ error: 'Invalid move type' });
+    if (!['sign','release','trade','schedule'].includes(move_type)) return res.status(400).json({ error: 'Invalid move type' });
 
-    const instantTypes = ['release', 'schedule'];
-    const status = instantTypes.includes(move_type) ? 'logged' : 'pending';
+    if (move_type === 'sign') {
+      if (!player_username) return res.status(400).json({ error: 'Player username required' });
+      const { data: regEntry } = await supabase.from('league_players').select('*').ilike('roblox_username', player_username).maybeSingle();
+      if (!regEntry) return res.status(400).json({ error: 'Player not found in the league registry' });
+      const { data: onRoster } = await supabase.from('players').select('id, team_id').ilike('roblox_username', player_username).maybeSingle();
+      if (onRoster && onRoster.team_id) return res.status(400).json({ error: 'Player is already signed to a team' });
+      const capVal = regEntry.cap_value || 0;
+      if (onRoster) {
+        await supabase.from('players').update({ team_id: coach.team.id, cap_value: capVal }).eq('id', onRoster.id);
+      } else {
+        let avatar_url = null, roblox_user_id = null, rname = regEntry.roblox_username;
+        const ru = await getRobloxUser(rname);
+        if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
+        const row = { roblox_username: rname, roblox_user_id, avatar_url, team_id: coach.team.id, cap_value: capVal, position: null };
+        STAT_KEYS.forEach(k => row[k] = 0);
+        await supabase.from('players').insert(row);
+      }
+      const { data: move } = await supabase.from('roster_moves').insert({ team_id: coach.team.id, requesting_username: coach.profile.roblox_username, requesting_role: coach.role, move_type: 'sign', player_username: regEntry.roblox_username, details: { cap_value: capVal }, status: 'logged' }).select().single();
+      return res.json({ success: true, move, status: 'logged' });
+    }
 
-    // execute instant moves immediately
     if (move_type === 'release') {
-      const { data: player } = await supabase
-        .from('players').select('*')
-        .ilike('roblox_username', player_username)
-        .eq('team_id', coach.team.id).maybeSingle();
+      const { data: player } = await supabase.from('players').select('*').ilike('roblox_username', player_username).eq('team_id', coach.team.id).maybeSingle();
       if (!player) return res.status(404).json({ error: 'Player not found on this roster' });
       await supabase.from('players').update({ team_id: null, position: null, cap_value: 0 }).eq('id', player.id);
+      const { data: move } = await supabase.from('roster_moves').insert({ team_id: coach.team.id, requesting_username: coach.profile.roblox_username, requesting_role: coach.role, move_type: 'release', player_username, details: details || {}, status: 'logged' }).select().single();
+      return res.json({ success: true, move, status: 'logged' });
+    }
+
+    if (move_type === 'trade') {
+      const { data: move } = await supabase.from('roster_moves').insert({ team_id: coach.team.id, requesting_username: coach.profile.roblox_username, requesting_role: coach.role, move_type: 'trade', player_username: player_username || null, details: details || {}, status: 'pending' }).select().single();
+      return res.json({ success: true, move, status: 'pending' });
     }
 
     if (move_type === 'schedule') {
-      const { proposed_week, proposed_date, proposed_time, opponent_team_id } = details || {};
-      if (!opponent_team_id) return res.status(400).json({ error: 'Opponent team required' });
-      // insert into games table immediately
-      const { data: game } = await supabase.from('games').insert({
-        week: proposed_week || null,
-        game_date: proposed_date || null,
-        game_time: proposed_time || null,
-        home_team_id: coach.team.id,
-        away_team_id: opponent_team_id
-      }).select().single();
-      // log the game request
-      await supabase.from('game_requests').insert({
-        requesting_team_id: coach.team.id,
-        opponent_team_id: opponent_team_id || null,
-        proposed_week: proposed_week || null,
-        proposed_date: proposed_date || null,
-        proposed_time: proposed_time || null,
-        status: 'logged',
-        game_id: game?.id || null
-      });
+      const { game_id, proposed_date, proposed_time } = details || {};
+      if (!game_id) return res.status(400).json({ error: 'Game required' });
+      const { data: game } = await supabase.from('games').select('*').eq('id', game_id).single();
+      if (!game) return res.status(404).json({ error: 'Game not found' });
+      const opponent_team_id = game.home_team_id === coach.team.id ? game.away_team_id : game.home_team_id;
+      if (proposed_date) await supabase.from('games').update({ game_date: proposed_date, game_time: proposed_time || null }).eq('id', game_id);
+      const { data: gr } = await supabase.from('game_requests').insert({ requesting_team_id: coach.team.id, opponent_team_id, proposed_date: proposed_date || null, proposed_time: proposed_time || null, status: 'pending_opponent', game_id }).select().single();
+      const { data: move } = await supabase.from('roster_moves').insert({ team_id: coach.team.id, requesting_username: coach.profile.roblox_username, requesting_role: coach.role, move_type: 'schedule', details: { game_id, opponent_team_id, proposed_date, proposed_time }, status: 'pending_opponent' }).select().single();
+      return res.json({ success: true, move, status: 'pending_opponent', game_request_id: gr.id });
     }
 
-    // always log the roster move
-    const { data: move } = await supabase.from('roster_moves').insert({
-      team_id: coach.team.id,
-      requesting_username: coach.profile.roblox_username,
-      requesting_role: coach.role,
-      move_type,
-      player_username: player_username || null,
-      details: details || {},
-      status
-    }).select().single();
-
-    res.json({ success: true, move, status });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
+    res.status(400).json({ error: 'Unknown move type' });
+  } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
-// coach — view their team's move history
+app.post('/api/coach/schedule/:id/action', async (req, res) => {
+  try {
+    const coach = await getCoach(req);
+    if (!coach) return res.status(403).json({ error: 'Not a registered coach' });
+    const { action } = req.body;
+    if (!['approve','reject'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
+    const { data: gr } = await supabase.from('game_requests').select('*').eq('id', req.params.id).single();
+    if (!gr) return res.status(404).json({ error: 'Request not found' });
+    if (gr.opponent_team_id !== coach.team.id) return res.status(403).json({ error: 'Not the opponent for this request' });
+    if (gr.status !== 'pending_opponent') return res.status(400).json({ error: 'Already actioned' });
+    const newStatus = action === 'approve' ? 'pending_admin' : 'rejected';
+    await supabase.from('game_requests').update({ status: newStatus }).eq('id', gr.id);
+    await supabase.from('roster_moves').update({ status: newStatus }).eq('move_type', 'schedule').contains('details', { game_id: gr.game_id });
+    res.json({ success: true, status: newStatus });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/coach/schedule/pending', async (req, res) => {
+  try {
+    const coach = await getCoach(req);
+    if (!coach) return res.status(403).json({ error: 'Not a registered coach' });
+    const { data: requests } = await supabase.from('game_requests').select('*').eq('opponent_team_id', coach.team.id).eq('status', 'pending_opponent').order('created_at', { ascending: false });
+    const { data: teams } = await supabase.from('teams').select('id, name');
+    const teamMap = {}; (teams || []).forEach(t => teamMap[t.id] = t);
+    res.json({ requests: (requests || []).map(r => ({ ...r, requesting_team: teamMap[r.requesting_team_id] || null })) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/coach/moves', async (req, res) => {
   try {
     const coach = await getCoach(req);
     if (!coach) return res.status(403).json({ error: 'Not a registered coach' });
-    const { data: moves } = await supabase
-      .from('roster_moves').select('*')
-      .eq('team_id', coach.team.id)
-      .order('created_at', { ascending: false });
+    const { data: moves } = await supabase.from('roster_moves').select('*').eq('team_id', coach.team.id).order('created_at', { ascending: false });
     res.json({ moves: moves || [] });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // admin — list all pending moves (all teams)
@@ -1309,43 +1355,24 @@ app.post('/api/admin/moves/:id/action', async (req, res) => {
   const me = await requireAdmin(req, res, 'requests');
   if (!me) return;
   try {
-    const { action, admin_note } = req.body; // action: 'approve' | 'reject'
+    const { action, admin_note } = req.body;
     if (!['approve', 'reject'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
     const { data: move } = await supabase.from('roster_moves').select('*').eq('id', req.params.id).single();
     if (!move) return res.status(404).json({ error: 'Move not found' });
-    if (move.status !== 'pending') return res.status(400).json({ error: 'Move is not pending' });
+    const actionable = ['pending', 'pending_admin', 'logged'];
+    if (!actionable.includes(move.status)) return res.status(400).json({ error: 'Move cannot be actioned in its current state' });
 
     if (action === 'approve') {
       const details = move.details || {};
-      if (move.move_type === 'sign') {
-        // create or update player row
-        const { data: existing } = await supabase.from('players').select('*')
-          .ilike('roblox_username', move.player_username).maybeSingle();
-        if (existing) {
-          await supabase.from('players').update({
-            team_id: move.team_id,
-            position: details.position || existing.position,
-            cap_value: details.cap_value != null ? details.cap_value : existing.cap_value
-          }).eq('id', existing.id);
-        } else {
-          // resolve Roblox avatar
-          let avatar_url = null, roblox_user_id = null, rname = move.player_username;
-          const ru = await getRobloxUser(move.player_username);
-          if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
-          const row = { roblox_username: rname, roblox_user_id, avatar_url, team_id: move.team_id, position: details.position || null, cap_value: details.cap_value || 0 };
-          STAT_KEYS.forEach(k => row[k] = 0);
-          await supabase.from('players').insert(row);
-        }
-      }
       if (move.move_type === 'trade') {
         const { data: player } = await supabase.from('players').select('*').ilike('roblox_username', move.player_username).maybeSingle();
         if (player) {
-          await supabase.from('players').update({
-            team_id: details.destination_team_id || null,
-            position: details.position || player.position,
-            cap_value: details.cap_value != null ? details.cap_value : player.cap_value
-          }).eq('id', player.id);
+          await supabase.from('players').update({ team_id: details.destination_team_id || null }).eq('id', player.id);
         }
+      }
+      if (move.move_type === 'schedule') {
+        // mark game_request as approved
+        await supabase.from('game_requests').update({ status: 'approved' }).contains('details', { game_id: details.game_id });
       }
     }
 

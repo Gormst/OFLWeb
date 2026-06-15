@@ -1384,7 +1384,7 @@
       const j=await r.json();
       const moves=j.moves||[];
 
-      const pending=moves.filter(m=>m.status==='pending');
+      const pending=moves.filter(m=>['pending','pending_admin'].includes(m.status));
       const all=moves;
 
       function fmtCap(v){ if(!v) return '—'; if(v>=1_000_000) return '$'+(v/1_000_000).toFixed(2)+'M'; if(v>=1_000) return '$'+(v/1_000).toFixed(0)+'K'; return '$'+v; }
@@ -1408,6 +1408,8 @@
       function renderCard(m, showActions){
         const teamName=m.team?m.team.name:'Unknown';
         const date=new Date(m.created_at).toLocaleDateString();
+        const statusMap={pending:'⏳ Pending',pending_opponent:'⏳ Awaiting Opponent',pending_admin:'⏳ Awaiting Admin',approved:'✓ Approved',rejected:'✗ Rejected',logged:'✓ Logged'};
+        const adminActionable=['pending','pending_admin','logged'].includes(m.status);
         return `<div class="req-card" data-id="${m.id}">
           <div class="rq-head">
             <span class="rq-type">${typeLabel(m.move_type)}</span>
@@ -1415,12 +1417,12 @@
             <span class="rq-role">${m.requesting_role} · ${m.requesting_username} · ${date}</span>
           </div>
           <div class="rq-detail">${detailHtml(m)||'No details'}</div>
-          ${showActions && m.status==='pending' ? `
+          ${showActions && adminActionable ? `
             <textarea class="admin-note" rows="2" placeholder="Optional admin note…"></textarea>
             <div class="rq-actions">
               <button class="approve-btn">Approve</button>
               <button class="reject-btn">Reject</button>
-            </div>` : `<span class="req-status ${m.status}">${m.status}</span>${m.admin_note?`<div style="font-family:Space Mono;font-size:11px;color:var(--muted);margin-top:6px;">Note: ${m.admin_note}</div>`:''}`}
+            </div>` : `<span class="req-status ${m.status}">${statusMap[m.status]||m.status}</span>${m.admin_note?`<div style="font-family:Space Mono;font-size:11px;color:var(--muted);margin-top:6px;">Note: ${m.admin_note}</div>`:''}`}
         </div>`;
       }
 
