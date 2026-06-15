@@ -1043,7 +1043,7 @@ app.get('/api/registry', async (req, res) => {
   }
 });
 
-// admin — import cap CSV into registry (upsert by username)
+// admin — import cap CSV into registry
 app.post('/api/admin/registry/import', async (req, res) => {
   const me = await requireAdmin(req, res, 'players');
   if (!me) return;
@@ -1052,24 +1052,38 @@ app.post('/api/admin/registry/import', async (req, res) => {
     if (!csv || !csv.trim()) return res.status(400).json({ error: 'CSV required' });
     const players = parseCapRegistryCSV(csv);
     if (!players.length) return res.status(400).json({ error: 'No players found in CSV' });
-    // if a cap_value was explicitly provided, override the CSV-parsed values
+
     const overrideCap = (cap_value !== undefined && cap_value !== null);
     const capNum = overrideCap ? parseInt(cap_value, 10) : null;
+
+    const rows = players.map(p => ({
+      roblox_username: p.username,
+      eligibility: p.eligibility,
+      cap_value: overrideCap ? capNum : p.cap_value,
+      position_tag: p.position_tag || null
+    }));
+
+    // delete existing entries for these usernames, then insert fresh
+    const usernames = rows.map(r => r.roblox_username);
+    const { error: delErr } = await supabase
+      .from('league_players')
+      .delete()
+      .in('roblox_username', usernames);
+    if (delErr) console.error('Registry delete error:', delErr.message);
+
+    // insert in batches of 50
     let imported = 0;
     const BATCH = 50;
-    for (let i = 0; i < players.length; i += BATCH) {
-      const batch = players.slice(i, i + BATCH);
-      await supabase.from('league_players').upsert(
-        batch.map(p => ({
-          roblox_username: p.username,
-          eligibility: p.eligibility,
-          cap_value: overrideCap ? capNum : p.cap_value,
-          position_tag: p.position_tag
-        })),
-        { onConflict: 'roblox_username' }
-      );
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const batch = rows.slice(i, i + BATCH);
+      const { error: insErr } = await supabase.from('league_players').insert(batch);
+      if (insErr) {
+        console.error('Registry insert error:', insErr.message);
+        return res.status(500).json({ error: 'Insert failed: ' + insErr.message });
+      }
       imported += batch.length;
     }
+
     res.json({ success: true, imported });
   } catch (err) {
     console.error(err);
