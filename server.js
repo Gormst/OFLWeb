@@ -556,7 +556,7 @@ app.get('/api/teams/:slug', async (req, res) => {
     const DPP_MIN = 15, NON_DPP_MIN = 12, ROSTER_MAX = 40, DPP_ESTABLISHED_MAX = 3;
 
     // join with registry for eligibility
-    const { data: regPlayers } = await supabase.from('league_players').select('roblox_username, eligibility');
+    const { data: regPlayers } = await supabase.from('league_players').select('roblox_username, eligibility').range(0, 9999);
     const eligMap = {};
     (regPlayers || []).forEach(r => { eligMap[(r.roblox_username||'').toLowerCase()] = r.eligibility; });
 
@@ -1068,7 +1068,7 @@ function parseCapRegistryCSV(text) {
 // public — get all registry players (with current team info joined)
 app.get('/api/registry', async (req, res) => {
   try {
-    const { data: reg } = await supabase.from('league_players').select('*').order('cap_value', { ascending: false }).order('roblox_username');
+    const { data: reg } = await supabase.from('league_players').select('*').order('cap_value', { ascending: false }).order('roblox_username').range(0, 9999);
     const { data: roster } = await supabase.from('players').select('roblox_username, team_id');
     const { data: teams } = await supabase.from('teams').select('id, name, abbreviation, primary_color, logo_url');
     const teamMap = {};
