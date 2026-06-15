@@ -556,7 +556,9 @@ app.get('/api/teams/:slug', async (req, res) => {
     const DPP_MIN = 15, NON_DPP_MIN = 12, ROSTER_MAX = 40, DPP_ESTABLISHED_MAX = 3;
 
     // join with registry for eligibility
-    const { data: regPlayers } = await supabase.from('league_players').select('roblox_username, eligibility').range(0, 9999);
+    const regPlayers = await fetchAll(
+      supabase.from('league_players').select('roblox_username, eligibility')
+    );
     const eligMap = {};
     (regPlayers || []).forEach(r => { eligMap[(r.roblox_username||'').toLowerCase()] = r.eligibility; });
 
@@ -983,9 +985,20 @@ app.delete('/api/admin/players/:id', async (req, res) => {
 });
 
 
-// ─────────────────────────────────────────────
-//  LEAGUE PLAYER REGISTRY
-// ─────────────────────────────────────────────
+// helper — fetch all rows from a table past Supabase's 1000-row default limit
+async function fetchAll(query) {
+  const PAGE = 1000;
+  let page = 0, all = [];
+  while (true) {
+    const { data, error } = await query.range(page * PAGE, (page + 1) * PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    all = all.concat(data);
+    if (data.length < PAGE) break;
+    page++;
+  }
+  return all;
+}
 
 function parseCapRegistryCSV(text) {
   const players = [];
@@ -1068,7 +1081,9 @@ function parseCapRegistryCSV(text) {
 // public — get all registry players (with current team info joined)
 app.get('/api/registry', async (req, res) => {
   try {
-    const { data: reg } = await supabase.from('league_players').select('*').order('cap_value', { ascending: false }).order('roblox_username').range(0, 9999);
+    const reg = await fetchAll(
+      supabase.from('league_players').select('*').order('cap_value', { ascending: false }).order('roblox_username')
+    );
     const { data: roster } = await supabase.from('players').select('roblox_username, team_id');
     const { data: teams } = await supabase.from('teams').select('id, name, abbreviation, primary_color, logo_url');
     const teamMap = {};
