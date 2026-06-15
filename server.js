@@ -47,7 +47,7 @@ function verifyToken(token) {
 const SUPERUSER = 'famouskai12';
 
 // All admin tabs that can be granted
-const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'players', 'seasons', 'requests'];
+const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'players', 'seasons', 'requests', 'registry'];
 
 // raw stat columns that can be set on a player (no derived stats stored)
 const STAT_KEYS = [
@@ -553,11 +553,22 @@ app.get('/api/teams/:slug', async (req, res) => {
       });
     }
     const TEAM_CAP = 100_000_000;
-    const usedCap = (players || []).reduce((s, p) => s + (p.cap_value || 0), 0);
+    const DPP_MIN = 15, NON_DPP_MIN = 12, ROSTER_MAX = 40, DPP_ESTABLISHED_MAX = 3;
+
+    // join with registry for eligibility
+    const { data: regPlayers } = await supabase.from('league_players').select('roblox_username, eligibility');
+    const eligMap = {};
+    (regPlayers || []).forEach(r => { eligMap[(r.roblox_username||'').toLowerCase()] = r.eligibility; });
+
+    const enriched = (players || []).map(p => ({ ...p, eligibility: eligMap[p.roblox_username.toLowerCase()] || null }));
+    const usedCap = enriched.reduce((s, p) => s + (p.cap_value || 0), 0);
+    const rosterMin = team.is_dpp ? DPP_MIN : NON_DPP_MIN;
+    const establishedCount = enriched.filter(p => p.eligibility === 'ESTABLISHED').length;
     res.json({
       team: { ...team, slug: slugify(team.name) },
-      players: players || [],
-      cap: { total: TEAM_CAP, used: usedCap, remaining: TEAM_CAP - usedCap }
+      players: enriched,
+      cap: { total: TEAM_CAP, used: usedCap, remaining: TEAM_CAP - usedCap },
+      roster: { min: rosterMin, max: ROSTER_MAX, established_count: establishedCount, established_max: team.is_dpp ? DPP_ESTABLISHED_MAX : null }
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -965,6 +976,105 @@ app.delete('/api/admin/players/:id', async (req, res) => {
   if (!me) return;
   try {
     await supabase.from('players').delete().eq('id', req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+// ─────────────────────────────────────────────
+//  LEAGUE PLAYER REGISTRY
+// ─────────────────────────────────────────────
+
+function parseCapRegistryCSV(text) {
+  const players = [];
+  let currentCap = 0;
+
+  function splitCSVLine(line) {
+    const cells = []; let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') { inQ = !inQ; continue; }
+      if (ch === ',' && !inQ) { cells.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    cells.push(cur.trim()); return cells;
+  }
+
+  for (const raw of text.split(/\r?\n/)) {
+    const cells = splitCSVLine(raw);
+    const col1 = cells[1] || '', col2 = cells[2] || '';
+    if (!col1 && !col2) continue;
+    const capMatch = col1.match(/\(\$([0-9,]+)\)/);
+    if (capMatch) { currentCap = parseInt(capMatch[1].replace(/,/g,''), 10); continue; }
+    if (col1.toUpperCase() === 'USERNAME' || col1.includes('MILLION')) continue;
+    const rawUsername = col1;
+    if (!rawUsername || rawUsername === '-') continue;
+    const posMatch = rawUsername.match(/\s*\(([^)]+)\)\s*$/);
+    const positionTag = posMatch ? posMatch[1].trim() : null;
+    const username = rawUsername.replace(/\s*\([^)]+\)\s*$/, '').trim();
+    if (!username) continue;
+    const rawElig = col2.toUpperCase().trim();
+    const eligibility = rawElig === 'ESTABLISHED' ? 'ESTABLISHED' : 'DPP-ELIGIBLE';
+    players.push({ username, eligibility, cap_value: currentCap, position_tag: positionTag });
+  }
+  return players.filter(p => !p.username.includes('MILLION'));
+}
+
+// public — get all registry players (with current team info joined)
+app.get('/api/registry', async (req, res) => {
+  try {
+    const { data: reg } = await supabase.from('league_players').select('*').order('cap_value', { ascending: false }).order('roblox_username');
+    const { data: roster } = await supabase.from('players').select('roblox_username, team_id');
+    const { data: teams } = await supabase.from('teams').select('id, name, abbreviation, primary_color, logo_url');
+    const teamMap = {};
+    (teams || []).forEach(t => teamMap[t.id] = t);
+    const rosterMap = {};
+    (roster || []).forEach(p => { rosterMap[(p.roblox_username||'').toLowerCase()] = p.team_id; });
+    res.json({
+      players: (reg || []).map(p => ({
+        ...p,
+        team: rosterMap[p.roblox_username.toLowerCase()] ? (teamMap[rosterMap[p.roblox_username.toLowerCase()]] || null) : null
+      }))
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — import cap CSV into registry (upsert by username)
+app.post('/api/admin/registry/import', async (req, res) => {
+  const me = await requireAdmin(req, res, 'players');
+  if (!me) return;
+  try {
+    const { csv } = req.body;
+    if (!csv || !csv.trim()) return res.status(400).json({ error: 'CSV required' });
+    const players = parseCapRegistryCSV(csv);
+    if (!players.length) return res.status(400).json({ error: 'No players found in CSV' });
+    let imported = 0;
+    const BATCH = 50;
+    for (let i = 0; i < players.length; i += BATCH) {
+      const batch = players.slice(i, i + BATCH);
+      await supabase.from('league_players').upsert(
+        batch.map(p => ({ roblox_username: p.username, eligibility: p.eligibility, cap_value: p.cap_value, position_tag: p.position_tag })),
+        { onConflict: 'roblox_username' }
+      );
+      imported += batch.length;
+    }
+    res.json({ success: true, imported });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// admin — delete a single registry player
+app.delete('/api/admin/registry/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'players');
+  if (!me) return;
+  try {
+    await supabase.from('league_players').delete().eq('id', req.params.id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

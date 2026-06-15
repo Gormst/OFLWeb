@@ -271,6 +271,7 @@
       <button class="tab" data-tab="players">Import Stats</button>
       <button class="tab" data-tab="seasons">Past Seasons</button>
       <button class="tab" data-tab="requests">Requests</button>
+      <button class="tab" data-tab="registry">Player Registry</button>
     </div>
 
     <!-- USER ACCESS -->
@@ -495,6 +496,26 @@
       </div>
     </div>
 
+    <!-- PLAYER REGISTRY -->
+    <div class="section" id="section-registry">
+      <div class="panel">
+        <h3>Import Player Registry</h3>
+        <div class="desc">Paste the full cap CSV (same format as the Google Sheet). Players are upserted by username — re-importing updates existing entries. This populates the public Players page.</div>
+        <div class="field full" style="margin-top:10px;">
+          <label>Cap CSV</label>
+          <textarea id="reg_csv" rows="10" placeholder="Paste the full cap/eligibility CSV here…"></textarea>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:18px;">
+          <button class="save-btn" id="regImportBtn">Import Registry</button>
+        </div>
+        <div class="msg" id="regMsg"></div>
+      </div>
+      <div class="panel">
+        <h3>Registry Stats</h3>
+        <div id="regStats"><p style="color:var(--muted);font-style:italic;padding:10px 0;">Load the registry to see stats.</p></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -515,7 +536,7 @@
   function showMsg(t,ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
 
   // friendly label for a tab key
-  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Import Stats', seasons:'Past Seasons', requests:'Requests' };
+  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Import Stats', seasons:'Past Seasons', requests:'Requests', registry:'Player Registry' };
 
   // ── gate check ──
   (async function(){
@@ -1416,6 +1437,44 @@
   document.querySelectorAll('.tab').forEach(b=>{
     if(b.dataset.tab==='seasons') b.addEventListener('click',loadSeasonsList);
     if(b.dataset.tab==='requests') b.addEventListener('click',loadRequests);
+    if(b.dataset.tab==='registry') b.addEventListener('click',loadRegStats);
+  });
+
+  // ── PLAYER REGISTRY ──
+  function regMsg(t,ok){ const m=$('regMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>m.className='msg',3000); }
+
+  async function loadRegStats(){
+    try{
+      const r=await fetch('/api/registry'); const j=await r.json();
+      const players=j.players||[];
+      const est=players.filter(p=>p.eligibility==='ESTABLISHED').length;
+      const dpp=players.filter(p=>p.eligibility==='DPP-ELIGIBLE').length;
+      const signed=players.filter(p=>p.team).length;
+      const tiers=[...new Set(players.map(p=>p.cap_value))].sort((a,b)=>b-a);
+      $('regStats').innerHTML=`
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;">
+          ${[['Total Players',players.length],['Established',est],['DPP-Eligible',dpp],['Signed',signed],['Free Agents',players.length-signed],['Cap Tiers',tiers.length]].map(([l,v])=>`
+            <div style="background:var(--paper);border:1px solid var(--line-strong);padding:14px 16px;">
+              <div style="font-family:Space Mono;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px;">${l}</div>
+              <div style="font-family:Anton;font-size:26px;">${v}</div>
+            </div>`).join('')}
+        </div>`;
+    }catch(e){ $('regStats').innerHTML='<p style="color:var(--muted);">Could not load registry.</p>'; }
+  }
+
+  if($('regImportBtn')) $('regImportBtn').addEventListener('click',async()=>{
+    const csv=$('reg_csv').value;
+    if(!csv.trim()){ regMsg('Paste the CSV first'); return; }
+    $('regImportBtn').disabled=true; $('regImportBtn').textContent='Importing…';
+    try{
+      const r=await apiFetch('/api/admin/registry/import',{method:'POST',body:JSON.stringify({csv})});
+      const j=await r.json();
+      if(!r.ok){ regMsg(j.error||'Import failed'); return; }
+      regMsg(`Imported ${j.imported} players`,true);
+      $('reg_csv').value='';
+      loadRegStats();
+    }catch(e){ regMsg('Network error'); }
+    finally{ $('regImportBtn').disabled=false; $('regImportBtn').textContent='Import Registry'; }
   });
 </script>
 </body>

@@ -134,6 +134,9 @@
   .rank-num{font-family:'Space Mono';font-size:13px;color:var(--muted);}
   .roster-note{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-top:16px;}
   .roster-note .warn{color:var(--red);}
+  .elig-badge{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:4px 8px;border-radius:4px;}
+  .elig-badge.est{background:rgba(21,35,62,.12);color:var(--navy);}
+  .elig-badge.dpp{background:rgba(60,122,78,.15);color:var(--green);}
 
   /* views */
   #viewOverview{display:block;}
@@ -198,6 +201,7 @@
             <th class="rank-col">#</th>
             <th>Player</th>
             <th>POS</th>
+            <th>Eligibility</th>
             <th class="right">Cap Hit</th>
             <th class="right">Cap %</th>
           </tr>
@@ -289,8 +293,9 @@
         const remaining=TEAM_CAP-used;
         const pct=Math.min((used/TEAM_CAP)*100,100);
         const remColor=remaining<0?'red':(remaining<20_000_000?'':'green');
-        const countStatus=count<ROSTER_MIN?'warn':(count<=ROSTER_MAX?'ok':'warn');
-        const countMsg=count<ROSTER_MIN?`${count} players (${ROSTER_MIN-count} below min)`:count>ROSTER_MAX?`${count} players (${count-ROSTER_MAX} over max)`:`${count} players`;
+        const rMin = t.is_dpp ? 15 : 12;
+        const countStatus=count<rMin?'warn':(count<=ROSTER_MAX?'ok':'warn');
+        const countMsg=count<rMin?`${count} players (${rMin-count} below min)`:count>ROSTER_MAX?`${count} players (${count-ROSTER_MAX} over max)`:`${count} players`;
         return `<div class="team-card" onclick="location.href='/teams/${slug}'">
           <div class="tc-banner" style="background:${color}"></div>
           <div class="tc-body">
@@ -328,12 +333,9 @@
     try{
       const r=await fetch('/api/teams/'+slug);
       if(!r.ok){ $('rosterBody').innerHTML='<tr><td colspan="5" class="empty">Team not found.</td></tr>'; return; }
-      const { team, players, cap } = await r.json();
+      const { team, players, cap, roster } = await r.json();
 
-      // update page title
       document.title=team.name+' Roster — OFL';
-
-      // hero
       const color=team.primary_color||'#15233E';
       $('teamHero').innerHTML=`
         ${logoEl(team,'th-logo')}
@@ -343,46 +345,48 @@
         </div>`;
       $('teamHero').querySelector('.th-logo').style.background=color;
 
-      // cap summary
       const pct=Math.min((cap.used/cap.total)*100,100);
       $('capSummary').innerHTML=`
         <div class="cap-box"><div class="lbl">Total Cap</div><div class="val">${fmtCap(cap.total)}</div></div>
         <div class="cap-box"><div class="lbl">Cap Used</div><div class="val">${fmtCap(cap.used)}</div></div>
         <div class="cap-box"><div class="lbl">Remaining</div><div class="val ${cap.remaining<0?'red':'green'}">${fmtCap(Math.abs(cap.remaining))}${cap.remaining<0?' over':''}</div></div>
-        <div class="cap-box"><div class="lbl">Roster Size</div><div class="val ${players.length<ROSTER_MIN||players.length>ROSTER_MAX?'red':''}">${players.length} / ${ROSTER_MAX}</div></div>`;
-      $('capBar').style.width=pct+'%';
-      $('capBar').style.background=barColor(pct);
+        <div class="cap-box"><div class="lbl">Roster Size</div><div class="val ${players.length<roster.min||players.length>roster.max?'red':''}">${players.length} / ${roster.max}</div></div>`;
+      $('capBar').style.width=pct+'%'; $('capBar').style.background=barColor(pct);
 
-      // staff strip
       $('staffStrip').innerHTML=`
         <div class="staff-item"><div class="lbl">Head Coach</div><div class="val">${team.head_coach||'—'}</div></div>
         <div class="staff-item"><div class="lbl">Dir. of Franchise Ops</div><div class="val">${team.director_of_ops||'—'}</div></div>
         <div class="staff-item"><div class="lbl">Franchise Owner</div><div class="val">${team.franchise_owner||'—'}</div></div>`;
 
-      // roster table
       if(players.length===0){
-        $('rosterBody').innerHTML='<tr><td colspan="5" class="empty" style="padding:30px;">No players on this roster yet.</td></tr>';
+        $('rosterBody').innerHTML='<tr><td colspan="6" class="empty" style="padding:30px;">No players on this roster yet.</td></tr>';
       } else {
         $('rosterBody').innerHTML=players.map((p,i)=>{
           const av=p.avatar_url?`<img class="pl-av" src="${p.avatar_url}" alt="">`:`<span class="pl-av"></span>`;
           const capHit=p.cap_value||0;
           const capPct=cap.total>0?((capHit/cap.total)*100).toFixed(1):0;
+          const eligBadge = p.eligibility
+            ? `<span class="elig-badge ${p.eligibility==='ESTABLISHED'?'est':'dpp'}">${p.eligibility==='ESTABLISHED'?'EST':'DPP'}</span>`
+            : '';
           return `<tr>
             <td><span class="rank-num">${i+1}</span></td>
             <td><div class="pl-cell">${av}<span class="pl-name">${p.roblox_username||'—'}</span></div></td>
             <td>${p.position?`<span class="pos-badge">${p.position}</span>`:'<span style="color:var(--muted);font-family:Space Mono;font-size:12px;">—</span>'}</td>
+            <td>${eligBadge}</td>
             <td class="right"><div class="cap-hit">${fmtCap(capHit)}</div></td>
             <td class="right"><div class="cap-pct">${capPct}%</div></td>
           </tr>`;
         }).join('');
       }
 
-      // roster note
+      // roster notes
       const n=players.length;
       const notes=[];
-      if(n<ROSTER_MIN) notes.push(`<span class="warn">⚠ ${ROSTER_MIN-n} below roster minimum (${ROSTER_MIN})</span>`);
-      if(n>ROSTER_MAX) notes.push(`<span class="warn">⚠ ${n-ROSTER_MAX} over roster maximum (${ROSTER_MAX})</span>`);
+      if(n<roster.min) notes.push(`<span class="warn">⚠ ${roster.min-n} below roster minimum (${roster.min})</span>`);
+      if(n>roster.max) notes.push(`<span class="warn">⚠ ${n-roster.max} over roster maximum (${roster.max})</span>`);
       if(cap.remaining<0) notes.push(`<span class="warn">⚠ ${fmtCap(Math.abs(cap.remaining))} over the salary cap</span>`);
+      if(roster.established_max!=null && roster.established_count>roster.established_max)
+        notes.push(`<span class="warn">⚠ ${roster.established_count} established players (max ${roster.established_max} on DPP team)</span>`);
       $('rosterNote').innerHTML=notes.join(' &nbsp;·&nbsp; ');
 
     }catch(e){
