@@ -338,6 +338,13 @@
             <label>Franchise Owner</label>
             <input type="text" id="t_owner" placeholder="e.g. username">
           </div>
+          <div class="field">
+            <label>DPP Team?</label>
+            <select id="t_dpp">
+              <option value="false">No</option>
+              <option value="true">Yes</option>
+            </select>
+          </div>
         </div>
         <div style="display:flex;gap:12px;margin-top:18px;">
           <button class="save-btn" id="teamSaveBtn">Add Team</button>
@@ -735,13 +742,15 @@
       founded: $('t_founded').value,
       head_coach: $('t_coach').value,
       director_of_ops: $('t_dfo').value,
-      franchise_owner: $('t_owner').value
+      franchise_owner: $('t_owner').value,
+      is_dpp: $('t_dpp').value === 'true'
     };
   }
 
   function resetTeamForm(){
     editingTeamId=null;
     ['t_name','t_abbr','t_logo','t_location','t_founded','t_coach','t_dfo','t_owner'].forEach(id=>$(id).value='');
+    $('t_dpp').value='false';
     $('t_primary').value='#15233E'; $('t_primary_hex').value='#15233E';
     $('t_secondary').value='#9F3622'; $('t_secondary_hex').value='#9F3622';
     $('teamFormTitle').textContent='Add a Team';
@@ -761,6 +770,7 @@
     $('t_coach').value=t.head_coach||'';
     $('t_dfo').value=t.director_of_ops||'';
     $('t_owner').value=t.franchise_owner||'';
+    $('t_dpp').value=t.is_dpp?'true':'false';
     $('teamFormTitle').textContent='Edit Team';
     $('teamSaveBtn').textContent='Save Changes';
     $('teamCancelBtn').style.display='inline-block';

@@ -70,6 +70,8 @@
   .tc-logo img{width:100%;height:100%;object-fit:contain;}
   .tc-name{font-family:'Anton';font-size:22px;text-transform:uppercase;line-height:1.1;}
   .tc-abbr{font-family:'Space Mono';font-size:11px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-top:3px;}
+  .dpp-badge{height:22px;width:auto;vertical-align:middle;margin-left:8px;display:inline-block;}
+  .dpp-badge-lg{height:36px;width:auto;vertical-align:middle;margin-left:14px;display:inline-block;}
   .tc-divider{height:1px;background:var(--line);margin:0 0 16px;}
   .tc-cap-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;margin-bottom:16px;}
   .tc-cap-item{text-align:center;padding:10px 8px;border-right:1px solid var(--line);}
@@ -295,7 +297,7 @@
             <div class="tc-top">
               ${logoEl(t,'tc-logo')}
               <div>
-                <div class="tc-name">${t.name}</div>
+                <div class="tc-name">${t.name}${t.is_dpp?`<img class="dpp-badge" src="https://i.imgur.com/bd36Ztd.png" alt="DPP" title="DPP Team">`:''}</div>
                 <div class="tc-abbr">${t.abbreviation||slug.toUpperCase()}</div>
               </div>
             </div>
@@ -336,7 +338,7 @@
       $('teamHero').innerHTML=`
         ${logoEl(team,'th-logo')}
         <div>
-          <div class="th-name">${team.name}</div>
+          <div class="th-name">${team.name}${team.is_dpp?`<img class="dpp-badge-lg" src="https://i.imgur.com/bd36Ztd.png" alt="DPP" title="DPP Team">`:''}</div>
           <div class="th-meta">${[team.location, team.founded?'Est. '+team.founded:''].filter(Boolean).join(' · ')||'OFL'}</div>
         </div>`;
       $('teamHero').querySelector('.th-logo').style.background=color;

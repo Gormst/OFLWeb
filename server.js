@@ -570,7 +570,7 @@ app.post('/api/admin/teams', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
   try {
-    const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner } = req.body;
+    const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner, is_dpp } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Team name required' });
     const { data, error } = await supabase.from('teams').insert({
       name: name.trim(),
@@ -582,7 +582,8 @@ app.post('/api/admin/teams', async (req, res) => {
       founded: (founded || '').trim() || null,
       head_coach: (head_coach || '').trim() || null,
       director_of_ops: (director_of_ops || '').trim() || null,
-      franchise_owner: (franchise_owner || '').trim() || null
+      franchise_owner: (franchise_owner || '').trim() || null,
+      is_dpp: is_dpp === true || is_dpp === 'true'
     }).select().single();
     if (error) throw error;
     res.json({ success: true, team: data });
@@ -596,7 +597,7 @@ app.put('/api/admin/teams/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
   try {
-    const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner } = req.body;
+    const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner, is_dpp } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Team name required' });
     const { data, error } = await supabase.from('teams').update({
       name: name.trim(),
@@ -608,7 +609,8 @@ app.put('/api/admin/teams/:id', async (req, res) => {
       founded: (founded || '').trim() || null,
       head_coach: (head_coach || '').trim() || null,
       director_of_ops: (director_of_ops || '').trim() || null,
-      franchise_owner: (franchise_owner || '').trim() || null
+      franchise_owner: (franchise_owner || '').trim() || null,
+      is_dpp: is_dpp === true || is_dpp === 'true'
     }).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json({ success: true, team: data });
