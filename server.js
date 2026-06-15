@@ -1173,7 +1173,7 @@ app.use(express.static(PUBLIC_DIR, { extensions: false }));
 
 app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
 
-// /teams/:id -> teams.html (the page reads the id from the URL client-side)
+app.get('/teams/:slug', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'teams.html')));
 app.get('/coaches/:slug', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'coaches.html')));
 app.get('/coaches', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'coaches.html')));
 
