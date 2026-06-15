@@ -236,6 +236,7 @@
       <a href="/standings">Standings</a>
       <a href="/stats">Stats</a>
       <a href="/teams">Teams</a>
+      <a href="/players">Players</a>
     </nav>
     <span></span>
   </div>
@@ -500,13 +501,28 @@
     <div class="section" id="section-registry">
       <div class="panel">
         <h3>Import Player Registry</h3>
-        <div class="desc">Paste the full cap CSV (same format as the Google Sheet). Players are upserted by username — re-importing updates existing entries. This populates the public Players page.</div>
-        <div class="field full" style="margin-top:10px;">
-          <label>Cap CSV</label>
-          <textarea id="reg_csv" rows="10" placeholder="Paste the full cap/eligibility CSV here…"></textarea>
+        <div class="desc">Paste a list of players in the format below. Set a cap value that will apply to all players in this import. Players are upserted by username — re-importing updates existing entries.</div>
+        <div class="team-form" style="margin-top:14px;">
+          <div class="field">
+            <label>Cap Value (applies to all players in this import)</label>
+            <select id="reg_cap">
+              <option value="17500000">$17.5M</option>
+              <option value="15000000">$15M</option>
+              <option value="12500000">$12.5M</option>
+              <option value="10000000">$10M</option>
+              <option value="7500000">$7.5M</option>
+              <option value="5000000">$5M</option>
+              <option value="2500000">$2.5M</option>
+              <option value="0">$0</option>
+            </select>
+          </div>
+        </div>
+        <div class="field full" style="margin-top:14px;">
+          <label>Players CSV (USERNAME, ELIGIBILITY — one per line)</label>
+          <textarea id="reg_csv" rows="10" placeholder="USERNAME,ELIGIBILITY&#10;famouskai12,DPP-ELIGIBLE&#10;someuser,ESTABLISHED&#10;&#10;Or paste directly from the Google Sheet (full format with tier headers also works)"></textarea>
         </div>
         <div style="display:flex;gap:12px;margin-top:18px;">
-          <button class="save-btn" id="regImportBtn">Import Registry</button>
+          <button class="save-btn" id="regImportBtn">Import Players</button>
         </div>
         <div class="msg" id="regMsg"></div>
       </div>
@@ -1442,6 +1458,7 @@
 
   // ── PLAYER REGISTRY ──
   function regMsg(t,ok){ const m=$('regMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>m.className='msg',3000); }
+  function fmtCapAdmin(v){ if(v>=1_000_000) return '$'+(v/1_000_000).toFixed(1).replace('.0','')+'M'; if(v>=1_000) return '$'+(v/1_000).toFixed(0)+'K'; return '$'+v; }
 
   async function loadRegStats(){
     try{
@@ -1464,17 +1481,18 @@
 
   if($('regImportBtn')) $('regImportBtn').addEventListener('click',async()=>{
     const csv=$('reg_csv').value;
-    if(!csv.trim()){ regMsg('Paste the CSV first'); return; }
+    const cap_value=parseInt($('reg_cap').value)||0;
+    if(!csv.trim()){ regMsg('Paste player data first'); return; }
     $('regImportBtn').disabled=true; $('regImportBtn').textContent='Importing…';
     try{
-      const r=await apiFetch('/api/admin/registry/import',{method:'POST',body:JSON.stringify({csv})});
+      const r=await apiFetch('/api/admin/registry/import',{method:'POST',body:JSON.stringify({csv, cap_value})});
       const j=await r.json();
       if(!r.ok){ regMsg(j.error||'Import failed'); return; }
-      regMsg(`Imported ${j.imported} players`,true);
+      regMsg(`Imported ${j.imported} players at ${fmtCapAdmin(cap_value)}`,true);
       $('reg_csv').value='';
       loadRegStats();
     }catch(e){ regMsg('Network error'); }
-    finally{ $('regImportBtn').disabled=false; $('regImportBtn').textContent='Import Registry'; }
+    finally{ $('regImportBtn').disabled=false; $('regImportBtn').textContent='Import Players'; }
   });
 </script>
 </body>

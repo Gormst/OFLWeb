@@ -108,6 +108,8 @@
       <a href="/schedule">Schedule</a>
       <a href="/standings" class="active">Standings</a>
       <a href="/stats">Stats</a>
+      <a href="/teams">Teams</a>
+      <a href="/players">Players</a>
     </nav>
     <a href="/connect" class="connect-btn" id="connectBtn">Connect Account</a>
     <div class="account-wrap" id="accountWrap" style="display:none;">
@@ -116,6 +118,7 @@
       </div>
       <div class="dropdown">
         <a href="/profile">Profile</a>
+        <a href="/coaches" class="coaches" id="coachesLink" style="display:none;">Coaches Suite</a>
         <a href="/admin" class="admin" id="adminLink" style="display:none;">Admin</a>
         <a href="#" class="logout" id="logoutBtn">Log Out</a>
       </div>
@@ -168,6 +171,14 @@
       $('accountName').textContent=p.roblox_username;
       if(p.avatar_url) $('accountAvatar').src=p.avatar_url;
       if(token){ try{ const r=await fetch('/api/me',{headers:{Authorization:'Bearer '+token}}); const j=await r.json(); if(j.profile&&j.profile.is_admin) $('adminLink').style.display='block'; }catch(e){} }
+      try{
+        const cr=await fetch('/api/coach/me',{headers:{Authorization:'Bearer '+token}});
+        const cj=await cr.json();
+        if(cj.coach){
+          const cl=$('coachesLink');
+          if(cl){ cl.href='/coaches/'+cj.team.slug; cl.style.display='block'; }
+        }
+      }catch(e){}
     }
     const wrap=$('accountWrap'), pill=$('accountPill');
     if(pill){ pill.addEventListener('click',e=>{e.stopPropagation();wrap.classList.toggle('open');}); document.addEventListener('click',()=>wrap.classList.remove('open')); }
