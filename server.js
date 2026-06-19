@@ -583,7 +583,7 @@ app.post('/api/admin/teams', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
   try {
-    const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner, is_dpp } = req.body;
+    const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner, is_dpp, tier } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Team name required' });
     const { data, error } = await supabase.from('teams').insert({
       name: name.trim(),
@@ -596,7 +596,8 @@ app.post('/api/admin/teams', async (req, res) => {
       head_coach: (head_coach || '').trim() || null,
       director_of_ops: (director_of_ops || '').trim() || null,
       franchise_owner: (franchise_owner || '').trim() || null,
-      is_dpp: is_dpp === true || is_dpp === 'true'
+      is_dpp: is_dpp === true || is_dpp === 'true',
+      tier: tier ? parseInt(tier, 10) : null
     }).select().single();
     if (error) throw error;
     ensureHCOnRoster(data).catch(e => console.error('HC roster err:', e.message));
@@ -611,7 +612,7 @@ app.put('/api/admin/teams/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
   try {
-    const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner, is_dpp } = req.body;
+    const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner, is_dpp, tier } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Team name required' });
     const { data, error } = await supabase.from('teams').update({
       name: name.trim(),
@@ -624,7 +625,8 @@ app.put('/api/admin/teams/:id', async (req, res) => {
       head_coach: (head_coach || '').trim() || null,
       director_of_ops: (director_of_ops || '').trim() || null,
       franchise_owner: (franchise_owner || '').trim() || null,
-      is_dpp: is_dpp === true || is_dpp === 'true'
+      is_dpp: is_dpp === true || is_dpp === 'true',
+      tier: tier ? parseInt(tier, 10) : null
     }).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json({ success: true, team: data });
@@ -680,21 +682,121 @@ app.get('/api/games', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────
+//  STANDINGS (tier-aware point system)
+// ─────────────────────────────────────────────
+
+const TIER_WIN_PTS = { 1: 3, 2: 2.5, 3: 2, 4: 1.5, 5: 1 };
+
+function weekType(weekStr) {
+  if (!weekStr) return 'series';
+  const w = String(weekStr).trim().toLowerCase();
+  if (w === 'week 1' || w === '1') return 'placement';
+  if (w === 'week 10' || w === '10') return 'playup';
+  return 'series';
+}
+
+function calcPoints(game, winnerTeam) {
+  // Week 10: use manually set point_value
+  const wt = weekType(game.week);
+  if (wt === 'playup') return game.point_value != null ? Number(game.point_value) : 0;
+  // Week 1 (Placement): flat 2 pts
+  if (wt === 'placement') return 2;
+  // Series weeks: based on winner's tier
+  const tier = winnerTeam?.tier;
+  return tier ? (TIER_WIN_PTS[tier] || 0) : 0;
+}
+
+app.get('/api/standings', async (req, res) => {
+  try {
+    const { data: teams } = await supabase.from('teams').select('*').order('name');
+    const { data: games } = await supabase.from('games').select('*');
+
+    // build team map
+    const teamMap = {};
+    (teams || []).forEach(t => teamMap[t.id] = t);
+
+    // accumulate points, wins, losses per team
+    const stats = {};
+    (teams || []).forEach(t => {
+      stats[t.id] = { team: t, pts: 0, w: 0, l: 0, pf: 0, pa: 0 };
+    });
+
+    for (const g of (games || [])) {
+      const hs = g.home_score, as = g.away_score;
+      if (hs === null || hs === undefined || as === null || as === undefined) continue;
+      if (hs === as) continue; // no ties
+      const homeTeam = teamMap[g.home_team_id];
+      const awayTeam = teamMap[g.away_team_id];
+      if (!homeTeam || !awayTeam) continue;
+      if (!stats[g.home_team_id]) continue;
+      if (!stats[g.away_team_id]) continue;
+
+      const homeWon = hs > as;
+      const winnerTeam = homeWon ? homeTeam : awayTeam;
+      const pts = calcPoints(g, winnerTeam);
+
+      if (homeWon) {
+        stats[g.home_team_id].w++;
+        stats[g.home_team_id].pts += pts;
+        stats[g.away_team_id].l++;
+      } else {
+        stats[g.away_team_id].w++;
+        stats[g.away_team_id].pts += pts;
+        stats[g.home_team_id].l++;
+      }
+      stats[g.home_team_id].pf += hs; stats[g.home_team_id].pa += as;
+      stats[g.away_team_id].pf += as; stats[g.away_team_id].pa += hs;
+    }
+
+    const rows = Object.values(stats).map(s => ({
+      team_id: s.team.id,
+      name: s.team.name,
+      abbreviation: s.team.abbreviation,
+      primary_color: s.team.primary_color,
+      logo_url: s.team.logo_url,
+      tier: s.team.tier || null,
+      pts: s.pts,
+      w: s.w,
+      l: s.l,
+      pf: s.pf,
+      pa: s.pa,
+      net: s.pf - s.pa,
+      slug: slugify(s.team.name)
+    }));
+
+    // overall: sorted by pts desc, then net
+    const overall = [...rows].sort((a, b) => b.pts - a.pts || b.net - a.net);
+
+    // by tier: group, sort within tier by pts
+    const byTier = {};
+    for (let t = 1; t <= 5; t++) byTier[t] = [];
+    rows.forEach(r => { if (r.tier >= 1 && r.tier <= 5) byTier[r.tier].push(r); });
+    for (let t = 1; t <= 5; t++) byTier[t].sort((a, b) => b.pts - a.pts || b.net - a.net);
+
+    res.json({ overall, byTier });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // admin — create a game
 app.post('/api/admin/games', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
   try {
-    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score } = req.body;
+    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score, point_value } = req.body;
     if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
     if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
     const hs = normScore(home_score), as = normScore(away_score);
+    const pv = (point_value !== undefined && point_value !== '' && point_value !== null) ? Number(point_value) : null;
     const { data, error } = await supabase.from('games').insert({
       week: (week !== undefined && week !== null && String(week).trim() !== '') ? String(week).trim() : null,
       game_date: game_date || null,
       game_time: (game_time || '').trim() || null,
       home_team_id, away_team_id,
-      home_score: hs, away_score: as
+      home_score: hs, away_score: as,
+      point_value: pv
     }).select().single();
     if (error) throw error;
     res.json({ success: true, game: data });
@@ -708,16 +810,18 @@ app.put('/api/admin/games/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
   try {
-    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score } = req.body;
+    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score, point_value } = req.body;
     if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
     if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
     const hs = normScore(home_score), as = normScore(away_score);
+    const pv = (point_value !== undefined && point_value !== '' && point_value !== null) ? Number(point_value) : null;
     const { data, error } = await supabase.from('games').update({
       week: (week !== undefined && week !== null && String(week).trim() !== '') ? String(week).trim() : null,
       game_date: game_date || null,
       game_time: (game_time || '').trim() || null,
       home_team_id, away_team_id,
-      home_score: hs, away_score: as
+      home_score: hs, away_score: as,
+      point_value: pv
     }).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json({ success: true, game: data });

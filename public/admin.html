@@ -347,6 +347,28 @@
               <option value="true">Yes</option>
             </select>
           </div>
+          <div class="field">
+            <label>Tier (1–5)</label>
+            <select id="t_tier">
+              <option value="">— Not assigned —</option>
+              <option value="1">Tier 1</option>
+              <option value="2">Tier 2</option>
+              <option value="3">Tier 3</option>
+              <option value="4">Tier 4</option>
+              <option value="5">Tier 5</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Tier (1–5)</label>
+            <select id="t_tier">
+              <option value="">— No tier —</option>
+              <option value="1">Tier I</option>
+              <option value="2">Tier II</option>
+              <option value="3">Tier III</option>
+              <option value="4">Tier IV</option>
+              <option value="5">Tier V</option>
+            </select>
+          </div>
         </div>
         <div style="display:flex;gap:12px;margin-top:18px;">
           <button class="save-btn" id="teamSaveBtn">Add Team</button>
@@ -406,6 +428,21 @@
               <input type="number" id="g_away_score" min="0" placeholder="—">
             </div>
             <button type="button" class="clear-score" id="clearScoreBtn">Clear Score</button>
+          </div>
+          <div id="pointValueWrap" style="display:none;margin-top:14px;">
+            <div class="field">
+              <label>Play-Up Point Value (Week 10 only — points awarded to winner)</label>
+              <select id="g_point_value">
+                <option value="">— Select point value —</option>
+                <option value="4">4 pts — Top 4 T1 win</option>
+                <option value="3.5">3.5 pts — Top 4 T2 upsets Bottom 4 T1</option>
+                <option value="3">3 pts — Bottom 4 T1 beats Top 4 T2 / Top 4 T3 upsets Bottom 4 T2</option>
+                <option value="2.5">2.5 pts — Bottom 4 T2 beats Top 4 T3 / Top 4 T4 upsets Bottom 4 T3</option>
+                <option value="2">2 pts — Bottom 4 T3 beats Top 4 T4 / Top 4 T5 upsets Bottom 4 T4</option>
+                <option value="1.5">1.5 pts — Bottom 4 T4 beats Top 4 T5</option>
+                <option value="1">1 pt — Bottom 4 T5 win</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -780,7 +817,9 @@
       head_coach: $('t_coach').value,
       director_of_ops: $('t_dfo').value,
       franchise_owner: $('t_owner').value,
-      is_dpp: $('t_dpp').value === 'true'
+      is_dpp: $('t_dpp').value === 'true',
+      tier: $('t_tier').value ? parseInt($('t_tier').value) : null,
+      tier: $('t_tier').value ? parseInt($('t_tier').value) : null
     };
   }
 
@@ -788,6 +827,8 @@
     editingTeamId=null;
     ['t_name','t_abbr','t_logo','t_location','t_founded','t_coach','t_dfo','t_owner'].forEach(id=>$(id).value='');
     $('t_dpp').value='false';
+    $('t_tier').value='';
+    $('t_tier').value='';
     $('t_primary').value='#15233E'; $('t_primary_hex').value='#15233E';
     $('t_secondary').value='#9F3622'; $('t_secondary_hex').value='#9F3622';
     $('teamFormTitle').textContent='Add a Team';
@@ -808,6 +849,8 @@
     $('t_dfo').value=t.director_of_ops||'';
     $('t_owner').value=t.franchise_owner||'';
     $('t_dpp').value=t.is_dpp?'true':'false';
+    $('t_tier').value=t.tier||'';
+    $('t_tier').value=t.tier||'';
     $('teamFormTitle').textContent='Edit Team';
     $('teamSaveBtn').textContent='Save Changes';
     $('teamCancelBtn').style.display='inline-block';
@@ -927,6 +970,7 @@
   function readGameForm(){
     const hs=$('g_home_score').value.trim();
     const as=$('g_away_score').value.trim();
+    const pv=$('g_point_value').value;
     return {
       week: $('g_week').value,
       game_date: $('g_date').value,
@@ -934,7 +978,8 @@
       home_team_id: $('g_home').value,
       away_team_id: $('g_away').value,
       home_score: hs===''?null:parseInt(hs,10),
-      away_score: as===''?null:parseInt(as,10)
+      away_score: as===''?null:parseInt(as,10),
+      point_value: pv!==''?parseFloat(pv):null
     };
   }
 
@@ -947,6 +992,8 @@
     $('g_away').value='';
     $('g_home_score').value='';
     $('g_away_score').value='';
+    $('g_point_value').value='';
+    $('pointValueWrap').style.display='none';
     updateScoreLabels();
     $('gameFormTitle').textContent='Add a Game';
     $('gameSaveBtn').textContent='Add Game';
@@ -970,6 +1017,8 @@
     $('g_away').value=g.away_team_id||'';
     $('g_home_score').value=(g.home_score!=null)?g.home_score:'';
     $('g_away_score').value=(g.away_score!=null)?g.away_score:'';
+    $('g_point_value').value=(g.point_value!=null)?g.point_value:'';
+    $('pointValueWrap').style.display=(g.week==='10'?'block':'none');
     updateScoreLabels();
     $('gameFormTitle').textContent='Edit Game';
     $('gameSaveBtn').textContent='Save Changes';
@@ -981,6 +1030,7 @@
   if($('g_home')) $('g_home').addEventListener('change',updateScoreLabels);
   if($('g_away')) $('g_away').addEventListener('change',updateScoreLabels);
   if($('clearScoreBtn')) $('clearScoreBtn').addEventListener('click',()=>{ $('g_home_score').value=''; $('g_away_score').value=''; });
+  if($('g_week')) $('g_week').addEventListener('change', function(){ $('pointValueWrap').style.display=(this.value==='10'?'block':'none'); });
 
   $('gameCancelBtn').addEventListener('click',resetGameForm);
 
