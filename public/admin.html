@@ -270,7 +270,6 @@
       <button class="tab" data-tab="teams">Teams</button>
       <button class="tab" data-tab="schedule">Schedule</button>
       <button class="tab" data-tab="players">Import Stats</button>
-      <button class="tab" data-tab="seasons">Past Seasons</button>
       <button class="tab" data-tab="requests">Requests</button>
       <button class="tab" data-tab="registry">Player Registry</button>
     </div>
@@ -381,6 +380,27 @@
         <h3>All Teams (<span id="teamCount">0</span>)</h3>
         <div class="desc">Click a team to edit it.</div>
         <div class="team-list" id="teamList"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Roster Management</h3>
+        <div class="desc">Manually add a player from the registry to a team, or remove a player from their current team.</div>
+        <div class="team-form">
+          <div class="field">
+            <label>Team</label>
+            <select id="rm_team"></select>
+          </div>
+          <div class="field">
+            <label>Player Username</label>
+            <input type="text" id="rm_player" placeholder="Exact Roblox username">
+          </div>
+        </div>
+        <div id="rm_player_info" style="font-family:Space Mono;font-size:11px;color:var(--muted);margin-bottom:14px;display:none;"></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;">
+          <button class="save-btn" id="rmAddBtn">Add to Team</button>
+          <button class="cancel-btn" id="rmRemoveBtn">Remove from Team</button>
+        </div>
+        <div class="msg" id="rmMsg"></div>
       </div>
     </div>
 
@@ -589,7 +609,7 @@
   function showMsg(t,ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
 
   // friendly label for a tab key
-  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Import Stats', seasons:'Past Seasons', requests:'Requests', registry:'Player Registry' };
+  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Import Stats', requests:'Requests', registry:'Player Registry' };
 
   // ── gate check ──
   (async function(){
@@ -754,6 +774,7 @@
       renderTeams(teamsCache);
       populateTeamSelects();
       populateBoxScoreSelects();
+      populateRmTeam();
     }catch(e){}
   }
 
@@ -1545,6 +1566,60 @@
       loadRegStats();
     }catch(e){ regMsg('Network error'); }
     finally{ $('regImportBtn').disabled=false; $('regImportBtn').textContent='Import Players'; }
+  });
+
+  // ── ROSTER MANAGEMENT ──
+  function rmMsg(t,ok){ const m=$('rmMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>m.className='msg',3000); }
+
+  function populateRmTeam(){
+    const sel=$('rm_team'); if(!sel) return;
+    sel.innerHTML='<option value="">— Select team —</option>'+teamsCache.map(t=>`<option value="${t.id}">${t.name}</option>`).join('');
+  }
+
+  let rmDebounce=null;
+  if($('rm_player')) $('rm_player').addEventListener('input',function(){
+    clearTimeout(rmDebounce); const info=$('rm_player_info'); const q=this.value.trim();
+    if(!q){ info.style.display='none'; return; }
+    rmDebounce=setTimeout(async()=>{
+      try{
+        const r=await fetch('/api/registry/search?q='+encodeURIComponent(q));
+        const j=await r.json();
+        const match=(j.players||[]).find(p=>p.roblox_username.toLowerCase()===q.toLowerCase());
+        if(match){
+          const cv=match.cap_value>=1e6?'$'+(match.cap_value/1e6).toFixed(2)+'M':'$'+match.cap_value;
+          info.textContent=`${match.roblox_username} · ${match.eligibility==='ESTABLISHED'?'Established':'DPP-Eligible'} · ${cv} · ${match.team?'Currently on a team':'Free agent'}`;
+        } else {
+          info.textContent='Not in registry — will be created with $0 cap.';
+        }
+        info.style.display='block';
+      }catch(e){}
+    },400);
+  });
+
+  if($('rmAddBtn')) $('rmAddBtn').addEventListener('click',async()=>{
+    const team_id=$('rm_team').value, username=$('rm_player').value.trim();
+    if(!team_id){ rmMsg('Select a team'); return; }
+    if(!username){ rmMsg('Enter a player username'); return; }
+    $('rmAddBtn').disabled=true; $('rmAddBtn').textContent='Adding…';
+    try{
+      const r=await apiFetch('/api/admin/roster/add',{method:'POST',body:JSON.stringify({team_id,username})});
+      const j=await r.json(); if(!r.ok){ rmMsg(j.error||'Failed'); return; }
+      rmMsg(username+' added to team',true); $('rm_player').value=''; $('rm_player_info').style.display='none';
+    }catch(e){ rmMsg('Network error'); }
+    finally{ $('rmAddBtn').disabled=false; $('rmAddBtn').textContent='Add to Team'; }
+  });
+
+  if($('rmRemoveBtn')) $('rmRemoveBtn').addEventListener('click',async()=>{
+    const username=$('rm_player').value.trim();
+    if(!username){ rmMsg('Enter a player username'); return; }
+    if(!confirm('Remove '+username+' from their current team?')) return;
+    $('rmRemoveBtn').disabled=true; $('rmRemoveBtn').textContent='Removing…';
+    try{
+      const r=await apiFetch('/api/admin/roster/remove',{method:'POST',body:JSON.stringify({username})});
+      const j=await r.json(); if(!r.ok){ rmMsg(j.error||'Failed'); return; }
+      rmMsg(username+' removed',true); $('rm_player').value=''; $('rm_player_info').style.display='none';
+    }catch(e){ rmMsg('Network error'); }
+    finally{ $('rmRemoveBtn').disabled=false; $('rmRemoveBtn').textContent='Remove from Team'; }
   });
 </script>
 </body>

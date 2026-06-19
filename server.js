@@ -347,9 +347,10 @@ app.post('/api/connect/start', async (req, res) => {
     if (!robloxUser) return res.status(404).json({ error: 'Roblox user not found' });
     const code = makeCode();
     const expires = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-    await supabase.from('verification_codes').insert({
+    const { error: codeInsErr } = await supabase.from('verification_codes').insert({
       roblox_username: robloxUser.name, code, expires_at: expires, used: false
     });
+    if (codeInsErr) { console.error('code insert error:', codeInsErr.message); return res.status(500).json({ error: 'Failed to create verification code: ' + codeInsErr.message }); }
     res.json({ code, robloxUsername: robloxUser.name, robloxUserId: robloxUser.id });
   } catch (err) {
     console.error(err);
@@ -364,54 +365,58 @@ app.post('/api/connect/verify', async (req, res) => {
     const robloxUser = await getRobloxUser(username);
     if (!robloxUser) return res.status(404).json({ error: 'Roblox user not found' });
 
-    const { data: codes } = await supabase
+    const { data: codes, error: codeErr } = await supabase
       .from('verification_codes').select('*')
       .ilike('roblox_username', robloxUser.name).eq('used', false)
       .gt('expires_at', new Date().toISOString())
       .order('expires_at', { ascending: false }).limit(1);
+    if (codeErr) { console.error('code lookup error:', codeErr.message); return res.status(500).json({ error: 'Database error looking up code' }); }
     if (!codes || codes.length === 0) return res.status(400).json({ error: 'No active code — start over' });
     const codeRow = codes[0];
 
     const description = await getRobloxDescription(robloxUser.id);
-    if (!description || !description.includes(codeRow.code)) {
-      return res.status(400).json({ error: 'Code not found in your Roblox bio yet' });
+    if (description === null) return res.status(400).json({ error: 'Could not read your Roblox bio — try again' });
+    if (!description.includes(codeRow.code)) {
+      return res.status(400).json({ error: 'Code not found in your Roblox bio yet — paste it and save, then try again' });
     }
 
     const avatar = await getRobloxAvatar(robloxUser.id);
 
-    const { data: existing } = await supabase
+    // use maybeSingle() so no row found returns null instead of throwing
+    const { data: existing, error: profileErr } = await supabase
       .from('user_profiles').select('*')
-      .eq('roblox_user_id', String(robloxUser.id)).single();
+      .eq('roblox_user_id', String(robloxUser.id)).maybeSingle();
+    if (profileErr) { console.error('profile lookup error:', profileErr.message); return res.status(500).json({ error: 'Database error looking up profile' }); }
 
     let profile;
     if (existing) {
-      const { data } = await supabase.from('user_profiles')
+      const { data, error: upErr } = await supabase.from('user_profiles')
         .update({ roblox_username: robloxUser.name, avatar_url: avatar, is_verified: true })
         .eq('roblox_user_id', String(robloxUser.id)).select().single();
+      if (upErr) { console.error('profile update error:', upErr.message); return res.status(500).json({ error: 'Failed to update profile' }); }
       profile = data;
     } else {
-      const { data } = await supabase.from('user_profiles')
+      const { data, error: insErr } = await supabase.from('user_profiles')
         .insert({
           roblox_username: robloxUser.name,
           roblox_user_id: String(robloxUser.id),
           avatar_url: avatar, is_verified: true
         }).select().single();
+      if (insErr) { console.error('profile insert error:', insErr.message); return res.status(500).json({ error: 'Failed to create profile: ' + insErr.message }); }
       profile = data;
     }
 
     await supabase.from('verification_codes').update({ used: true }).eq('id', codeRow.id);
 
-    // issue our own long-lived token tied to the Roblox id
     const token = signToken(robloxUser.id);
     const { tabs, isAdmin, isSuper } = effectiveTabs(profile);
     res.json({
-      success: true,
-      token,
+      success: true, token,
       profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper }
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Something went wrong during verification' });
+    console.error('verify unexpected error:', err);
+    res.status(500).json({ error: 'Something went wrong: ' + err.message });
   }
 });
 
@@ -1104,6 +1109,45 @@ async function fetchAll(query) {
   }
   return all;
 }
+
+// admin — manually add a player to a team
+app.post('/api/admin/roster/add', async (req, res) => {
+  const me = await requireAdmin(req, res, 'teams');
+  if (!me) return;
+  try {
+    const { team_id, username } = req.body;
+    if (!team_id || !username) return res.status(400).json({ error: 'Team and username required' });
+    const { data: regEntry } = await supabase.from('league_players').select('*').ilike('roblox_username', username.trim()).maybeSingle();
+    const capVal = regEntry?.cap_value || 0;
+    const { data: existing } = await supabase.from('players').select('*').ilike('roblox_username', username.trim()).maybeSingle();
+    if (existing) {
+      await supabase.from('players').update({ team_id, cap_value: capVal }).eq('id', existing.id);
+    } else {
+      let avatar_url = null, roblox_user_id = null, rname = username.trim();
+      const ru = await getRobloxUser(rname);
+      if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
+      const row = { roblox_username: rname, roblox_user_id, avatar_url, team_id, cap_value: capVal, position: null };
+      STAT_KEYS.forEach(k => row[k] = 0);
+      const { error: insErr } = await supabase.from('players').insert(row);
+      if (insErr) return res.status(500).json({ error: insErr.message });
+    }
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// admin — remove a player from their team
+app.post('/api/admin/roster/remove', async (req, res) => {
+  const me = await requireAdmin(req, res, 'teams');
+  if (!me) return;
+  try {
+    const { username } = req.body;
+    if (!username) return res.status(400).json({ error: 'Username required' });
+    const { data: player } = await supabase.from('players').select('*').ilike('roblox_username', username.trim()).maybeSingle();
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+    await supabase.from('players').update({ team_id: null, position: null, cap_value: 0 }).eq('id', player.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
 
 function parseCapRegistryCSV(text) {
   const players = [];
