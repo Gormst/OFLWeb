@@ -111,6 +111,7 @@
       <div class="dropdown">
         <a href="/profile">Profile</a>
         <a href="/coaches" class="coaches" id="coachesLink" style="display:none;">Coaches Suite</a>
+        <a href="/media/editor" class="coaches" id="mediaEditorLink" style="display:none;">Media Editor</a>
         <a href="/admin" class="admin" id="adminLink" style="display:none;">Admin</a>
         <a href="#" class="logout" id="logoutBtn">Log Out</a>
       </div>
@@ -156,7 +157,7 @@
       $('accountName').textContent=p.roblox_username;
       if(p.avatar_url) $('accountAvatar').src=p.avatar_url;
       if(token){
-        try{ const r=await fetch('/api/me',{headers:{Authorization:'Bearer '+token}}); const j=await r.json(); if(j.profile&&j.profile.is_admin) $('adminLink').style.display='block'; }catch(e){}
+        try{ const r=await fetch('/api/me',{headers:{Authorization:'Bearer '+token}}); const j=await r.json(); if(j.profile&&j.profile.is_admin) $('adminLink').style.display='block'; if(j.profile&&(j.profile.admin_tabs||[]).includes('media')){ const mel=$('mediaEditorLink'); if(mel) mel.style.display='block'; } }catch(e){}
         try{ const r=await fetch('/api/coach/me',{headers:{Authorization:'Bearer '+token}}); const j=await r.json(); if(j.coach){ const cl=$('coachesLink'); if(cl){ cl.href='/coaches/'+j.team.slug; cl.style.display='block'; } } }catch(e){}
       }
     }

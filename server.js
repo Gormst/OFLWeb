@@ -1643,6 +1643,7 @@ app.get('/teams/:slug', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'teams.
 app.get('/coaches/:slug', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'coaches.html')));
 app.get('/coaches', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'coaches.html')));
 app.get('/media/article/:id', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'article.html')));
+app.get('/media/editor', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'media-editor.html')));
 
 app.get('/:page.html', (req, res) => {
   res.redirect(301, '/' + req.params.page.replace(/index$/, ''));
