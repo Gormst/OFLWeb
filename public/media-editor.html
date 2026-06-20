@@ -191,12 +191,13 @@
         <div class="msg" id="vidMsg"></div>
       </div>
 
-      <div class="panel" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
-        <div>
-          <h2 style="margin-bottom:4px;">Posted Highlights</h2>
-          <div style="font-family:'Space Mono';font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;" id="vidCount">Loading…</div>
+      <div class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:16px;">
+          <h2>Posted Highlights</h2>
+          <a href="/media" style="font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--navy);border-bottom:2px solid var(--red);padding-bottom:2px;">View on Media page →</a>
         </div>
-        <a href="/media" style="font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--navy);border-bottom:2px solid var(--red);padding-bottom:2px;">View on Media page →</a>
+        <div style="font-family:'Space Mono';font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:14px;" id="vidCount"></div>
+        <div class="item-list" id="vidList"></div>
       </div>
 
     </div>
@@ -237,12 +238,13 @@
         <div class="msg" id="artMsg"></div>
       </div>
 
-      <div class="panel" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
-        <div>
-          <h2 style="margin-bottom:4px;">Posted Articles</h2>
-          <div style="font-family:'Space Mono';font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;" id="artCount">Loading…</div>
+      <div class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:16px;">
+          <h2>Posted Articles</h2>
+          <a href="/media" style="font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--navy);border-bottom:2px solid var(--red);padding-bottom:2px;">View on Media page →</a>
         </div>
-        <a href="/media" style="font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--navy);border-bottom:2px solid var(--red);padding-bottom:2px;">View on Media page →</a>
+        <div style="font-family:'Space Mono';font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:14px;" id="artCount"></div>
+        <div class="item-list" id="artList"></div>
       </div>
 
     </div>
@@ -252,6 +254,7 @@
 <script>
   const $ = id => document.getElementById(id);
   const token = localStorage.getItem('ofl_token');
+  let currentUser = null;
 
   function apiFetch(url, opts={}){
     opts.headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});
@@ -308,6 +311,7 @@
       if(j.profile.avatar_url) $('accountAvatar').src=j.profile.avatar_url;
       if(j.profile.is_admin){ const al=$('adminLink'); if(al) al.style.display='block'; }
       $('editorUser').textContent=j.profile.roblox_username+' · Media Editor';
+      currentUser=j.profile.roblox_username;
       $('editorPage').style.display='block';
       loadVideos(); loadArticles();
     }catch(e){ $('gateNoAccess').style.display='block'; }
@@ -335,7 +339,27 @@
       const j=await(await fetch('/api/media/videos')).json();
       const vids=j.videos||[];
       $('vidCount').textContent=vids.length+' highlight'+(vids.length!==1?'s':'')+' posted';
+      if(!vids.length){ $('vidList').innerHTML='<p class="empty">No highlights posted yet.</p>'; return; }
+      $('vidList').innerHTML=vids.map(v=>{
+        const mine=currentUser&&v.posted_by&&v.posted_by.toLowerCase()===currentUser.toLowerCase();
+        return `<div class="item-row">
+          <img class="item-thumb" src="${ytThumb(v.youtube_id)}" onerror="this.style.display='none'">
+          <div class="item-info">
+            <div class="it">${v.title}</div>
+            <div class="im">${[v.week_tag,v.team_tag].filter(Boolean).join(' · ')||'No tags'} · ${new Date(v.published_at).toLocaleDateString()}</div>
+          </div>
+          ${mine?`<button class="btn btn-danger" onclick="deleteVideo('${v.id}')">Delete</button>`:''}
+        </div>`;
+      }).join('');
     }catch(e){}
+  }
+
+  async function deleteVideo(id){
+    if(!confirm('Delete this highlight?')) return;
+    const r=await apiFetch('/api/media/videos/'+id,{method:'DELETE'});
+    const j=await r.json();
+    if(!r.ok){ alert(j.error||'Failed'); return; }
+    loadVideos();
   }
 
   $('vidPostBtn').addEventListener('click', async()=>{
@@ -368,7 +392,27 @@
       const j=await(await fetch('/api/media/articles')).json();
       const arts=j.articles||[];
       $('artCount').textContent=arts.length+' article'+(arts.length!==1?'s':'')+' posted';
+      if(!arts.length){ $('artList').innerHTML='<p class="empty">No articles posted yet.</p>'; return; }
+      $('artList').innerHTML=arts.map(a=>{
+        const mine=currentUser&&a.posted_by&&a.posted_by.toLowerCase()===currentUser.toLowerCase();
+        return `<div class="item-row">
+          ${a.thumbnail_url?`<img class="item-thumb" src="${a.thumbnail_url}" onerror="this.style.display='none'">`:`<div class="item-thumb-placeholder">OFL</div>`}
+          <div class="item-info">
+            <div class="it">${a.title}</div>
+            <div class="im">${a.author||'OFL Staff'} · ${new Date(a.published_at).toLocaleDateString()}</div>
+          </div>
+          ${mine?`<button class="btn btn-danger" onclick="deleteArticle('${a.id}')">Delete</button>`:''}
+        </div>`;
+      }).join('');
     }catch(e){}
+  }
+
+  async function deleteArticle(id){
+    if(!confirm('Delete this article?')) return;
+    const r=await apiFetch('/api/media/articles/'+id,{method:'DELETE'});
+    const j=await r.json();
+    if(!r.ok){ alert(j.error||'Failed'); return; }
+    loadArticles();
   }
 
   $('artPostBtn').addEventListener('click', async()=>{
@@ -395,6 +439,8 @@
 
 
 
+  window.deleteVideo=deleteVideo;
+  window.deleteArticle=deleteArticle;
   window.switchView=switchView;
   window.previewYT=previewYT;
   window.previewThumb=previewThumb;

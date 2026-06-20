@@ -1586,18 +1586,25 @@ app.post('/api/media/videos', async (req, res) => {
       title: title.trim(), youtube_url: youtube_url.trim(),
       description: description?.trim() || null,
       team_tag: team_tag?.trim() || null,
-      week_tag: week_tag?.trim() || null
+      week_tag: week_tag?.trim() || null,
+      posted_by: me.roblox_username || null
     }).select().single();
     if (error) throw error;
     res.json({ success: true, video: { ...data, youtube_id } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// admin/media — delete a video
+// admin/media — delete a video (own posts or full admin)
 app.delete('/api/media/videos/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'media');
   if (!me) return;
   try {
+    const { data: video } = await supabase.from('media_videos').select('posted_by').eq('id', req.params.id).maybeSingle();
+    if (!video) return res.status(404).json({ error: 'Not found' });
+    const { tabs, isSuper } = effectiveTabs(me);
+    const isFullAdmin = isSuper || tabs.includes('access') || tabs.includes('teams');
+    const isOwner = video.posted_by && video.posted_by.toLowerCase() === (me.roblox_username || '').toLowerCase();
+    if (!isOwner && !isFullAdmin) return res.status(403).json({ error: 'You can only delete your own posts' });
     await supabase.from('media_videos').delete().eq('id', req.params.id);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1614,18 +1621,25 @@ app.post('/api/media/articles', async (req, res) => {
       title: title.trim(),
       body: body?.trim() || null,
       author: author?.trim() || me.roblox_username || null,
-      thumbnail_url: thumbnail_url?.trim() || null
+      thumbnail_url: thumbnail_url?.trim() || null,
+      posted_by: me.roblox_username || null
     }).select().single();
     if (error) throw error;
     res.json({ success: true, article: data });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// admin/media — delete an article
+// admin/media — delete an article (own posts or full admin)
 app.delete('/api/media/articles/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'media');
   if (!me) return;
   try {
+    const { data: article } = await supabase.from('media_articles').select('posted_by').eq('id', req.params.id).maybeSingle();
+    if (!article) return res.status(404).json({ error: 'Not found' });
+    const { tabs, isSuper } = effectiveTabs(me);
+    const isFullAdmin = isSuper || tabs.includes('access') || tabs.includes('teams');
+    const isOwner = article.posted_by && article.posted_by.toLowerCase() === (me.roblox_username || '').toLowerCase();
+    if (!isOwner && !isFullAdmin) return res.status(403).json({ error: 'You can only delete your own posts' });
     await supabase.from('media_articles').delete().eq('id', req.params.id);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
