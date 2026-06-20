@@ -45,20 +45,33 @@
   @media(max-width:820px){nav.links,.connect-btn,.account-wrap{display:none;}.menu-toggle{display:block;}}
 
   /* ── TICKER ── */
-  .ticker{background:var(--navy);color:var(--paper);overflow:hidden;border-bottom:1px solid rgba(255,255,255,.08);height:46px;display:flex;align-items:center;}
-  .ticker-track{display:flex;white-space:nowrap;animation:ticker-scroll 60s linear infinite;}
+  .ticker{background:var(--navy);color:var(--paper);overflow:hidden;border-bottom:2px solid rgba(255,255,255,.06);height:70px;display:flex;align-items:stretch;}
+  .ticker-track{display:flex;white-space:nowrap;animation:ticker-scroll 90s linear infinite;}
   .ticker:hover .ticker-track{animation-play-state:paused;}
-  @keyframes ticker-scroll{from{transform:translateX(0);}to{transform:translateX(-50%);}  }
-  .tick-game{display:inline-flex;align-items:center;gap:0;padding:0 28px;border-right:1px solid rgba(255,255,255,.1);font-family:'Space Mono';font-size:12px;letter-spacing:1px;}
-  .tick-team{font-weight:700;text-transform:uppercase;}
-  .tick-score{font-family:'Anton';font-size:16px;margin:0 6px;letter-spacing:1px;}
-  .tick-score.winner{color:#fff;}
-  .tick-score.loser{color:rgba(255,255,255,.45);}
-  .tick-vs{color:rgba(255,255,255,.3);font-size:10px;margin:0 6px;}
-  .tick-sep{color:rgba(255,255,255,.2);margin:0 6px;}
-  .tick-week{font-size:10px;color:rgba(255,255,255,.4);letter-spacing:2px;text-transform:uppercase;margin-right:8px;}
-  .tick-final{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.35);margin-left:8px;}
-  .tick-empty{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.4);padding:0 24px;}
+  @keyframes ticker-scroll{from{transform:translateX(0);}to{transform:translateX(-50%);}}
+
+  /* each game card */
+  .tick-game{display:inline-flex;align-items:center;padding:0 18px;border-right:1px solid rgba(255,255,255,.1);cursor:default;gap:10px;height:70px;}
+  .tick-game:hover{background:rgba(255,255,255,.05);}
+
+  /* stacked team rows */
+  .tick-teams{display:flex;flex-direction:column;justify-content:center;gap:4px;}
+  .tick-team-row{display:flex;align-items:center;gap:7px;}
+  .tick-logo{width:20px;height:20px;border-radius:3px;object-fit:contain;flex-shrink:0;background:rgba(255,255,255,.08);}
+  .tick-abbr{font-family:'Oswald';font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.5px;width:32px;}
+  .tick-rec{font-family:'Space Mono';font-size:9px;color:rgba(255,255,255,.38);letter-spacing:.5px;width:28px;}
+  .tick-sc{font-family:'Anton';font-size:16px;letter-spacing:.5px;width:22px;text-align:right;}
+  .tick-sc.winner{color:#fff;}
+  .tick-sc.loser{color:rgba(255,255,255,.38);}
+  .tick-sc.empty{color:transparent;}
+
+  /* divider + status column */
+  .tick-status{display:flex;flex-direction:column;align-items:center;justify-content:center;padding-left:8px;gap:2px;}
+  .tick-week{font-family:'Space Mono';font-size:8px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.35);}
+  .tick-result{font-family:'Space Mono';font-size:9px;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.45);}
+  .tick-time{font-family:'Space Mono';font-size:9px;letter-spacing:.5px;text-transform:uppercase;color:rgba(255,255,255,.5);}
+
+  .tick-empty{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.35);padding:0 28px;display:inline-flex;align-items:center;height:70px;}
 
   /* ── SECTION SHELL ── */
   .section{padding:64px 0;border-bottom:1px solid var(--line);}
@@ -421,54 +434,76 @@
   // ── SCORES TICKER ──
   (async function(){
     try{
-      const j = await(await fetch('/api/games')).json();
-      const games = (j.games||[])
-        .filter(g => g.home_score != null && g.away_score != null && g.home_score !== g.away_score)
-        .sort((a,b) => (b.game_date||'').localeCompare(a.game_date||''))
-        .slice(0, 20);
+      const j = await fetch('/api/games').then(r=>r.json());
+      const allGames = (j.games||[]).sort((a,b)=>(b.game_date||'').localeCompare(a.game_date||''));
+
+      // build W-L records from scored games
+      const rec = {};
+      allGames.forEach(g=>{
+        if(g.home_score==null||g.away_score==null) return;
+        [g.home_team_id,g.away_team_id].forEach(id=>{ if(!rec[id]) rec[id]={w:0,l:0}; });
+        if(g.home_score>g.away_score){ rec[g.home_team_id].w++; rec[g.away_team_id].l++; }
+        else if(g.away_score>g.home_score){ rec[g.away_team_id].w++; rec[g.home_team_id].l++; }
+      });
+      const recStr = id => { const r=rec[id]; return r?`${r.w}-${r.l}`:'0-0'; };
+
+      const scored = allGames.filter(g=>g.home_score!=null&&g.away_score!=null).slice(0,16);
+      const upcoming = allGames.filter(g=>g.home_score==null).slice(0,6);
+      const games = [...scored, ...upcoming];
 
       if(!games.length){
-        $('tickerTrack').innerHTML = '<span class="tick-empty">No results yet — check back after Week 1</span><span class="tick-empty">No results yet — check back after Week 1</span>';
+        $('tickerTrack').innerHTML='<span class="tick-empty">OFL Season 48 — No games yet</span><span class="tick-empty">OFL Season 48 — No games yet</span>';
         return;
       }
 
-      function abbr(t){ return (t && (t.abbreviation || (t.name||'').slice(0,3).toUpperCase())) || '???'; }
       function weekShort(w){
-        if(!w) return '';
-        const s = String(w).trim();
-        if(s.match(/^week\s*1$/i)) return 'WK1';
-        if(s.match(/^week\s*(\d+)$/i)) return 'WK'+s.match(/\d+/)[0];
-        if(s.match(/playoff/i)) return 'PLYO';
-        if(s.match(/champ/i)) return 'CHMP';
-        return s.slice(0,4).toUpperCase();
+        if(!w) return ''; const s=String(w).trim();
+        const m=s.match(/\d+/); if(m) return 'WK '+m[0];
+        if(/playoff/i.test(s)) return 'PLAYOFF'; if(/champ/i.test(s)) return 'CHAMP';
+        return s.slice(0,6).toUpperCase();
       }
 
-      const items = games.map(g => {
-        const hw = g.home_score > g.away_score;
-        const aw = g.away_score > g.home_score;
-        const home = abbr(g.home_team);
-        const away = abbr(g.away_team);
-        const wk = weekShort(g.week);
-        return `<span class="tick-game">
-          ${wk?`<span class="tick-week">${wk}</span>`:''}
-          <span class="tick-team">${away}</span>
-          <span class="tick-score ${aw?'winner':'loser'}">${g.away_score}</span>
-          <span class="tick-vs">–</span>
-          <span class="tick-score ${hw?'winner':'loser'}">${g.home_score}</span>
-          <span class="tick-team">${home}</span>
-          <span class="tick-final">FINAL</span>
-        </span>`;
-      }).join('');
+      function logoEl(team){
+        if(!team) return `<div class="tick-logo"></div>`;
+        if(team.logo_url) return `<img class="tick-logo" src="${team.logo_url}" onerror="this.style.display='none'" alt="">`;
+        const c=team.primary_color||'#15233E';
+        return `<div class="tick-logo" style="background:${c};display:flex;align-items:center;justify-content:center;font-family:Anton;font-size:8px;color:#fff;">${(team.abbreviation||'?').slice(0,2)}</div>`;
+      }
 
-      // duplicate for seamless loop
-      $('tickerTrack').innerHTML = items + items;
+      function card(g){
+        const home=g.home_team||null, away=g.away_team||null;
+        const final=g.home_score!=null&&g.away_score!=null;
+        const hw=final&&g.home_score>g.away_score, aw=final&&g.away_score>g.home_score;
+        const hAbbr=(home&&(home.abbreviation||(home.name||'').slice(0,3)))||'???';
+        const aAbbr=(away&&(away.abbreviation||(away.name||'').slice(0,3)))||'???';
+        const wk=weekShort(g.week);
+        const status=final?'FINAL':(g.game_time||'TBD');
+        const dateStr=(!final&&g.game_date)?new Date(g.game_date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
+        return `<div class="tick-game">
+          <div class="tick-teams">
+            <div class="tick-team-row">
+              ${logoEl(away)}<span class="tick-abbr">${aAbbr}</span><span class="tick-rec">${recStr(g.away_team_id)}</span>
+              ${final?`<span class="tick-sc ${aw?'winner':'loser'}">${g.away_score}</span>`:`<span class="tick-sc empty">-</span>`}
+            </div>
+            <div class="tick-team-row">
+              ${logoEl(home)}<span class="tick-abbr">${hAbbr}</span><span class="tick-rec">${recStr(g.home_team_id)}</span>
+              ${final?`<span class="tick-sc ${hw?'winner':'loser'}">${g.home_score}</span>`:`<span class="tick-sc empty">-</span>`}
+            </div>
+          </div>
+          <div class="tick-status">
+            ${wk?`<span class="tick-week">${wk}</span>`:''}
+            <span class="tick-result">${status}</span>
+            ${dateStr?`<span class="tick-time">${dateStr}</span>`:''}
+          </div>
+        </div>`;
+      }
 
-      // adjust speed based on content width
-      const totalWidth = $('tickerTrack').scrollWidth / 2;
-      const speed = Math.max(30, totalWidth / 80); // ~80px/sec
-      $('tickerTrack').style.animationDuration = speed + 's';
+      const html = games.map(card).join('');
+      $('tickerTrack').innerHTML = html + html;
+      const w = $('tickerTrack').scrollWidth / 2;
+      $('tickerTrack').style.animationDuration = Math.max(40, w/100)+'s';
     }catch(e){
-      $('tickerTrack').innerHTML = '<span class="tick-empty">OFL · Season 48</span><span class="tick-empty">OFL · Season 48</span>';
+      $('tickerTrack').innerHTML='<span class="tick-empty">OFL · Season 48</span><span class="tick-empty">OFL · Season 48</span>';
     }
   })();
 
