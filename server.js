@@ -47,7 +47,7 @@ function verifyToken(token) {
 const SUPERUSER = 'famouskai12';
 
 // All admin tabs that can be granted
-const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'players', 'seasons', 'requests', 'registry'];
+const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'players', 'seasons', 'requests', 'registry', 'media'];
 
 // raw stat columns that can be set on a player (no derived stats stored)
 const STAT_KEYS = [
@@ -1537,6 +1537,100 @@ app.post('/api/admin/moves/:id/action', async (req, res) => {
   }
 });
 
+
+// ─────────────────────────────────────────────
+//  MEDIA
+// ─────────────────────────────────────────────
+
+function extractYouTubeId(url) {
+  if (!url) return null;
+  const m = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+// public — all videos (newest first)
+app.get('/api/media/videos', async (req, res) => {
+  try {
+    const { data } = await supabase.from('media_videos').select('*').order('published_at', { ascending: false });
+    res.json({ videos: (data || []).map(v => ({ ...v, youtube_id: extractYouTubeId(v.youtube_url) })) });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// public — all articles (newest first)
+app.get('/api/media/articles', async (req, res) => {
+  try {
+    const { data } = await supabase.from('media_articles').select('*').order('published_at', { ascending: false });
+    res.json({ articles: data || [] });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// public — single article by id
+app.get('/api/media/articles/:id', async (req, res) => {
+  try {
+    const { data, error } = await supabase.from('media_articles').select('*').eq('id', req.params.id).single();
+    if (error || !data) return res.status(404).json({ error: 'Not found' });
+    res.json({ article: data });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// admin/media — post a video
+app.post('/api/media/videos', async (req, res) => {
+  const me = await requireAdmin(req, res, 'media');
+  if (!me) return;
+  try {
+    const { title, youtube_url, description, team_tag, week_tag } = req.body;
+    if (!title || !youtube_url) return res.status(400).json({ error: 'Title and YouTube URL required' });
+    const youtube_id = extractYouTubeId(youtube_url);
+    if (!youtube_id) return res.status(400).json({ error: 'Invalid YouTube URL' });
+    const { data, error } = await supabase.from('media_videos').insert({
+      title: title.trim(), youtube_url: youtube_url.trim(),
+      description: description?.trim() || null,
+      team_tag: team_tag?.trim() || null,
+      week_tag: week_tag?.trim() || null
+    }).select().single();
+    if (error) throw error;
+    res.json({ success: true, video: { ...data, youtube_id } });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// admin/media — delete a video
+app.delete('/api/media/videos/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'media');
+  if (!me) return;
+  try {
+    await supabase.from('media_videos').delete().eq('id', req.params.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// admin/media — post an article
+app.post('/api/media/articles', async (req, res) => {
+  const me = await requireAdmin(req, res, 'media');
+  if (!me) return;
+  try {
+    const { title, body, author, thumbnail_url } = req.body;
+    if (!title) return res.status(400).json({ error: 'Title required' });
+    const { data, error } = await supabase.from('media_articles').insert({
+      title: title.trim(),
+      body: body?.trim() || null,
+      author: author?.trim() || me.roblox_username || null,
+      thumbnail_url: thumbnail_url?.trim() || null
+    }).select().single();
+    if (error) throw error;
+    res.json({ success: true, article: data });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// admin/media — delete an article
+app.delete('/api/media/articles/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'media');
+  if (!me) return;
+  try {
+    await supabase.from('media_articles').delete().eq('id', req.params.id);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // ─────────────────────────────────────────────
 //  CLEAN URL ROUTING
 // ─────────────────────────────────────────────
@@ -1548,6 +1642,7 @@ app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
 app.get('/teams/:slug', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'teams.html')));
 app.get('/coaches/:slug', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'coaches.html')));
 app.get('/coaches', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'coaches.html')));
+app.get('/media/article/:id', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'article.html')));
 
 app.get('/:page.html', (req, res) => {
   res.redirect(301, '/' + req.params.page.replace(/index$/, ''));

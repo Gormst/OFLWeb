@@ -237,6 +237,7 @@
       <a href="/stats">Stats</a>
       <a href="/teams">Teams</a>
       <a href="/players">Players</a>
+      <a href="/media">Media</a>
     </nav>
     <span></span>
   </div>
@@ -272,6 +273,7 @@
       <button class="tab" data-tab="players">Import Stats</button>
       <button class="tab" data-tab="requests">Requests</button>
       <button class="tab" data-tab="registry">Player Registry</button>
+      <button class="tab" data-tab="media">Media</button>
     </div>
 
     <!-- USER ACCESS -->
@@ -589,6 +591,79 @@
       </div>
     </div>
 
+    <!-- MEDIA -->
+    <div class="section" id="section-media">
+
+      <div class="panel">
+        <h3>Post a Video Highlight</h3>
+        <div class="desc">Paste a YouTube URL. The thumbnail is pulled automatically — no API key needed.</div>
+        <div class="team-form">
+          <div class="field full">
+            <label>Title *</label>
+            <input type="text" id="vid_title" placeholder="e.g. Week 3 Game of the Week Highlights">
+          </div>
+          <div class="field full">
+            <label>YouTube URL *</label>
+            <input type="text" id="vid_url" placeholder="https://www.youtube.com/watch?v=...">
+          </div>
+          <div class="field">
+            <label>Week Tag (optional)</label>
+            <input type="text" id="vid_week" placeholder="e.g. Week 3">
+          </div>
+          <div class="field">
+            <label>Team Tag (optional)</label>
+            <input type="text" id="vid_team" placeholder="e.g. Adurite Bucks">
+          </div>
+          <div class="field full">
+            <label>Description (optional)</label>
+            <input type="text" id="vid_desc" placeholder="Brief description…">
+          </div>
+        </div>
+        <div style="margin-top:18px;">
+          <button class="save-btn" id="vidPostBtn">Post Video</button>
+        </div>
+        <div class="msg" id="vidMsg"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Write an Article</h3>
+        <div class="desc">Post a league news article, announcement, or recap.</div>
+        <div class="team-form">
+          <div class="field full">
+            <label>Title *</label>
+            <input type="text" id="art_title" placeholder="e.g. Season 48 Trade Deadline Recap">
+          </div>
+          <div class="field">
+            <label>Author</label>
+            <input type="text" id="art_author" placeholder="Leave blank to use your username">
+          </div>
+          <div class="field">
+            <label>Thumbnail URL (optional)</label>
+            <input type="text" id="art_thumb" placeholder="https://…">
+          </div>
+          <div class="field full">
+            <label>Body *</label>
+            <textarea id="art_body" rows="8" placeholder="Write your article here…" style="width:100%;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Spectral',Georgia,serif;font-size:16px;padding:12px 14px;resize:vertical;"></textarea>
+          </div>
+        </div>
+        <div style="margin-top:18px;">
+          <button class="save-btn" id="artPostBtn">Post Article</button>
+        </div>
+        <div class="msg" id="artMsg"></div>
+      </div>
+
+      <div class="panel">
+        <h3>Posted Videos (<span id="vidCount">0</span>)</h3>
+        <div id="vidList"><p style="color:var(--muted);font-style:italic;">Loading…</p></div>
+      </div>
+
+      <div class="panel">
+        <h3>Posted Articles (<span id="artCount">0</span>)</h3>
+        <div id="artList"><p style="color:var(--muted);font-style:italic;">Loading…</p></div>
+      </div>
+
+    </div>
+
   </div>
 </div>
 
@@ -609,7 +684,7 @@
   function showMsg(t,ok){ const m=$('msg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>{m.className='msg';},2500); }
 
   // friendly label for a tab key
-  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Import Stats', requests:'Requests', registry:'Player Registry' };
+  const TAB_LABELS = { access:'User Access', teams:'Teams', schedule:'Schedule', players:'Import Stats', requests:'Requests', registry:'Player Registry', media:'Media' };
 
   // ── gate check ──
   (async function(){
@@ -1527,7 +1602,85 @@
     if(b.dataset.tab==='seasons') b.addEventListener('click',loadSeasonsList);
     if(b.dataset.tab==='requests') b.addEventListener('click',loadRequests);
     if(b.dataset.tab==='registry') b.addEventListener('click',loadRegStats);
+    if(b.dataset.tab==='media') b.addEventListener('click',loadMedia);
   });
+
+  // ── MEDIA ──
+  function vidMsg(t,ok){ const m=$('vidMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>m.className='msg',3000); }
+  function artMsg(t,ok){ const m=$('artMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>m.className='msg',3000); }
+  function ytThumb(id){ return `https://img.youtube.com/vi/${id}/mqdefault.jpg`; }
+
+  function loadMedia(){ loadVideos(); loadArticles(); }
+
+  async function loadVideos(){
+    try{
+      const r=await fetch('/api/media/videos'); const j=await r.json();
+      const vids=j.videos||[];
+      $('vidCount').textContent=vids.length;
+      if(!vids.length){ $('vidList').innerHTML='<p style="color:var(--muted);font-style:italic;">No videos yet.</p>'; return; }
+      $('vidList').innerHTML=vids.map(v=>`
+        <div style="display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);">
+          <img src="${ytThumb(v.youtube_id)}" style="width:80px;height:45px;object-fit:cover;flex-shrink:0;" onerror="this.style.display='none'">
+          <div style="flex:1;">
+            <div style="font-family:'Oswald';font-weight:700;font-size:15px;text-transform:uppercase;">${v.title}</div>
+            <div style="font-family:'Space Mono';font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:3px;">${[v.week_tag,v.team_tag].filter(Boolean).join(' · ')||'No tags'}</div>
+          </div>
+          <button class="team-del" onclick="deleteVideo('${v.id}')">Delete</button>
+        </div>`).join('');
+    }catch(e){}
+  }
+
+  async function loadArticles(){
+    try{
+      const r=await fetch('/api/media/articles'); const j=await r.json();
+      const arts=j.articles||[];
+      $('artCount').textContent=arts.length;
+      if(!arts.length){ $('artList').innerHTML='<p style="color:var(--muted);font-style:italic;">No articles yet.</p>'; return; }
+      $('artList').innerHTML=arts.map(a=>`
+        <div style="display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);">
+          ${a.thumbnail_url?`<img src="${a.thumbnail_url}" style="width:60px;height:60px;object-fit:cover;flex-shrink:0;" onerror="this.style.display='none'">`:''}
+          <div style="flex:1;">
+            <div style="font-family:'Oswald';font-weight:700;font-size:15px;text-transform:uppercase;">${a.title}</div>
+            <div style="font-family:'Space Mono';font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:3px;">${a.author||'Unknown'} · ${new Date(a.published_at).toLocaleDateString()}</div>
+          </div>
+          <button class="team-del" onclick="deleteArticle('${a.id}')">Delete</button>
+        </div>`).join('');
+    }catch(e){}
+  }
+
+  if($('vidPostBtn')) $('vidPostBtn').addEventListener('click',async()=>{
+    const title=$('vid_title').value.trim(), url=$('vid_url').value.trim();
+    if(!title||!url){ vidMsg('Title and YouTube URL required'); return; }
+    $('vidPostBtn').disabled=true; $('vidPostBtn').textContent='Posting…';
+    try{
+      const r=await apiFetch('/api/media/videos',{method:'POST',body:JSON.stringify({title,youtube_url:url,description:$('vid_desc').value.trim()||null,week_tag:$('vid_week').value.trim()||null,team_tag:$('vid_team').value.trim()||null})});
+      const j=await r.json();
+      if(!r.ok){ vidMsg(j.error||'Failed'); return; }
+      vidMsg('Video posted',true);
+      ['vid_title','vid_url','vid_desc','vid_week','vid_team'].forEach(id=>$(id).value='');
+      loadVideos();
+    }catch(e){ vidMsg('Network error'); }
+    finally{ $('vidPostBtn').disabled=false; $('vidPostBtn').textContent='Post Video'; }
+  });
+
+  if($('artPostBtn')) $('artPostBtn').addEventListener('click',async()=>{
+    const title=$('art_title').value.trim(), body=$('art_body').value.trim();
+    if(!title||!body){ artMsg('Title and body required'); return; }
+    $('artPostBtn').disabled=true; $('artPostBtn').textContent='Posting…';
+    try{
+      const r=await apiFetch('/api/media/articles',{method:'POST',body:JSON.stringify({title,body,author:$('art_author').value.trim()||null,thumbnail_url:$('art_thumb').value.trim()||null})});
+      const j=await r.json();
+      if(!r.ok){ artMsg(j.error||'Failed'); return; }
+      artMsg('Article posted',true);
+      ['art_title','art_body','art_author','art_thumb'].forEach(id=>$(id).value='');
+      loadArticles();
+    }catch(e){ artMsg('Network error'); }
+    finally{ $('artPostBtn').disabled=false; $('artPostBtn').textContent='Post Article'; }
+  });
+
+  async function deleteVideo(id){ if(!confirm('Delete this video?')) return; await apiFetch('/api/media/videos/'+id,{method:'DELETE'}); loadVideos(); }
+  async function deleteArticle(id){ if(!confirm('Delete this article?')) return; await apiFetch('/api/media/articles/'+id,{method:'DELETE'}); loadArticles(); }
+  window.deleteVideo=deleteVideo; window.deleteArticle=deleteArticle;
 
   // ── PLAYER REGISTRY ──
   function regMsg(t,ok){ const m=$('regMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>m.className='msg',3000); }
