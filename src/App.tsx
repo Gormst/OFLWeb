@@ -1,7 +1,29 @@
-import { lazy, Suspense } from 'react';
+import { Component, lazy, Suspense, type ReactNode } from 'react';
 import type { ComponentType, LazyExoticComponent } from 'react';
 import { LegacyPage } from './LegacyPage';
 import { pageLoaders, type PageKey } from './pages/manifest';
+
+class RouteErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <main className="react-not-found">
+          <h1>Page failed to load</h1>
+          <p>[ROUTE_RENDER_FAILED] {this.state.error.message}</p>
+          <a href="/">Return home</a>
+        </main>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 const lazyPages = {} as Record<PageKey, LazyExoticComponent<ComponentType>>;
 
@@ -44,8 +66,10 @@ export function App() {
   const Page = lazyPages[pageKey];
 
   return (
-    <Suspense fallback={<div />}>
-      <Page key={pageKey} />
-    </Suspense>
+    <RouteErrorBoundary>
+      <Suspense fallback={null}>
+        <Page key={pageKey} />
+      </Suspense>
+    </RouteErrorBoundary>
   );
 }

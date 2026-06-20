@@ -51,3 +51,70 @@ Notes:
 - `team_name` must match an OFL team name or mascot.
 - Signed and traded events move the player onto `team_name`.
 - Released events remove the player from their roster.
+
+## Bulk roster sync
+
+Use this when the bot needs to send all currently signed players in one call.
+
+```txt
+POST /api/webhooks/discord/roster-sync
+```
+
+The bot-friendly alias below is also supported:
+
+```txt
+POST /api/webhooks/discord-roster-sync
+```
+
+Required header:
+
+```txt
+X-OFL-Webhook-Secret: <OFL_WEBHOOK_SECRET>
+```
+
+Flat payload:
+
+```json
+{
+  "replace_existing": false,
+  "timestamp": "2026-06-20T23:30:00Z",
+  "players": [
+    {
+      "player_id": "123456789",
+      "player_name": "PlayerName",
+      "team_name": "Brisbane Rays",
+      "salary": "2.5M",
+      "clauses": {
+        "no_trade": true
+      }
+    }
+  ]
+}
+```
+
+Grouped payload:
+
+```json
+{
+  "replace_existing": true,
+  "rosters": [
+    {
+      "team_name": "Brisbane Rays",
+      "players": [
+        {
+          "player_id": "123456789",
+          "player_name": "PlayerName",
+          "salary": 2500000
+        }
+      ]
+    }
+  ]
+}
+```
+
+Notes:
+
+- `replace_existing: false` only adds/updates players in the payload.
+- `replace_existing: true` first clears players from every team included in the payload, then applies the synced roster.
+- The endpoint returns `200` when every player syncs and `207` when some players fail.
+- Each synced player is logged as a `signed` Discord transaction with `source: "discord_roster_sync"`.

@@ -1,6 +1,6 @@
 ﻿import type { LegacyPageData } from './types';
 
-export type PageKey = "admin" | "article" | "coaches" | "connect" | "home" | "mediaEditor" | "media" | "players" | "schedule" | "standings" | "stats" | "teams";
+export type PageKey = "admin" | "article" | "coaches" | "connect" | "home" | "mediaEditor" | "media" | "players" | "profile" | "schedule" | "standings" | "stats" | "teams";
 
 export const pageLoaders: Record<PageKey, () => Promise<{ default: LegacyPageData }>> = {
   "admin": () => import('./routes/admin'),
@@ -11,6 +11,7 @@ export const pageLoaders: Record<PageKey, () => Promise<{ default: LegacyPageDat
   "mediaEditor": () => import('./routes/mediaEditor'),
   "media": () => import('./routes/media'),
   "players": () => import('./routes/players'),
+  "profile": () => import('./routes/profile'),
   "schedule": () => import('./routes/schedule'),
   "standings": () => import('./routes/standings'),
   "stats": () => import('./routes/stats'),

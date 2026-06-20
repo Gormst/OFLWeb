@@ -12,7 +12,18 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use((err, req, res, next) => {
+  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+    return res.status(400).json({
+      success: false,
+      code: 'INVALID_JSON_BODY',
+      error: 'Request body must be valid JSON',
+      details: null
+    });
+  }
+  return next(err);
+});
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DIST_DIR = path.join(__dirname, 'dist');
@@ -520,6 +531,300 @@ app.get('/api/me', async (req, res) => {
   }
 });
 
+function apiError(res, status, code, message, details) {
+  return res.status(status).json({
+    success: false,
+    code,
+    error: message,
+    details: details || null
+  });
+}
+
+function withTimeout(promise, ms, code, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => {
+        const error = new Error(message || code);
+        error.statusCode = 504;
+        error.code = code;
+        reject(error);
+      }, ms);
+    })
+  ]);
+}
+
+app.patch('/api/me/settings', async (req, res) => {
+  try {
+    const profile = await getRequester(req);
+    if (!profile) return apiError(res, 401, 'AUTH_REQUIRED', 'Not authenticated');
+
+    const updates = {};
+    const playerUpdates = {};
+    let savedPlayer = null;
+
+    if (req.body.theme_preference !== undefined || req.body.theme !== undefined) {
+      const theme = String(req.body.theme_preference || req.body.theme || '').trim().toLowerCase();
+      if (!['light', 'dark'].includes(theme)) {
+        return apiError(res, 400, 'PROFILE_INVALID_THEME', 'theme_preference must be light or dark');
+      }
+      updates.theme_preference = theme;
+    }
+
+    if (req.body.position !== undefined || req.body.offensive_position !== undefined) {
+      const offensivePosition = String(req.body.offensive_position ?? req.body.position ?? '').trim().toUpperCase();
+      const allowedOffense = ['QB', 'RB', 'WR', 'TE', 'OL', 'K', 'P', 'ATH', ''];
+      if (!allowedOffense.includes(offensivePosition)) {
+        return apiError(res, 400, 'PROFILE_INVALID_OFFENSIVE_POSITION', 'offensive_position must be one of QB, RB, WR, TE, OL, K, P, ATH, or blank');
+      }
+      playerUpdates.offensive_position = offensivePosition || null;
+      playerUpdates.position = offensivePosition || null;
+    }
+
+    if (req.body.defensive_position !== undefined) {
+      const defensivePosition = String(req.body.defensive_position || '').trim().toUpperCase();
+      const allowedDefense = ['DL', 'LB', 'CB', 'S', 'ATH', ''];
+      if (!allowedDefense.includes(defensivePosition)) {
+        return apiError(res, 400, 'PROFILE_INVALID_DEFENSIVE_POSITION', 'defensive_position must be one of DL, LB, CB, S, ATH, or blank');
+      }
+      playerUpdates.defensive_position = defensivePosition || null;
+    }
+
+    if (req.body.jersey_number !== undefined) {
+      const rawNumber = String(req.body.jersey_number ?? '').trim();
+      const jerseyNumber = rawNumber === '' ? null : Number(rawNumber);
+      if (jerseyNumber !== null && (!Number.isInteger(jerseyNumber) || jerseyNumber < 0 || jerseyNumber > 99)) {
+        return apiError(res, 400, 'PROFILE_INVALID_JERSEY_NUMBER', 'jersey_number must be a whole number from 0 to 99, or blank');
+      }
+      playerUpdates.jersey_number = jerseyNumber;
+    }
+
+    if (Object.keys(playerUpdates).length) {
+      const username = (profile.roblox_username || '').trim();
+      let query = supabase.from('players').update(playerUpdates);
+      if (profile.roblox_user_id) query = query.eq('roblox_user_id', String(profile.roblox_user_id));
+      else if (username) query = query.ilike('roblox_username', username);
+      else return apiError(res, 400, 'PROFILE_POSITION_NO_PLAYER_ID', 'No Roblox account is linked for this profile');
+
+      const { data: playerData, error: playerError } = await query.select().maybeSingle();
+      if (isMissingSupabaseColumn(playerError, 'offensive_position') || isMissingSupabaseColumn(playerError, 'defensive_position') || isMissingSupabaseColumn(playerError, 'jersey_number')) {
+        return apiError(res, 500, 'DB_MISSING_PLAYER_PROFILE_FIELDS', 'Database setup needed: run supabase/2026-06-20_player_profile_fields.sql in the Supabase SQL editor.');
+      }
+      if (playerError) throw playerError;
+      savedPlayer = playerData || null;
+      if (savedPlayer && username) {
+        const { data: registryPlayer, error: registryError } = await supabase
+          .from('league_players')
+          .select('cap_value, position_tag')
+          .ilike('roblox_username', username)
+          .maybeSingle();
+        if (registryError && !isMissingSupabaseTable(registryError, 'league_players')) throw registryError;
+        if (registryPlayer) {
+          savedPlayer = {
+            ...savedPlayer,
+            cap_value: Number(registryPlayer.cap_value || savedPlayer.cap_value || 0),
+            registry_position_tag: registryPlayer.position_tag || null
+          };
+        }
+      }
+    }
+
+    let data = profile;
+    if (Object.keys(updates).length) {
+      const { data: savedProfile, error } = await supabase
+        .from('user_profiles')
+        .update(updates)
+        .eq('id', profile.id)
+        .select()
+        .single();
+      if (isMissingSupabaseColumn(error, 'theme_preference')) {
+        return apiError(res, 500, 'DB_MISSING_THEME_PREFERENCE', 'Database setup needed: run supabase/2026-06-20_user_profile_settings.sql in the Supabase SQL editor.');
+      }
+      if (error) throw error;
+      data = savedProfile;
+    }
+
+    const { tabs, isAdmin, isSuper } = effectiveTabs(data);
+    res.json({ success: true, profile: { ...data, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper }, player: savedPlayer });
+  } catch (err) {
+    apiError(res, 500, 'PROFILE_SETTINGS_SAVE_FAILED', err.message);
+  }
+});
+
+function publicTeamSummary(team) {
+  if (!team) return null;
+  return {
+    id: team.id,
+    name: team.name,
+    abbreviation: team.abbreviation,
+    logo_url: team.logo_url,
+    primary_color: team.primary_color,
+    secondary_color: team.secondary_color,
+    slug: slugify(team.name)
+  };
+}
+
+function statSummary(row) {
+  const out = {};
+  STAT_KEYS.forEach(key => { out[key] = Number(row?.[key] || 0); });
+  return out;
+}
+
+function mergeStatRows(rows) {
+  const merged = {};
+  STAT_KEYS.forEach(key => { merged[key] = 0; });
+  (rows || []).forEach(row => {
+    STAT_KEYS.forEach(key => { merged[key] += Number(row?.[key] || 0); });
+  });
+  return merged;
+}
+
+function totalStatValue(stats) {
+  return STAT_KEYS.reduce((sum, key) => sum + Number(stats?.[key] || 0), 0);
+}
+
+function moveTeamId(move) {
+  const details = move.details || {};
+  if (move.move_type === 'trade' && details.destination_team_id) return details.destination_team_id;
+  return move.team_id || null;
+}
+
+app.get('/api/me/player-profile', async (req, res) => {
+  try {
+    const profile = await getRequester(req);
+    if (!profile) return apiError(res, 401, 'AUTH_REQUIRED', 'Not authenticated');
+
+    const username = (profile.roblox_username || '').trim();
+    const [teamsResult, playerByIdResult, playerByNameResult, registryByNameResult] = await Promise.all([
+      supabase.from('teams').select('*').order('name'),
+      profile.roblox_user_id ? supabase.from('players').select('*').eq('roblox_user_id', String(profile.roblox_user_id)).maybeSingle() : Promise.resolve({ data: null, error: null }),
+      username ? supabase.from('players').select('*').ilike('roblox_username', username).maybeSingle() : Promise.resolve({ data: null, error: null }),
+      username ? supabase.from('league_players').select('roblox_username, cap_value, position_tag').ilike('roblox_username', username).maybeSingle() : Promise.resolve({ data: null, error: null })
+    ]);
+
+    if (teamsResult.error) throw teamsResult.error;
+    if (playerByIdResult.error) throw playerByIdResult.error;
+    if (playerByNameResult.error) throw playerByNameResult.error;
+    if (registryByNameResult.error && !isMissingSupabaseTable(registryByNameResult.error, 'league_players')) throw registryByNameResult.error;
+
+    const teams = teamsResult.data || [];
+    const teamMap = {};
+    teams.forEach(team => { teamMap[team.id] = team; });
+    const registryPlayer = registryByNameResult.error ? null : registryByNameResult.data;
+    let player = playerByIdResult.data || playerByNameResult.data || null;
+    if (player && registryPlayer) {
+      player = {
+        ...player,
+        cap_value: Number(registryPlayer.cap_value || player.cap_value || 0),
+        registry_position_tag: registryPlayer.position_tag || null
+      };
+    }
+
+    let historicalRows = [];
+    if (username) {
+      const { data, error } = await supabase
+        .from('season_stats')
+        .select('*')
+        .ilike('roblox_username', username)
+        .order('season', { ascending: false });
+      if (error && !isMissingSupabaseTable(error, 'season_stats')) throw error;
+      historicalRows = error ? [] : (data || []);
+    }
+
+    const bySeason = {};
+    historicalRows.forEach(row => {
+      const season = row.season || 'Unknown';
+      if (!bySeason[season]) bySeason[season] = [];
+      bySeason[season].push(row);
+    });
+    const historical = Object.keys(bySeason)
+      .sort((a, b) => Number(b) - Number(a))
+      .map(season => {
+        const stats = mergeStatRows(bySeason[season]);
+        const first = bySeason[season][0] || {};
+        return {
+          season: Number.isNaN(Number(season)) ? season : Number(season),
+          team_name: first.team_name || first.team || null,
+          stats,
+          total: totalStatValue(stats),
+          rows: bySeason[season]
+        };
+      });
+
+    let moves = [];
+    if (username) {
+      const { data, error } = await supabase
+        .from('roster_moves')
+        .select('*')
+        .ilike('player_username', username)
+        .in('move_type', ['sign', 'release', 'trade'])
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      moves = data || [];
+    }
+    const timeline = moves.map(move => {
+      const team = teamMap[moveTeamId(move)] || null;
+      return {
+        id: move.id,
+        type: move.move_type,
+        status: move.status,
+        date: move.created_at,
+        team: publicTeamSummary(team),
+        requesting_username: move.requesting_username,
+        requesting_role: move.requesting_role,
+        details: move.details || {}
+      };
+    });
+
+    let awards = [];
+    if (username || profile.roblox_user_id) {
+      let awardQuery = supabase.from('player_awards').select('*').order('awarded_at', { ascending: false });
+      if (profile.roblox_user_id) awardQuery = awardQuery.eq('roblox_user_id', String(profile.roblox_user_id));
+      else awardQuery = awardQuery.ilike('player_username', username);
+      const { data, error } = await awardQuery;
+      if (error && !isMissingSupabaseTable(error, 'player_awards')) throw error;
+      awards = error ? [] : (data || []).map(award => ({
+        ...award,
+        team: publicTeamSummary(teamMap[award.team_id])
+      }));
+    }
+
+    let teammates = [];
+    if (player?.team_id) {
+      const { data, error } = await supabase
+        .from('players')
+        .select('*')
+        .eq('team_id', player.team_id)
+        .neq('id', player.id)
+        .order('roblox_username')
+        .limit(12);
+      if (error) throw error;
+      teammates = (data || []).map(row => ({
+        ...row,
+        team: publicTeamSummary(teamMap[row.team_id])
+      }));
+    }
+
+    const currentStats = statSummary(player);
+    const { tabs, isAdmin, isSuper } = effectiveTabs(profile);
+    res.json({
+      profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper },
+      player: player ? {
+        ...player,
+        team: publicTeamSummary(teamMap[player.team_id])
+      } : null,
+      current_stats: currentStats,
+      current_total: totalStatValue(currentStats),
+      historical,
+      timeline,
+      awards,
+      teammates
+    });
+  } catch (err) {
+    apiError(res, 500, 'PLAYER_PROFILE_LOAD_FAILED', err.message);
+  }
+});
+
 // list all users who currently have admin access
 app.get('/api/admin/users', async (req, res) => {
   const me = await requireAdmin(req, res, 'access');
@@ -725,6 +1030,82 @@ app.put('/api/admin/teams/:id', async (req, res) => {
 });
 
 // admin — delete a team
+function safeAssetName(value) {
+  return String(value || 'logo')
+    .toLowerCase()
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 70) || 'logo';
+}
+
+function imageExtForMime(mime) {
+  return {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'image/svg+xml': 'svg'
+  }[mime] || null;
+}
+
+function removeUploadedLogo(url) {
+  const value = String(url || '').trim();
+  const match = value.match(/^\/?logos\/uploads\/([a-z0-9._-]+\.(?:png|jpe?g|webp|svg))$/i);
+  if (!match) return;
+
+  const relative = path.join('logos', 'uploads', match[1]);
+  for (const root of [PUBLIC_DIR, DIST_DIR]) {
+    const target = path.resolve(root, relative);
+    const uploadsDir = path.resolve(root, 'logos', 'uploads');
+    if (!target.startsWith(uploadsDir + path.sep)) continue;
+    try {
+      if (fs.existsSync(target)) fs.unlinkSync(target);
+    } catch (err) {
+      console.warn('Could not remove old uploaded logo:', err.message);
+    }
+  }
+}
+
+// admin - upload a team logo into local logo assets
+app.post('/api/admin/teams/logo-upload', async (req, res) => {
+  const me = await requireAdmin(req, res, 'teams');
+  if (!me) return;
+  try {
+    const { filename, data_url, team_name, previous_logo_url } = req.body || {};
+    const match = String(data_url || '').match(/^data:(image\/(?:png|jpeg|webp|svg\+xml));base64,([a-zA-Z0-9+/=]+)$/);
+    if (!match) {
+      return apiError(res, 400, 'TEAM_LOGO_INVALID_DATA_URL', 'Upload must be a PNG, JPG, WEBP, or SVG image data URL');
+    }
+
+    const mime = match[1];
+    const ext = imageExtForMime(mime);
+    if (!ext) return apiError(res, 400, 'TEAM_LOGO_UNSUPPORTED_TYPE', 'Logo must be PNG, JPG, WEBP, or SVG');
+
+    const buffer = Buffer.from(match[2], 'base64');
+    if (!buffer.length) return apiError(res, 400, 'TEAM_LOGO_EMPTY_FILE', 'Logo file is empty');
+    if (buffer.length > 5 * 1024 * 1024) return apiError(res, 413, 'TEAM_LOGO_TOO_LARGE', 'Logo file must be 5MB or smaller');
+
+    const base = safeAssetName(team_name || filename || 'team-logo');
+    const name = `${base}-${Date.now().toString(36)}.${ext}`;
+    const relative = path.join('logos', 'uploads', name);
+    const publicTarget = path.join(PUBLIC_DIR, relative);
+    fs.mkdirSync(path.dirname(publicTarget), { recursive: true });
+    fs.writeFileSync(publicTarget, buffer);
+
+    if (fs.existsSync(DIST_DIR)) {
+      const distTarget = path.join(DIST_DIR, relative);
+      fs.mkdirSync(path.dirname(distTarget), { recursive: true });
+      fs.writeFileSync(distTarget, buffer);
+    }
+
+    removeUploadedLogo(previous_logo_url);
+
+    res.json({ success: true, url: `/logos/uploads/${name}`, filename: name, mime, size: buffer.length });
+  } catch (err) {
+    apiError(res, 500, 'TEAM_LOGO_UPLOAD_FAILED', err.message);
+  }
+});
+
 app.delete('/api/admin/teams/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
@@ -762,6 +1143,12 @@ function isMissingSupabaseTable(error, tableName) {
   if (!error) return false;
   const text = `${error.code || ''} ${error.message || ''} ${error.details || ''}`.toLowerCase();
   return text.includes(tableName.toLowerCase()) && (text.includes('schema cache') || text.includes('does not exist') || text.includes('not found'));
+}
+
+function isMissingSupabaseColumn(error, columnName) {
+  if (!error) return false;
+  const text = `${error.code || ''} ${error.message || ''} ${error.details || ''}`.toLowerCase();
+  return text.includes(columnName.toLowerCase()) && (text.includes('schema cache') || text.includes('column') || text.includes('not found'));
 }
 
 function missingBoxScoresError() {
@@ -983,6 +1370,18 @@ app.get('/api/settings', async (req, res) => {
 // ─────────────────────────────────────────────
 
 const TIER_WIN_PTS = { 1: 3, 2: 2.5, 3: 2, 4: 1.5, 5: 1 };
+const PLAYUP_WIN_PTS = {
+  '1-1': 4,
+  '1-2': 3,
+  '2-1': 3.5,
+  '2-3': 2.5,
+  '3-2': 3,
+  '3-4': 2,
+  '4-3': 2.5,
+  '4-5': 1.5,
+  '5-4': 2,
+  '5-5': 1
+};
 
 function weekType(weekStr) {
   if (!weekStr) return 'series';
@@ -993,9 +1392,14 @@ function weekType(weekStr) {
 }
 
 function calcPoints(game, winnerTeam) {
-  // Week 10: use manually set point_value
+  // Week 10: play-up/down scoring by current assigned tiers.
   const wt = weekType(game.week);
-  if (wt === 'playup') return game.point_value != null ? Number(game.point_value) : 0;
+  if (wt === 'playup') {
+    const loserId = game.home_team_id === winnerTeam?.id ? game.away_team_id : game.home_team_id;
+    const loserTeam = game.__teamMap ? game.__teamMap[loserId] : null;
+    const key = `${winnerTeam?.tier || ''}-${loserTeam?.tier || ''}`;
+    return PLAYUP_WIN_PTS[key] ?? (winnerTeam?.tier ? (TIER_WIN_PTS[winnerTeam.tier] || 0) : 0);
+  }
   // Week 1 (Placement): flat 2 pts
   if (wt === 'placement') return 2;
   // Series weeks: based on winner's tier
@@ -1030,7 +1434,7 @@ app.get('/api/standings', async (req, res) => {
 
       const homeWon = hs > as;
       const winnerTeam = homeWon ? homeTeam : awayTeam;
-      const pts = calcPoints(g, winnerTeam);
+      const pts = calcPoints({ ...g, __teamMap: teamMap }, winnerTeam);
 
       if (homeWon) {
         stats[g.home_team_id].w++;
@@ -1071,6 +1475,177 @@ app.get('/api/standings', async (req, res) => {
     for (let t = 1; t <= 5; t++) byTier[t].sort((a, b) => b.pts - a.pts || b.net - a.net);
 
     res.json({ overall, byTier });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function gameSortValue(g) {
+  const date = String(g.game_date || '').trim();
+  const time = String(g.game_time || '').trim();
+  const parsed = Date.parse(`${date || '9999-12-31'} ${time || '12:00 PM'}`);
+  return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
+}
+
+function formatRecentGame(g, teamId, teamMap) {
+  const home = g.home_team_id === teamId;
+  const pf = home ? g.home_score : g.away_score;
+  const pa = home ? g.away_score : g.home_score;
+  const oppId = home ? g.away_team_id : g.home_team_id;
+  return {
+    game_id: g.id,
+    week: g.week,
+    date: g.game_date,
+    opponent_id: oppId,
+    opponent_name: teamMap[oppId]?.name || 'TBD',
+    opponent_abbreviation: teamMap[oppId]?.abbreviation || null,
+    result: pf > pa ? 'W' : (pa > pf ? 'L' : 'T'),
+    pf,
+    pa,
+    pd: pf - pa
+  };
+}
+
+function buildTierStandings(teams = [], games = []) {
+  const teamMap = {};
+  teams.forEach(t => { teamMap[t.id] = t; });
+
+  const stats = {};
+  teams.forEach(t => {
+    stats[t.id] = {
+      team: t,
+      pts: 0,
+      w: 0,
+      l: 0,
+      pf: 0,
+      pa: 0,
+      recent_games: []
+    };
+  });
+
+  const completed = (games || []).filter(g =>
+    g.home_score !== null && g.home_score !== undefined &&
+    g.away_score !== null && g.away_score !== undefined
+  );
+
+  for (const g of completed) {
+    const home = stats[g.home_team_id];
+    const away = stats[g.away_team_id];
+    const homeTeam = teamMap[g.home_team_id];
+    const awayTeam = teamMap[g.away_team_id];
+    if (!home || !away || !homeTeam || !awayTeam) continue;
+
+    const hs = Number(g.home_score);
+    const as = Number(g.away_score);
+    const homeWon = hs > as;
+    const awayWon = as > hs;
+    if (homeWon || awayWon) {
+      const winnerTeam = homeWon ? homeTeam : awayTeam;
+      const pts = calcPoints({ ...g, __teamMap: teamMap }, winnerTeam);
+      if (homeWon) {
+        home.w++;
+        away.l++;
+        home.pts += pts;
+      } else {
+        away.w++;
+        home.l++;
+        away.pts += pts;
+      }
+    }
+    home.pf += hs; home.pa += as;
+    away.pf += as; away.pa += hs;
+  }
+
+  completed
+    .slice()
+    .sort((a, b) => gameSortValue(b) - gameSortValue(a))
+    .forEach(g => {
+      [g.home_team_id, g.away_team_id].forEach(teamId => {
+        if (stats[teamId] && stats[teamId].recent_games.length < 2) {
+          stats[teamId].recent_games.push(formatRecentGame(g, teamId, teamMap));
+        }
+      });
+    });
+
+  const rows = Object.values(stats).map(s => {
+    const recent_pf = s.recent_games.reduce((sum, g) => sum + (g.pf || 0), 0);
+    const recent_pa = s.recent_games.reduce((sum, g) => sum + (g.pa || 0), 0);
+    return {
+      team_id: s.team.id,
+      name: s.team.name,
+      abbreviation: s.team.abbreviation,
+      primary_color: s.team.primary_color,
+      secondary_color: s.team.secondary_color,
+      logo_url: s.team.logo_url,
+      tier: s.team.tier || null,
+      pts: s.pts,
+      w: s.w,
+      l: s.l,
+      pf: s.pf,
+      pa: s.pa,
+      pd: s.pf - s.pa,
+      recent_pf,
+      recent_pa,
+      recent_pd: recent_pf - recent_pa,
+      recent_games: s.recent_games
+    };
+  });
+
+  const byTier = { unassigned: [] };
+  for (let t = 1; t <= 5; t++) byTier[t] = [];
+  rows.forEach(r => {
+    const tier = Number(r.tier);
+    if (tier >= 1 && tier <= 5) byTier[tier].push(r);
+    else byTier.unassigned.push(r);
+  });
+
+  Object.keys(byTier).forEach(key => {
+    byTier[key].sort((a, b) =>
+      b.w - a.w ||
+      b.pd - a.pd ||
+      b.pts - a.pts ||
+      (a.name || '').localeCompare(b.name || '')
+    );
+  });
+
+  return { rows, byTier };
+}
+
+app.get('/api/admin/teams/tier-standings', async (req, res) => {
+  const me = await requireAdmin(req, res, 'teams');
+  if (!me) return;
+  try {
+    const { data: teams, error: teamError } = await supabase.from('teams').select('*').order('name');
+    if (teamError) throw teamError;
+    const { data: games, error: gameError } = await supabase.from('games').select('*');
+    if (gameError) throw gameError;
+    const standings = buildTierStandings(teams || [], games || []);
+    res.json({
+      ...standings,
+      point_rules: {
+        placement: 2,
+        tier_win: TIER_WIN_PTS,
+        playup: PLAYUP_WIN_PTS
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/admin/teams/tiers', async (req, res) => {
+  const me = await requireAdmin(req, res, 'teams');
+  if (!me) return;
+  try {
+    const updates = Array.isArray(req.body.updates) ? req.body.updates : [];
+    if (!updates.length) return res.status(400).json({ error: 'No tier updates provided' });
+    for (const row of updates) {
+      const tier = row.tier === null || row.tier === '' || row.tier === undefined ? null : parseInt(row.tier, 10);
+      const cleanTier = tier >= 1 && tier <= 5 ? tier : null;
+      const { error } = await supabase.from('teams').update({ tier: cleanTier }).eq('id', row.id);
+      if (error) throw error;
+    }
+    res.json({ success: true, updated: updates.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1555,13 +2130,33 @@ app.get('/api/seasons/:season', async (req, res) => {
 // public — all players with team info attached
 app.get('/api/players', async (req, res) => {
   try {
-    const { data: players } = await supabase.from('players').select('*').order('roblox_username');
-    const { data: teams } = await supabase.from('teams').select('*');
+    const playersResult = await withTimeout(
+      supabase.from('players').select('*').order('roblox_username'),
+      8000,
+      'PLAYERS_LOAD_TIMEOUT',
+      'Timed out while loading players from Supabase'
+    );
+    if (playersResult.error) {
+      return apiError(res, 500, 'PLAYERS_LOAD_FAILED', playersResult.error.message, playersResult.error.details);
+    }
+
+    const teamsResult = await withTimeout(
+      supabase.from('teams').select('*'),
+      8000,
+      'TEAMS_LOAD_TIMEOUT',
+      'Timed out while loading teams from Supabase'
+    );
+    if (teamsResult.error) {
+      return apiError(res, 500, 'TEAMS_LOAD_FAILED', teamsResult.error.message, teamsResult.error.details);
+    }
+
+    const players = playersResult.data || [];
+    const teams = teamsResult.data || [];
     const map = {};
-    for (const t of (teams || [])) map[t.id] = { id: t.id, name: t.name, abbreviation: t.abbreviation, logo_url: t.logo_url, primary_color: t.primary_color, secondary_color: t.secondary_color };
-    res.json({ players: (players || []).map(p => ({ ...p, team: p.team_id ? (map[p.team_id] || null) : null })) });
+    for (const t of teams) map[t.id] = { id: t.id, name: t.name, abbreviation: t.abbreviation, logo_url: t.logo_url, primary_color: t.primary_color, secondary_color: t.secondary_color };
+    res.json({ players: players.map(p => ({ ...p, team: p.team_id ? (map[p.team_id] || null) : null })) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    apiError(res, err.statusCode || 500, err.code || 'PLAYERS_LOAD_FAILED', err.message);
   }
 });
 
@@ -2051,6 +2646,29 @@ async function upsertWebhookPlayer({ playerId, playerName, teamId, salary }) {
   return data;
 }
 
+function normalizeRosterSyncPlayers(body) {
+  const out = [];
+  const flat = Array.isArray(body.players) ? body.players : Array.isArray(body.roster) ? body.roster : [];
+  flat.forEach((player, index) => out.push({ player, index, inheritedTeamName: null }));
+
+  const grouped = Array.isArray(body.rosters) ? body.rosters : [];
+  grouped.forEach((group, groupIndex) => {
+    const teamName = group.team_name || group.teamName || group.team || group.name || '';
+    const players = Array.isArray(group.players) ? group.players : Array.isArray(group.roster) ? group.roster : [];
+    players.forEach((player, playerIndex) => {
+      out.push({ player, index: `${groupIndex}.${playerIndex}`, inheritedTeamName: teamName });
+    });
+  });
+
+  return out;
+}
+
+async function insertDiscordTransaction(row) {
+  const { data, error } = await supabase.from('discord_transactions').insert(row).select().single();
+  if (error) throw error;
+  return data;
+}
+
 async function handleDiscordTransactionsWebhook(req, res) {
   try {
     const expectedSecret = process.env.OFL_WEBHOOK_SECRET;
@@ -2163,6 +2781,134 @@ async function handleDiscordTransactionsWebhook(req, res) {
 
 app.post('/api/webhooks/discord/transactions', handleDiscordTransactionsWebhook);
 app.post('/api/webhooks/discord-transactions', handleDiscordTransactionsWebhook);
+
+async function handleDiscordRosterSyncWebhook(req, res) {
+  try {
+    const expectedSecret = process.env.OFL_WEBHOOK_SECRET;
+    if (!expectedSecret) return apiError(res, 500, 'WEBHOOK_SECRET_NOT_CONFIGURED', 'OFL_WEBHOOK_SECRET is not configured on the API server');
+    if (getWebhookSecret(req) !== expectedSecret) return apiError(res, 401, 'WEBHOOK_SECRET_INVALID', 'Invalid webhook secret');
+
+    await ensureDiscordTransactionsTable();
+
+    const body = req.body || {};
+    const rows = normalizeRosterSyncPlayers(body);
+    if (!rows.length) return apiError(res, 400, 'ROSTER_SYNC_EMPTY', 'Send players or rosters with at least one player');
+    if (rows.length > 1000) return apiError(res, 413, 'ROSTER_SYNC_TOO_LARGE', 'Roster sync is limited to 1000 players per request');
+
+    const eventTimestamp = parseWebhookTimestamp(body.timestamp || body.event_timestamp || body.eventTimestamp);
+    if (eventTimestamp === null) return apiError(res, 400, 'ROSTER_SYNC_INVALID_TIMESTAMP', 'timestamp must be a valid date/time');
+
+    const { data: teams, error: teamsError } = await supabase.from('teams').select('id,name');
+    if (teamsError) throw teamsError;
+
+    const normalized = [];
+    const validationErrors = [];
+    rows.forEach(({ player, index, inheritedTeamName }) => {
+      const playerId = player.player_id ?? player.playerId ?? player.roblox_user_id ?? player.robloxUserId ?? null;
+      const playerName = String(player.player_name || player.playerName || player.player || player.roblox_username || player.robloxUsername || player.username || '').trim();
+      const teamName = String(player.team_name || player.teamName || player.team || inheritedTeamName || '').trim();
+      const salary = parseSalary(player.salary ?? player.cap_value ?? player.capValue ?? player.cap);
+      const clauses = normalizeClauses(player.clauses);
+
+      if (!playerName && !playerId) validationErrors.push({ index, code: 'ROSTER_SYNC_PLAYER_REQUIRED', error: 'player_name or player_id is required' });
+      if (!teamName) validationErrors.push({ index, code: 'ROSTER_SYNC_TEAM_REQUIRED', error: 'team_name is required' });
+      if ((player.salary !== undefined || player.cap_value !== undefined || player.capValue !== undefined || player.cap !== undefined) && salary === null) {
+        validationErrors.push({ index, code: 'ROSTER_SYNC_INVALID_SALARY', error: 'salary must be a number, or a value like 2.5M' });
+      }
+
+      const team = teamName ? findTeamByName(teams || [], teamName) : null;
+      if (teamName && !team) validationErrors.push({ index, code: 'ROSTER_SYNC_TEAM_NOT_FOUND', error: `Could not match team_name "${teamName}"` });
+
+      normalized.push({ index, playerId, playerName, teamName, team, salary, clauses, raw: player });
+    });
+
+    if (validationErrors.length) {
+      return apiError(res, 400, 'ROSTER_SYNC_VALIDATION_FAILED', 'One or more roster rows could not be synced', validationErrors);
+    }
+
+    const replaceExisting = body.replace_existing === true || body.replaceExisting === true;
+    const touchedTeamIds = [...new Set(normalized.map(row => row.team.id))];
+    if (replaceExisting && touchedTeamIds.length) {
+      const { error: clearError } = await supabase
+        .from('players')
+        .update({ team_id: null, position: null, cap_value: 0 })
+        .in('team_id', touchedTeamIds);
+      if (clearError) throw clearError;
+    }
+
+    const results = [];
+    for (const row of normalized) {
+      let status = 'processed';
+      let errorMessage = null;
+      let player = null;
+      let move = null;
+      try {
+        player = await upsertWebhookPlayer({
+          playerId: row.playerId,
+          playerName: row.playerName,
+          teamId: row.team.id,
+          salary: row.salary || 0
+        });
+        const { data, error } = await supabase.from('roster_moves').insert({
+          team_id: row.team.id,
+          requesting_username: 'Discord Bot',
+          requesting_role: 'bot',
+          move_type: 'sign',
+          player_username: player.roblox_username || row.playerName || null,
+          details: { player_id: row.playerId, salary: row.salary || 0, clauses: row.clauses, source: 'discord_roster_sync', event_timestamp: eventTimestamp },
+          status: 'logged'
+        }).select().single();
+        if (error) throw error;
+        move = data;
+      } catch (err) {
+        status = 'failed';
+        errorMessage = err.message || String(err);
+      }
+
+      const transaction = await insertDiscordTransaction({
+        event_type: 'signed',
+        player_id: row.playerId ? String(row.playerId) : null,
+        player_name: row.playerName || player?.roblox_username || null,
+        team_name: row.team.name,
+        team_id: row.team.id,
+        salary: row.salary,
+        clauses: row.clauses,
+        event_timestamp: eventTimestamp,
+        raw_payload: { ...row.raw, source: 'discord_roster_sync', replace_existing: replaceExisting },
+        roster_move_id: move?.id || null,
+        status,
+        error_message: errorMessage
+      });
+
+      results.push({
+        index: row.index,
+        success: status === 'processed',
+        player_name: row.playerName || player?.roblox_username || null,
+        player_id: row.playerId ? String(row.playerId) : null,
+        team_name: row.team.name,
+        transaction_id: transaction.id,
+        player_id_internal: player?.id || null,
+        roster_move_id: move?.id || null,
+        error: errorMessage
+      });
+    }
+
+    const failed = results.filter(r => !r.success);
+    res.status(failed.length ? 207 : 200).json({
+      success: failed.length === 0,
+      synced: results.length - failed.length,
+      failed: failed.length,
+      replace_existing: replaceExisting,
+      results
+    });
+  } catch (err) {
+    console.error(err);
+    apiError(res, err.statusCode || 500, err.code || 'ROSTER_SYNC_FAILED', err.message || String(err));
+  }
+}
+
+app.post('/api/webhooks/discord/roster-sync', handleDiscordRosterSyncWebhook);
+app.post('/api/webhooks/discord-roster-sync', handleDiscordRosterSyncWebhook);
 
 app.post('/api/coach/schedule/:id/action', async (req, res) => {
   try {
