@@ -6,6 +6,12 @@ Endpoint:
 POST /api/webhooks/discord/transactions
 ```
 
+The bot-friendly alias below is also supported:
+
+```txt
+POST /api/webhooks/discord-transactions
+```
+
 Required header:
 
 ```txt
