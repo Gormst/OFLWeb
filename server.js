@@ -1,7 +1,8 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
@@ -14,6 +15,8 @@ const supabase = createClient(
 app.use(express.json());
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const DIST_DIR = path.join(__dirname, 'dist');
+const CLIENT_DIR = fs.existsSync(DIST_DIR) ? DIST_DIR : PUBLIC_DIR;
 
 // Secret for signing our own auth tokens. Set OFL_TOKEN_SECRET in env for production;
 // falls back to the Supabase key so it's always defined.
@@ -43,11 +46,11 @@ function verifyToken(token) {
   } catch { return null; }
 }
 
-// Permanent superuser — always has admin access
+// Permanent superuser â€” always has admin access
 const SUPERUSER = 'famouskai12';
 
 // All admin tabs that can be granted
-const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'players', 'seasons', 'requests', 'registry', 'media'];
+const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'requests', 'registry', 'media'];
 
 // raw stat columns that can be set on a player (no derived stats stored)
 const STAT_KEYS = [
@@ -61,9 +64,9 @@ const STAT_KEYS = [
 function normInt(v){ const n=parseInt(v,10); return isNaN(n)?0:(n<0?0:n); }
 function pickStats(body){ const o={}; STAT_KEYS.forEach(k=>{ o[k]=normInt(body[k]); }); return o; }
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  BOX SCORE CSV PARSING
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //
 // Layout: two team blocks side-by-side. Each block is a column range.
 // Within a block, rows are: TEAM NAME header, then sections (PASSING,
@@ -81,7 +84,7 @@ const SECTION_COL_MAP = {
 const KNOWN_SECTIONS = Object.keys(SECTION_COL_MAP);
 
 // Category keys exposed to the admin UI, and their column definitions.
-// Each column: { label, key } — key is the stat field, or null for derived/ignored columns.
+// Each column: { label, key } â€” key is the stat field, or null for derived/ignored columns.
 const CATEGORY_DEFS = {
   passing:   { section:'PASSING',   cols:['USERNAME','COMP','ATT','YDS','COMP%','TD','INT','YPA','RTG'],
                keys:{COMP:'pass_comp',ATT:'pass_att',YDS:'pass_yards',TD:'pass_td',INT:'pass_int'} },
@@ -236,7 +239,7 @@ function parseTeamBlock(rows, c0, c1, r0) {
       continue;
     }
 
-    // unknown row (e.g. "QB THROWAWAYS" marker row) — skip
+    // unknown row (e.g. "QB THROWAWAYS" marker row) â€” skip
     r++;
   }
 
@@ -248,27 +251,107 @@ function parseTeamBlock(rows, c0, c1, r0) {
 function parseBoxScoreCSV(text) {
   const rows = parseCSVText(text);
   if (rows.length === 0) return null;
-  // find the split point: first row, first non-empty cell after a gap = team2 start col
-  const firstRow = rows[0] || [];
-  let team1Col = 0;
+  const headerRowIndex = rows.findIndex(row => {
+    const filled = (row || []).map((cell, index) => ({ cell: (cell || '').trim(), index })).filter(x => x.cell);
+    if (filled.length < 2) return false;
+    const first = filled[0].cell.toUpperCase();
+    return !KNOWN_SECTIONS.includes(first) && !first.startsWith('USERNAME') && filled.some(x => x.index > filled[0].index + 2);
+  });
+  const r0 = headerRowIndex === -1 ? 0 : headerRowIndex;
+  const firstRow = rows[r0] || [];
+  const filledCols = firstRow.map((cell, index) => ({ cell: (cell || '').trim(), index })).filter(x => x.cell);
+  if (!filledCols.length) return null;
+
+  let team1Col = filledCols[0].index;
   let team2Col = null;
-  for (let c = 1; c < firstRow.length; c++) {
+  for (let c = team1Col + 1; c < firstRow.length; c++) {
     if ((firstRow[c] || '').trim() !== '') { team2Col = c; break; }
   }
   if (team2Col == null) {
     // only one team block in the CSV
-    const t1 = parseTeamBlock(rows, 0, firstRow.length - 1, 0);
+    const t1 = parseTeamBlock(rows, team1Col, firstRow.length - 1, r0);
     return { team1: t1, team2: null };
   }
-  const t1 = parseTeamBlock(rows, team1Col, team2Col - 1, 0);
-  const t2 = parseTeamBlock(rows, team2Col, firstRow.length - 1, 0);
+  const t1 = parseTeamBlock(rows, team1Col, team2Col - 1, r0);
+  const t2 = parseTeamBlock(rows, team2Col, firstRow.length - 1, r0);
   return { team1: t1, team2: t2 };
 }
 
+function normalizeTeamName(value) {
+  return String(value || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+}
 
-// ─────────────────────────────────────────────
+function findTeamByName(teams, name) {
+  const wanted = normalizeTeamName(name);
+  if (!wanted) return null;
+  return (teams || []).find(t => normalizeTeamName(t.name) === wanted)
+    || (teams || []).find(t => wanted.endsWith(normalizeTeamName((t.name || '').split(/\s+/).pop())));
+}
+
+function parseScheduleLines(text) {
+  return String(text || '').split(/\r?\n/)
+    .map((line, index) => ({ raw: line.trim(), lineNumber: index + 1 }))
+    .filter(row => row.raw)
+    .map(row => {
+      const parts = row.raw.split(/\s+@\s+/);
+      if (parts.length !== 2) {
+        return {
+          raw: row.raw,
+          lineNumber: row.lineNumber,
+          error: `Line ${row.lineNumber}: use Away Team @ Home Team`
+        };
+      }
+      const awayName = parts[0].trim();
+      const homeName = parts[1].trim();
+      if (!awayName || !homeName) {
+        return {
+          raw: row.raw,
+          lineNumber: row.lineNumber,
+          error: `Line ${row.lineNumber}: both teams are required`
+        };
+      }
+      return { raw: row.raw, lineNumber: row.lineNumber, awayName, homeName };
+    });
+}
+
+function flattenBoxPlayers(box, teamId, side) {
+  return Object.entries((box && box.players) || {}).map(([username, stats]) => ({
+    username,
+    stats,
+    team_id: teamId || null,
+    side
+  }));
+}
+
+function parseFinalScoreFromCSV(text, teamAName, teamBName) {
+  const rows = parseCSVText(text);
+  for (let r = 0; r < rows.length; r++) {
+    const c = (rows[r] || []).findIndex(cell => String(cell || '').trim().toUpperCase() === 'FINAL SCORE');
+    if (c === -1) continue;
+    const labels = rows[r + 1] || [];
+    const scores = rows[r + 2] || [];
+    const out = {};
+    for (let i = c - 4; i <= c + 4; i++) {
+      if (i < 0) continue;
+      const label = String(labels[i] || '').trim();
+      const score = normScore(scores[i]);
+      if (!label || score == null) continue;
+      out[normalizeTeamName(label)] = score;
+    }
+    const aMascot = String(teamAName || '').split(/\s+/).pop();
+    const bMascot = String(teamBName || '').split(/\s+/).pop();
+    return {
+      team1: out[normalizeTeamName(teamAName)] ?? out[normalizeTeamName(aMascot)] ?? null,
+      team2: out[normalizeTeamName(teamBName)] ?? out[normalizeTeamName(bMascot)] ?? null
+    };
+  }
+  return null;
+}
+
+
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  HELPERS
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function makeCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -303,7 +386,7 @@ async function getRobloxAvatar(userId) {
   } catch { return null; }
 }
 
-// Resolve the requesting user from our signed Bearer token → their profile
+// Resolve the requesting user from our signed Bearer token â†’ their profile
 async function getRequester(req) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) return null;
@@ -335,9 +418,9 @@ async function requireAdmin(req, res, tab) {
   return profile;
 }
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  ACCOUNT CONNECTION
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 app.post('/api/connect/start', async (req, res) => {
   try {
@@ -371,13 +454,13 @@ app.post('/api/connect/verify', async (req, res) => {
       .gt('expires_at', new Date().toISOString())
       .order('expires_at', { ascending: false }).limit(1);
     if (codeErr) { console.error('code lookup error:', codeErr.message); return res.status(500).json({ error: 'Database error looking up code' }); }
-    if (!codes || codes.length === 0) return res.status(400).json({ error: 'No active code — start over' });
+    if (!codes || codes.length === 0) return res.status(400).json({ error: 'No active code â€” start over' });
     const codeRow = codes[0];
 
     const description = await getRobloxDescription(robloxUser.id);
-    if (description === null) return res.status(400).json({ error: 'Could not read your Roblox bio — try again' });
+    if (description === null) return res.status(400).json({ error: 'Could not read your Roblox bio â€” try again' });
     if (!description.includes(codeRow.code)) {
-      return res.status(400).json({ error: 'Code not found in your Roblox bio yet — paste it and save, then try again' });
+      return res.status(400).json({ error: 'Code not found in your Roblox bio yet â€” paste it and save, then try again' });
     }
 
     const avatar = await getRobloxAvatar(robloxUser.id);
@@ -421,9 +504,9 @@ app.post('/api/connect/verify', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  ADMIN ACCESS
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // who am I + my admin status (header calls this to decide on the Admin button)
 app.get('/api/me', async (req, res) => {
@@ -517,12 +600,12 @@ app.post('/api/admin/revoke', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  TEAMS
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// public — list all teams (used later by standings, stats, etc.)
-// helper — convert team name to URL slug
+// public â€” list all teams (used later by standings, stats, etc.)
+// helper â€” convert team name to URL slug
 function slugify(name) {
   return (name || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
@@ -537,7 +620,7 @@ app.get('/api/teams', async (req, res) => {
   }
 });
 
-// public — get a single team by slug + its roster
+// public â€” get a single team by slug + its roster
 app.get('/api/teams/:slug', async (req, res) => {
   try {
     const { data: teams } = await supabase.from('teams').select('*').order('name');
@@ -548,7 +631,7 @@ app.get('/api/teams/:slug', async (req, res) => {
       .eq('team_id', team.id)
       .order('cap_value', { ascending: false });
     if (playerErr) {
-      // cap_value column may not exist yet — fall back to name-only query
+      // cap_value column may not exist yet â€” fall back to name-only query
       const { data: playersBasic } = await supabase
         .from('players').select('id, roblox_username, avatar_url, team_id')
         .eq('team_id', team.id);
@@ -584,7 +667,7 @@ app.get('/api/teams/:slug', async (req, res) => {
 });
 
 
-// admin — create a team
+// admin â€” create a team
 app.post('/api/admin/teams', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
@@ -613,7 +696,7 @@ app.post('/api/admin/teams', async (req, res) => {
   }
 });
 
-// admin — update a team
+// admin â€” update a team
 app.put('/api/admin/teams/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
@@ -641,7 +724,7 @@ app.put('/api/admin/teams/:id', async (req, res) => {
   }
 });
 
-// admin — delete a team
+// admin â€” delete a team
 app.delete('/api/admin/teams/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
@@ -653,11 +736,11 @@ app.delete('/api/admin/teams/:id', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  SCHEDULE / GAMES
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// normalize a score value → integer or null (blank/invalid = null)
+// normalize a score value â†’ integer or null (blank/invalid = null)
 function normScore(v) {
   if (v === null || v === undefined || v === '') return null;
   const n = parseInt(v, 10);
@@ -675,22 +758,64 @@ function attachTeams(games, teams) {
   }));
 }
 
-// public — list all games (schedule + scores)
+function isMissingSupabaseTable(error, tableName) {
+  if (!error) return false;
+  const text = `${error.code || ''} ${error.message || ''} ${error.details || ''}`.toLowerCase();
+  return text.includes(tableName.toLowerCase()) && (text.includes('schema cache') || text.includes('does not exist') || text.includes('not found'));
+}
+
+function missingBoxScoresError() {
+  const error = new Error('Database setup needed: create the public.box_scores table before importing stats. Run supabase/2026-06-20_box_scores.sql in the Supabase SQL editor.');
+  error.statusCode = 500;
+  return error;
+}
+
+async function ensureBoxScoresTable() {
+  const { error } = await supabase.from('box_scores').select('id').limit(1);
+  if (isMissingSupabaseTable(error, 'box_scores')) throw missingBoxScoresError();
+  if (error) throw error;
+}
+
+function missingDiscordTransactionsError() {
+  const error = new Error('Database setup needed: create the public.discord_transactions table. Run supabase/2026-06-20_discord_transactions.sql in the Supabase SQL editor.');
+  error.statusCode = 500;
+  return error;
+}
+
+async function ensureDiscordTransactionsTable() {
+  const { error } = await supabase.from('discord_transactions').select('id').limit(1);
+  if (isMissingSupabaseTable(error, 'discord_transactions')) throw missingDiscordTransactionsError();
+  if (error) throw error;
+}
+
+// public â€” list all games (schedule + scores)
 app.get('/api/games', async (req, res) => {
   try {
     const { data: games } = await supabase
       .from('games').select('*')
       .order('game_date', { ascending: true });
     const { data: teams } = await supabase.from('teams').select('*');
-    res.json({ games: attachTeams(games || [], teams || []) });
+    const { data: boxes, error: boxesError } = await supabase.from('box_scores').select('id, game_id, created_at');
+    if (boxesError && !isMissingSupabaseTable(boxesError, 'box_scores')) throw boxesError;
+    const boxByGame = {};
+    (boxes || []).forEach(box => {
+      if (box.game_id && !boxByGame[box.game_id]) boxByGame[box.game_id] = box;
+    });
+    const rows = attachTeams(games || [], teams || []).map(game => ({
+      ...game,
+      stats_imported: Boolean(boxByGame[game.id]),
+      box_score_id: boxByGame[game.id]?.id || null,
+      stats_imported_at: boxByGame[game.id]?.created_at || null
+    }));
+    res.json({ games: rows });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  STANDINGS (tier-aware point system)
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const TIER_WIN_PTS = { 1: 3, 2: 2.5, 3: 2, 4: 1.5, 5: 1 };
 
@@ -786,7 +911,7 @@ app.get('/api/standings', async (req, res) => {
   }
 });
 
-// admin — create a game
+// admin â€” create a game
 app.post('/api/admin/games', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
@@ -811,7 +936,7 @@ app.post('/api/admin/games', async (req, res) => {
   }
 });
 
-// admin — update a game
+// admin â€” update a game
 app.put('/api/admin/games/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
@@ -836,7 +961,7 @@ app.put('/api/admin/games/:id', async (req, res) => {
   }
 });
 
-// admin — delete a game
+// admin â€” delete a game
 app.delete('/api/admin/games/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
@@ -848,95 +973,254 @@ app.delete('/api/admin/games/:id', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────
-//  PLAYERS + STATS
-// ─────────────────────────────────────────────
-
-// ─────────────────────────────────────────────
-//  BOX SCORE / STATS IMPORT
-// ─────────────────────────────────────────────
-
-// admin — parse a single-category CSV paste into editable rows
-app.post('/api/admin/parse-category', async (req, res) => {
-  const me = await requireAdmin(req, res, 'players');
+app.post('/api/admin/games/import-csv', async (req, res) => {
+  const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
   try {
-    const { csv, category } = req.body;
-    if (!csv || !csv.trim()) return res.status(400).json({ error: 'CSV is required' });
-    if (!CATEGORY_DEFS[category]) return res.status(400).json({ error: 'Unknown category' });
-    const rows = parseCategoryCSV(csv, category);
-    res.json({ rows, statKeys: CATEGORY_STAT_KEYS[category] });
+    const { csv, week } = req.body;
+    if (!csv || !csv.trim()) return res.status(400).json({ error: 'Schedule CSV is required' });
+    const weekValue = String(week || '').trim();
+    if (!weekValue) return res.status(400).json({ error: 'Select a week before importing games' });
+    const parsed = parseScheduleLines(csv);
+    const invalid = parsed.filter(row => row.error);
+    if (invalid.length) {
+      return res.status(400).json({
+        error: invalid[0].error,
+        details: invalid.map(row => ({ line: row.lineNumber, text: row.raw, error: row.error }))
+      });
+    }
+
+    const { data: teams, error: teamsError } = await supabase.from('teams').select('id,name');
+    if (teamsError) throw teamsError;
+    const rows = [];
+    const missing = [];
+    for (const row of parsed) {
+      const away = findTeamByName(teams || [], row.awayName);
+      const home = findTeamByName(teams || [], row.homeName);
+      if (!away || !home) {
+        missing.push(`Line ${row.lineNumber}: ${row.raw}${!away ? ` (away team not found: ${row.awayName})` : ''}${!home ? ` (home team not found: ${row.homeName})` : ''}`);
+        continue;
+      }
+      if (away.id === home.id) {
+        missing.push(`Line ${row.lineNumber}: ${row.raw} (same team matched twice)`);
+        continue;
+      }
+      rows.push({
+        week: weekValue,
+        away_team_id: away.id,
+        home_team_id: home.id,
+        game_date: null,
+        game_time: null,
+        home_score: null,
+        away_score: null,
+        point_value: null
+      });
+    }
+
+    if (missing.length) return res.status(400).json({ error: 'Could not match every team', missing });
+    if (!rows.length) return res.status(400).json({ error: 'No games found in CSV' });
+
+    const { data, error } = await supabase.from('games').insert(rows).select();
+    if (error) throw error;
+    res.json({ success: true, imported: data.length, games: data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// admin — import edited per-player stat increments across categories (adds to season totals)
-app.post('/api/admin/import-game', async (req, res) => {
-  const me = await requireAdmin(req, res, 'players');
-  if (!me) return;
-  try {
-    const { players, game_id, team1_id, team2_id, team1_name, team2_name } = req.body;
-    if (!Array.isArray(players) || players.length === 0) return res.status(400).json({ error: 'No player rows to import' });
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  PLAYERS + STATS
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    const { data: allPlayers } = await supabase.from('players').select('*');
-    const byUsername = {};
-    (allPlayers || []).forEach(p => { byUsername[(p.roblox_username || '').toLowerCase()] = p; });
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  BOX SCORE / STATS IMPORT
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-    const boxData = { team1: { teamName: team1_name || null, players: {} }, team2: { teamName: team2_name || null, players: {} } };
+// admin â€” parse a single-category CSV paste into editable rows
+async function importParsedGameStats({ players, game_id, team1_id, team2_id, team1_name, team2_name }) {
+  if (!Array.isArray(players) || players.length === 0) {
+    const error = new Error('No player rows to import');
+    error.statusCode = 400;
+    throw error;
+  }
 
-    for (const row of players) {
-      const username = (row.username || '').trim();
-      if (!username) continue;
-      const key = username.toLowerCase();
-      let player = byUsername[key];
-      const deltas = pickStats(row.stats || {});
+  await ensureBoxScoresTable();
 
-      if (!player) {
-        let roblox_user_id = null, avatar_url = null, rname = username;
-        const ru = await getRobloxUser(username);
-        if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
-        const insertRow = { roblox_username: rname, roblox_user_id, avatar_url, team_id: row.team_id || null };
-        STAT_KEYS.forEach(k => insertRow[k] = 0);
-        const { data } = await supabase.from('players').insert(insertRow).select().single();
-        player = data;
-        byUsername[key] = player;
-      } else if (row.team_id && row.team_id !== player.team_id) {
-        await supabase.from('players').update({ team_id: row.team_id }).eq('id', player.id);
-        player.team_id = row.team_id;
-      }
+  if (game_id) {
+    const { data: existingBox, error: existingBoxError } = await supabase.from('box_scores').select('id').eq('game_id', game_id).maybeSingle();
+    if (existingBoxError) throw existingBoxError;
+    if (existingBox) {
+      const error = new Error('Stats have already been imported for this game. Remove them before importing again.');
+      error.statusCode = 409;
+      throw error;
+    }
+  }
 
-      const update = {};
-      STAT_KEYS.forEach(k => { update[k] = (player[k] || 0) + (deltas[k] || 0); });
-      const { data: updated } = await supabase.from('players').update(update).eq('id', player.id).select().single();
-      byUsername[key] = updated;
+  const { data: allPlayers } = await supabase.from('players').select('*');
+  const byUsername = {};
+  (allPlayers || []).forEach(p => { byUsername[(p.roblox_username || '').toLowerCase()] = p; });
 
-      // record this player's contribution to the box score, grouped by team
-      const slot = (player.team_id === team1_id) ? 'team1' : (player.team_id === team2_id) ? 'team2' : (row.side === 2 ? 'team2' : 'team1');
-      boxData[slot].players[username] = deltas;
+  const boxData = { team1: { teamName: team1_name || null, players: {} }, team2: { teamName: team2_name || null, players: {} } };
+
+  for (const row of players) {
+    const username = (row.username || '').trim();
+    if (!username) continue;
+    const key = username.toLowerCase();
+    let player = byUsername[key];
+    const deltas = pickStats(row.stats || {});
+
+    if (!player) {
+      let roblox_user_id = null, avatar_url = null, rname = username;
+      const ru = await getRobloxUser(username);
+      if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
+      const insertRow = { roblox_username: rname, roblox_user_id, avatar_url, team_id: row.team_id || null };
+      STAT_KEYS.forEach(k => insertRow[k] = 0);
+      const { data } = await supabase.from('players').insert(insertRow).select().single();
+      player = data;
+      byUsername[key] = player;
+    } else if (row.team_id && row.team_id !== player.team_id) {
+      await supabase.from('players').update({ team_id: row.team_id }).eq('id', player.id);
+      player.team_id = row.team_id;
     }
 
-    const { data: box, error } = await supabase.from('box_scores').insert({
-      game_id: game_id || null,
-      team1_name: team1_name || null,
-      team2_name: team2_name || null,
-      team1_id: team1_id || null,
-      team2_id: team2_id || null,
-      data: boxData
-    }).select().single();
-    if (error) throw error;
+    const update = {};
+    STAT_KEYS.forEach(k => { update[k] = (player[k] || 0) + (deltas[k] || 0); });
+    const { data: updated } = await supabase.from('players').update(update).eq('id', player.id).select().single();
+    byUsername[key] = updated;
 
-    res.json({ success: true, box_score_id: box.id });
+    const assignedTeamId = row.team_id || player.team_id;
+    const slot = (assignedTeamId === team1_id) ? 'team1' : (assignedTeamId === team2_id) ? 'team2' : (row.side === 2 ? 'team2' : 'team1');
+    boxData[slot].players[username] = deltas;
+  }
+
+  const { data: box, error } = await supabase.from('box_scores').insert({
+    game_id: game_id || null,
+    team1_name: team1_name || null,
+    team2_name: team2_name || null,
+    team1_id: team1_id || null,
+    team2_id: team2_id || null,
+    data: boxData
+  }).select().single();
+  if (error) throw error;
+  return box;
+}
+
+app.post('/api/admin/games/:id/import-stats', async (req, res) => {
+  const me = await requireAdmin(req, res, 'schedule');
+  if (!me) return;
+  try {
+    const { csv } = req.body;
+    if (!csv || !csv.trim()) return res.status(400).json({ error: 'Stats CSV is required' });
+
+    const { data: game, error: gameError } = await supabase.from('games').select('*').eq('id', req.params.id).single();
+    if (gameError || !game) return res.status(404).json({ error: 'Game not found' });
+    const { data: teams } = await supabase.from('teams').select('id,name');
+    const home = (teams || []).find(t => t.id === game.home_team_id);
+    const away = (teams || []).find(t => t.id === game.away_team_id);
+    if (!home || !away) return res.status(400).json({ error: 'Game teams could not be loaded' });
+
+    const parsed = parseBoxScoreCSV(csv);
+    if (!parsed || !parsed.team1 || !parsed.team2) return res.status(400).json({ error: 'Could not parse both team blocks from this CSV' });
+
+    const gameTeams = [home, away];
+    const parsedTeam1 = findTeamByName(gameTeams, parsed.team1.teamName);
+    const parsedTeam2 = findTeamByName(gameTeams, parsed.team2.teamName);
+    const selectedGameName = `${away.name} @ ${home.name}`;
+    const csvGameName = `${parsed.team1.teamName || 'Unknown'} vs ${parsed.team2.teamName || 'Unknown'}`;
+
+    if (!parsedTeam1 || !parsedTeam2) {
+      const missing = [];
+      if (!parsedTeam1) missing.push(parsed.team1.teamName || 'first CSV team');
+      if (!parsedTeam2) missing.push(parsed.team2.teamName || 'second CSV team');
+      return res.status(400).json({
+        error: `Wrong stats file for selected game. Selected game is ${selectedGameName}, but the CSV is for ${csvGameName}. Could not match: ${missing.join(', ')}.`
+      });
+    }
+    if (parsedTeam1.id === parsedTeam2.id) {
+      return res.status(400).json({
+        error: `Wrong stats file for selected game. Selected game is ${selectedGameName}, but both CSV team blocks matched ${parsedTeam1.name}.`
+      });
+    }
+    const csvTeamIds = new Set([parsedTeam1.id, parsedTeam2.id]);
+    if (!csvTeamIds.has(home.id) || !csvTeamIds.has(away.id)) {
+      return res.status(400).json({
+        error: `Wrong stats file for selected game. Selected game is ${selectedGameName}, but the CSV is for ${csvGameName}.`
+      });
+    }
+
+    const rows = [
+      ...flattenBoxPlayers(parsed.team1, parsedTeam1.id, 1),
+      ...flattenBoxPlayers(parsed.team2, parsedTeam2.id, 2)
+    ];
+
+    const box = await importParsedGameStats({
+      players: rows,
+      game_id: game.id,
+      team1_id: parsedTeam1.id,
+      team2_id: parsedTeam2.id,
+      team1_name: parsedTeam1.name,
+      team2_name: parsedTeam2.name
+    });
+
+    const finalScore = parseFinalScoreFromCSV(csv, parsed.team1.teamName, parsed.team2.teamName);
+    if (finalScore && finalScore.team1 != null && finalScore.team2 != null) {
+      const scoreUpdate = parsedTeam1.id === game.home_team_id
+        ? { home_score: finalScore.team1, away_score: finalScore.team2 }
+        : { home_score: finalScore.team2, away_score: finalScore.team1 };
+      await supabase.from('games').update(scoreUpdate).eq('id', game.id);
+    }
+
+    res.json({ success: true, box_score_id: box.id, imported: rows.length });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/admin/games/:id/stats', async (req, res) => {
+  const me = await requireAdmin(req, res, 'schedule');
+  if (!me) return;
+  try {
+    await ensureBoxScoresTable();
+
+    const { data: box, error } = await supabase.from('box_scores').select('*').eq('game_id', req.params.id).maybeSingle();
+    if (error) throw error;
+    if (!box) return res.status(404).json({ error: 'No imported stats found for this game' });
+
+    const usernames = [];
+    ['team1', 'team2'].forEach(slot => {
+      Object.keys(box.data?.[slot]?.players || {}).forEach(username => usernames.push(username));
+    });
+
+    const { data: players } = await supabase.from('players').select('*');
+    const byUsername = {};
+    (players || []).forEach(player => { byUsername[(player.roblox_username || '').toLowerCase()] = player; });
+
+    for (const username of usernames) {
+      const player = byUsername[username.toLowerCase()];
+      if (!player) continue;
+      const deltas = {
+        ...(box.data?.team1?.players?.[username] || {}),
+        ...(box.data?.team2?.players?.[username] || {})
+      };
+      const update = {};
+      STAT_KEYS.forEach(k => { update[k] = Math.max(0, (player[k] || 0) - (deltas[k] || 0)); });
+      await supabase.from('players').update(update).eq('id', player.id);
+    }
+
+    await supabase.from('box_scores').delete().eq('id', box.id);
+    res.json({ success: true, removed: usernames.length });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// public — fetch a stored box score by id
+// public â€” fetch a stored box score by id
 app.get('/api/box-scores/:id', async (req, res) => {
   try {
     const { data, error } = await supabase.from('box_scores').select('*').eq('id', req.params.id).single();
+    if (isMissingSupabaseTable(error, 'box_scores')) return res.status(404).json({ error: 'Box score storage is not set up yet' });
     if (error || !data) return res.status(404).json({ error: 'Not found' });
     res.json({ box_score: data });
   } catch (err) {
@@ -944,56 +1228,19 @@ app.get('/api/box-scores/:id', async (req, res) => {
   }
 });
 
-// public — list box scores (most recent first)
+// public â€” list box scores (most recent first)
 app.get('/api/box-scores', async (req, res) => {
   try {
-    const { data } = await supabase.from('box_scores').select('id, game_id, team1_name, team2_name, team1_id, team2_id, created_at').order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('box_scores').select('id, game_id, team1_name, team2_name, team1_id, team2_id, created_at').order('created_at', { ascending: false });
+    if (isMissingSupabaseTable(error, 'box_scores')) return res.json({ box_scores: [] });
+    if (error) throw error;
     res.json({ box_scores: data || [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// admin — import previous-season stats (category rows, merged by username for the season)
-app.post('/api/admin/import-season', async (req, res) => {
-  const me = await requireAdmin(req, res, 'seasons');
-  if (!me) return;
-  try {
-    const { players, season } = req.body;
-    const seasonNum = parseInt(season, 10);
-    if (isNaN(seasonNum)) return res.status(400).json({ error: 'Season number is required' });
-    if (!Array.isArray(players) || players.length === 0) return res.status(400).json({ error: 'No player rows to import' });
-
-    let count = 0;
-    for (const row of players) {
-      const username = (row.username || '').trim();
-      if (!username) continue;
-      const stats = pickStats(row.stats || {});
-
-      const { data: existing } = await supabase
-        .from('season_stats').select('*')
-        .eq('season', seasonNum).ilike('roblox_username', username).maybeSingle();
-
-      if (existing) {
-        const update = {};
-        STAT_KEYS.forEach(k => { if (row.stats && row.stats[k] !== undefined) update[k] = stats[k]; });
-        if (row.team_name) update.team_name = row.team_name;
-        await supabase.from('season_stats').update(update).eq('id', existing.id);
-      } else {
-        const insertRow = { season: seasonNum, roblox_username: username, team_name: row.team_name || null };
-        STAT_KEYS.forEach(k => insertRow[k] = stats[k] || 0);
-        await supabase.from('season_stats').insert(insertRow);
-      }
-      count++;
-    }
-    res.json({ success: true, imported: count });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// public — list available past seasons
+// admin â€” import previous-season stats (category rows, merged by username for the season)
 app.get('/api/seasons', async (req, res) => {
   try {
     const { data } = await supabase.from('season_stats').select('season');
@@ -1004,7 +1251,7 @@ app.get('/api/seasons', async (req, res) => {
   }
 });
 
-// public — stats for a given past season
+// public â€” stats for a given past season
 app.get('/api/seasons/:season', async (req, res) => {
   try {
     const seasonNum = parseInt(req.params.season, 10);
@@ -1015,11 +1262,11 @@ app.get('/api/seasons/:season', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  PLAYERS / STATS
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// public — all players with team info attached
+// public â€” all players with team info attached
 app.get('/api/players', async (req, res) => {
   try {
     const { data: players } = await supabase.from('players').select('*').order('roblox_username');
@@ -1032,7 +1279,7 @@ app.get('/api/players', async (req, res) => {
   }
 });
 
-// admin — create a player (resolves Roblox avatar from the username)
+// admin â€” create a player (resolves Roblox avatar from the username)
 app.post('/api/admin/players', async (req, res) => {
   const me = await requireAdmin(req, res, 'players');
   if (!me) return;
@@ -1055,7 +1302,7 @@ app.post('/api/admin/players', async (req, res) => {
   }
 });
 
-// admin — update a player's info and stats
+// admin â€” update a player's info and stats
 app.put('/api/admin/players/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'players');
   if (!me) return;
@@ -1083,7 +1330,7 @@ app.put('/api/admin/players/:id', async (req, res) => {
   }
 });
 
-// admin — delete a player
+// admin â€” delete a player
 app.delete('/api/admin/players/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'players');
   if (!me) return;
@@ -1096,7 +1343,7 @@ app.delete('/api/admin/players/:id', async (req, res) => {
 });
 
 
-// helper — fetch all rows from a table past Supabase's 1000-row default limit
+// helper â€” fetch all rows from a table past Supabase's 1000-row default limit
 async function fetchAll(query) {
   const PAGE = 1000;
   let page = 0, all = [];
@@ -1111,7 +1358,7 @@ async function fetchAll(query) {
   return all;
 }
 
-// admin — manually add a player to a team
+// admin â€” manually add a player to a team
 app.post('/api/admin/roster/add', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
@@ -1136,7 +1383,7 @@ app.post('/api/admin/roster/add', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// admin — remove a player from their team
+// admin â€” remove a player from their team
 app.post('/api/admin/roster/remove', async (req, res) => {
   const me = await requireAdmin(req, res, 'teams');
   if (!me) return;
@@ -1161,7 +1408,7 @@ function parseCapRegistryCSV(text) {
     // split on comma or tab, then clean each cell
     const cells = line.split(/[,\t]/).map(c => c.trim().replace(/^"|"$/g, ''));
 
-    // detect tier header — any cell contains "$X,XXX,XXX" or "MILLION PLAYERS"
+    // detect tier header â€” any cell contains "$X,XXX,XXX" or "MILLION PLAYERS"
     const fullLine = cells.join(' ');
     const capMatch = fullLine.match(/\(\$([0-9,]+)\)/);
     if (capMatch) { currentCap = parseInt(capMatch[1].replace(/,/g, ''), 10); continue; }
@@ -1170,7 +1417,7 @@ function parseCapRegistryCSV(text) {
     // skip column header rows
     if (cells.some(c => c.toUpperCase() === 'USERNAME')) continue;
 
-    // find the username cell — first non-empty, non-dash cell
+    // find the username cell â€” first non-empty, non-dash cell
     let username = '', eligibility = 'DPP-ELIGIBLE';
     const meaningful = cells.filter(c => c && c !== '-');
     if (!meaningful.length) continue;
@@ -1206,11 +1453,11 @@ function parseCapRegistryCSV(text) {
       }
     }
 
-    // what's left is the username — join remaining cells
+    // what's left is the username â€” join remaining cells
     const rawUsername = merged.join(' ').trim();
     if (!rawUsername) continue;
 
-    // extract position tag like (QB) — must be at end of string
+    // extract position tag like (QB) â€” must be at end of string
     const posMatch = rawUsername.match(/\s*\(([^)]+)\)\s*$/);
     const positionTag = posMatch ? posMatch[1].trim() : null;
     username = rawUsername.replace(/\s*\([^)]+\)\s*$/, '').trim();
@@ -1228,7 +1475,7 @@ function parseCapRegistryCSV(text) {
   return [...seen.values()];
 }
 
-// public — get all registry players (with current team info joined)
+// public â€” get all registry players (with current team info joined)
 app.get('/api/registry', async (req, res) => {
   try {
     const reg = await fetchAll(
@@ -1251,7 +1498,7 @@ app.get('/api/registry', async (req, res) => {
   }
 });
 
-// admin — import cap CSV into registry
+// admin â€” import cap CSV into registry
 app.post('/api/admin/registry/import', async (req, res) => {
   const me = await requireAdmin(req, res, 'players');
   if (!me) return;
@@ -1303,7 +1550,7 @@ app.post('/api/admin/registry/import', async (req, res) => {
   }
 });
 
-// admin — delete a single registry player
+// admin â€” delete a single registry player
 app.delete('/api/admin/registry/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'players');
   if (!me) return;
@@ -1315,11 +1562,11 @@ app.delete('/api/admin/registry/:id', async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  COACHES SUITE
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// Resolve the coach identity — returns { profile, team, role } or null
+// Resolve the coach identity â€” returns { profile, team, role } or null
 async function getCoach(req) {
   const profile = await getRequester(req);
   if (!profile) return null;
@@ -1337,7 +1584,7 @@ async function getCoach(req) {
 }
 
 // who am I as a coach?
-// helper — ensure HC is on their team roster with registry cap
+// helper â€” ensure HC is on their team roster with registry cap
 async function ensureHCOnRoster(team) {
   if (!team.head_coach) return;
   const hcName = team.head_coach.trim();
@@ -1445,6 +1692,189 @@ app.post('/api/coach/move', async (req, res) => {
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
 });
 
+function getWebhookSecret(req) {
+  const auth = String(req.headers.authorization || '');
+  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+  return String(req.headers['x-ofl-webhook-secret'] || bearer || '');
+}
+
+function parseSalary(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value) : null;
+  const raw = String(value).trim().toLowerCase().replace(/\$/g, '').replace(/,/g, '');
+  const multiplier = raw.endsWith('m') ? 1_000_000 : raw.endsWith('k') ? 1_000 : 1;
+  const number = parseFloat(raw.replace(/[mk]$/, ''));
+  return Number.isFinite(number) ? Math.round(number * multiplier) : null;
+}
+
+function normalizeClauses(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'string') {
+    try { return JSON.parse(value); } catch { return { text: value }; }
+  }
+  return value;
+}
+
+function parseWebhookTimestamp(value) {
+  if (!value) return new Date().toISOString();
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+async function findPlayerForWebhook(playerId, playerName) {
+  if (playerId) {
+    const { data } = await supabase.from('players').select('*').eq('roblox_user_id', String(playerId)).maybeSingle();
+    if (data) return data;
+  }
+  if (playerName) {
+    const { data } = await supabase.from('players').select('*').ilike('roblox_username', String(playerName).trim()).maybeSingle();
+    if (data) return data;
+  }
+  return null;
+}
+
+async function upsertWebhookPlayer({ playerId, playerName, teamId, salary }) {
+  const existing = await findPlayerForWebhook(playerId, playerName);
+  if (existing) {
+    const update = {};
+    if (teamId !== undefined) update.team_id = teamId;
+    if (salary !== undefined) update.cap_value = salary || 0;
+    const { data, error } = await supabase.from('players').update(update).eq('id', existing.id).select().single();
+    if (error) throw error;
+    return data;
+  }
+
+  if (!playerName) {
+    const error = new Error('Player name is required when the player does not already exist');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const row = {
+    roblox_username: String(playerName).trim(),
+    roblox_user_id: playerId ? String(playerId) : null,
+    avatar_url: null,
+    team_id: teamId || null,
+    cap_value: salary || 0,
+    position: null
+  };
+  STAT_KEYS.forEach(k => row[k] = 0);
+  const { data, error } = await supabase.from('players').insert(row).select().single();
+  if (error) throw error;
+  return data;
+}
+
+app.post('/api/webhooks/discord/transactions', async (req, res) => {
+  try {
+    const expectedSecret = process.env.OFL_WEBHOOK_SECRET;
+    if (!expectedSecret) return res.status(500).json({ error: 'OFL_WEBHOOK_SECRET is not configured on the API server' });
+    if (getWebhookSecret(req) !== expectedSecret) return res.status(401).json({ error: 'Invalid webhook secret' });
+
+    await ensureDiscordTransactionsTable();
+
+    const body = req.body || {};
+    const eventType = String(body.event_type || body.eventType || body.type || '').trim().toLowerCase();
+    const playerId = body.player_id ?? body.playerId ?? null;
+    const playerName = String(body.player_name || body.playerName || body.player || '').trim();
+    const teamName = String(body.team_name || body.teamName || body.team || '').trim();
+    const salary = parseSalary(body.salary);
+    const clauses = normalizeClauses(body.clauses);
+    const eventTimestamp = parseWebhookTimestamp(body.timestamp || body.event_timestamp || body.eventTimestamp);
+
+    if (!['signed', 'released', 'traded'].includes(eventType)) {
+      return res.status(400).json({ error: 'event_type must be signed, released, or traded' });
+    }
+    if (!playerName && !playerId) return res.status(400).json({ error: 'player_name or player_id is required' });
+    if (!teamName) return res.status(400).json({ error: 'team_name is required' });
+    if (eventTimestamp === null) return res.status(400).json({ error: 'timestamp must be a valid date/time' });
+    if (body.salary !== undefined && salary === null) return res.status(400).json({ error: 'salary must be a number, or a value like 2.5M' });
+
+    const { data: teams, error: teamsError } = await supabase.from('teams').select('id,name');
+    if (teamsError) throw teamsError;
+    const team = findTeamByName(teams || [], teamName);
+    if (!team) return res.status(400).json({ error: `Could not match team_name "${teamName}"` });
+
+    let status = 'processed';
+    let errorMessage = null;
+    let player = null;
+    let move = null;
+
+    try {
+      if (eventType === 'signed') {
+        player = await upsertWebhookPlayer({ playerId, playerName, teamId: team.id, salary: salary || 0 });
+        const { data, error } = await supabase.from('roster_moves').insert({
+          team_id: team.id,
+          requesting_username: 'Discord Bot',
+          requesting_role: 'bot',
+          move_type: 'sign',
+          player_username: player.roblox_username || playerName || null,
+          details: { player_id: playerId, salary: salary || 0, clauses, source: 'discord_webhook', event_timestamp: eventTimestamp },
+          status: 'logged'
+        }).select().single();
+        if (error) throw error;
+        move = data;
+      } else if (eventType === 'released') {
+        player = await findPlayerForWebhook(playerId, playerName);
+        if (player) {
+          const { data, error } = await supabase.from('players').update({ team_id: null, position: null, cap_value: 0 }).eq('id', player.id).select().single();
+          if (error) throw error;
+          player = data;
+        }
+        const { data, error } = await supabase.from('roster_moves').insert({
+          team_id: team.id,
+          requesting_username: 'Discord Bot',
+          requesting_role: 'bot',
+          move_type: 'release',
+          player_username: player?.roblox_username || playerName || null,
+          details: { player_id: playerId, salary, clauses, source: 'discord_webhook', event_timestamp: eventTimestamp },
+          status: 'logged'
+        }).select().single();
+        if (error) throw error;
+        move = data;
+      } else if (eventType === 'traded') {
+        player = await upsertWebhookPlayer({ playerId, playerName, teamId: team.id, salary: salary || 0 });
+        const { data, error } = await supabase.from('roster_moves').insert({
+          team_id: team.id,
+          requesting_username: 'Discord Bot',
+          requesting_role: 'bot',
+          move_type: 'trade',
+          player_username: player.roblox_username || playerName || null,
+          details: { player_id: playerId, destination_team_id: team.id, salary: salary || 0, clauses, source: 'discord_webhook', event_timestamp: eventTimestamp },
+          status: 'logged'
+        }).select().single();
+        if (error) throw error;
+        move = data;
+      }
+    } catch (err) {
+      status = 'failed';
+      errorMessage = err.message || String(err);
+    }
+
+    const { data: transaction, error: txError } = await supabase.from('discord_transactions').insert({
+      event_type: eventType,
+      player_id: playerId ? String(playerId) : null,
+      player_name: playerName || player?.roblox_username || null,
+      team_name: team.name,
+      team_id: team.id,
+      salary,
+      clauses,
+      event_timestamp: eventTimestamp,
+      raw_payload: body,
+      roster_move_id: move?.id || null,
+      status,
+      error_message: errorMessage
+    }).select().single();
+    if (txError) throw txError;
+
+    if (status === 'failed') return res.status(422).json({ success: false, transaction, error: errorMessage });
+    res.json({ success: true, transaction, player, move });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ error: err.message || String(err) });
+  }
+});
+
 app.post('/api/coach/schedule/:id/action', async (req, res) => {
   try {
     const coach = await getCoach(req);
@@ -1482,7 +1912,7 @@ app.get('/api/coach/moves', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// admin — list all pending moves (all teams)
+// admin â€” list all pending moves (all teams)
 app.get('/api/admin/moves', async (req, res) => {
   const me = await requireAdmin(req, res, 'requests');
   if (!me) return;
@@ -1499,7 +1929,7 @@ app.get('/api/admin/moves', async (req, res) => {
   }
 });
 
-// admin — approve or reject a move
+// admin â€” approve or reject a move
 app.post('/api/admin/moves/:id/action', async (req, res) => {
   const me = await requireAdmin(req, res, 'requests');
   if (!me) return;
@@ -1538,9 +1968,9 @@ app.post('/api/admin/moves/:id/action', async (req, res) => {
 });
 
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  MEDIA
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function extractYouTubeId(url) {
   if (!url) return null;
@@ -1548,7 +1978,7 @@ function extractYouTubeId(url) {
   return m ? m[1] : null;
 }
 
-// public — all videos (newest first)
+// public â€” all videos (newest first)
 app.get('/api/media/videos', async (req, res) => {
   try {
     const { data } = await supabase.from('media_videos').select('*').order('published_at', { ascending: false });
@@ -1556,7 +1986,7 @@ app.get('/api/media/videos', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// public — all articles (newest first)
+// public â€” all articles (newest first)
 app.get('/api/media/articles', async (req, res) => {
   try {
     const { data } = await supabase.from('media_articles').select('*').order('published_at', { ascending: false });
@@ -1564,7 +1994,7 @@ app.get('/api/media/articles', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// public — single article by id
+// public â€” single article by id
 app.get('/api/media/articles/:id', async (req, res) => {
   try {
     const { data, error } = await supabase.from('media_articles').select('*').eq('id', req.params.id).single();
@@ -1573,7 +2003,7 @@ app.get('/api/media/articles/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// admin/media — post a video
+// admin/media â€” post a video
 app.post('/api/media/videos', async (req, res) => {
   const me = await requireAdmin(req, res, 'media');
   if (!me) return;
@@ -1594,7 +2024,7 @@ app.post('/api/media/videos', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// admin/media — delete a video (own posts or full admin)
+// admin/media â€” delete a video (own posts or full admin)
 app.delete('/api/media/videos/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'media');
   if (!me) return;
@@ -1610,7 +2040,7 @@ app.delete('/api/media/videos/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// admin/media — post an article
+// admin/media â€” post an article
 app.post('/api/media/articles', async (req, res) => {
   const me = await requireAdmin(req, res, 'media');
   if (!me) return;
@@ -1629,7 +2059,7 @@ app.post('/api/media/articles', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// admin/media — delete an article (own posts or full admin)
+// admin/media â€” delete an article (own posts or full admin)
 app.delete('/api/media/articles/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'media');
   if (!me) return;
@@ -1645,28 +2075,19 @@ app.delete('/api/media/articles/:id', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 //  CLEAN URL ROUTING
-// ─────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-app.use(express.static(PUBLIC_DIR, { extensions: false }));
-
-app.get('/', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'index.html')));
-
-app.get('/teams/:slug', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'teams.html')));
-app.get('/coaches/:slug', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'coaches.html')));
-app.get('/coaches', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'coaches.html')));
-app.get('/media/article/:id', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'article.html')));
-app.get('/media/editor', (req, res) => res.sendFile(path.join(PUBLIC_DIR, 'media-editor.html')));
+app.use(express.static(CLIENT_DIR, { extensions: false }));
 
 app.get('/:page.html', (req, res) => {
   res.redirect(301, '/' + req.params.page.replace(/index$/, ''));
 });
 
-app.get('/:page', (req, res, next) => {
-  const page = req.params.page;
-  if (page.includes('.') || page === 'api') return next();
-  res.sendFile(path.join(PUBLIC_DIR, page + '.html'), (err) => { if (err) next(); });
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || path.extname(req.path)) return next();
+  res.sendFile(path.join(CLIENT_DIR, 'index.html'), (err) => { if (err) next(); });
 });
 
 const PORT = process.env.PORT || 3000;
