@@ -400,6 +400,7 @@ app.post('/api/connect/verify', async (req, res) => {
         .insert({
           roblox_username: robloxUser.name,
           roblox_user_id: String(robloxUser.id),
+          supabase_user_id: `roblox_${robloxUser.id}`,
           avatar_url: avatar, is_verified: true
         }).select().single();
       if (insErr) { console.error('profile insert error:', insErr.message); return res.status(500).json({ error: 'Failed to create profile: ' + insErr.message }); }
