@@ -44,34 +44,39 @@
   .menu-toggle span{display:block;width:26px;height:2px;background:var(--navy);margin:5px 0;}
   @media(max-width:820px){nav.links,.connect-btn,.account-wrap{display:none;}.menu-toggle{display:block;}}
 
-  /* ── TICKER ── */
-  .ticker{background:var(--navy);color:var(--paper);overflow:hidden;border-bottom:2px solid rgba(255,255,255,.06);height:70px;display:flex;align-items:stretch;}
-  .ticker-track{display:flex;white-space:nowrap;animation:ticker-scroll 90s linear infinite;}
-  .ticker:hover .ticker-track{animation-play-state:paused;}
-  @keyframes ticker-scroll{from{transform:translateX(0);}to{transform:translateX(-50%);}}
+  /* ── GAME STRIP ── */
+  .game-strip-wrap{background:var(--navy);border-bottom:1px solid rgba(255,255,255,.1);position:relative;user-select:none;}
+  .game-strip-inner{display:flex;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;scroll-behavior:smooth;}
+  .game-strip-inner::-webkit-scrollbar{display:none;}
+  .strip-arrow{position:absolute;top:0;bottom:0;width:36px;display:flex;align-items:center;justify-content:center;background:rgba(21,35,62,.9);color:rgba(255,255,255,.7);cursor:pointer;z-index:2;border:none;font-size:14px;transition:all .15s;flex-shrink:0;}
+  .strip-arrow:hover{background:var(--red);color:#fff;}
+  .strip-arrow.left{left:0;}.strip-arrow.right{right:0;}
 
   /* each game card */
-  .tick-game{display:inline-flex;align-items:center;padding:0 18px;border-right:1px solid rgba(255,255,255,.1);cursor:default;gap:10px;height:70px;}
-  .tick-game:hover{background:rgba(255,255,255,.05);}
+  .sg{display:flex;flex-direction:column;justify-content:space-between;padding:10px 16px;border-right:1px solid rgba(255,255,255,.07);min-width:150px;cursor:default;transition:background .15s;flex-shrink:0;}
+  .sg:hover{background:rgba(255,255,255,.05);}
+  .sg:last-child{border-right:none;}
 
-  /* stacked team rows */
-  .tick-teams{display:flex;flex-direction:column;justify-content:center;gap:4px;}
-  .tick-team-row{display:flex;align-items:center;gap:7px;}
-  .tick-logo{width:20px;height:20px;border-radius:3px;object-fit:contain;flex-shrink:0;background:rgba(255,255,255,.08);}
-  .tick-abbr{font-family:'Oswald';font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.5px;width:32px;}
-  .tick-rec{font-family:'Space Mono';font-size:9px;color:rgba(255,255,255,.38);letter-spacing:.5px;width:28px;}
-  .tick-sc{font-family:'Anton';font-size:16px;letter-spacing:.5px;width:22px;text-align:right;}
-  .tick-sc.winner{color:#fff;}
-  .tick-sc.loser{color:rgba(255,255,255,.38);}
-  .tick-sc.empty{color:transparent;}
+  /* team rows */
+  .sg-team{display:flex;align-items:center;gap:7px;padding:3px 0;}
+  .sg-logo{width:22px;height:22px;border-radius:4px;object-fit:contain;flex-shrink:0;}
+  .sg-logo-fb{width:22px;height:22px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:9px;color:#fff;flex-shrink:0;}
+  .sg-abbr{font-family:'Oswald';font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.5px;flex:1;color:#fff;}
+  .sg-rec{font-family:'Space Mono';font-size:9px;color:rgba(255,255,255,.35);letter-spacing:.5px;width:26px;}
+  .sg-sc{font-family:'Anton';font-size:17px;letter-spacing:.5px;min-width:22px;text-align:right;line-height:1;}
+  .sg-sc.win{color:#fff;}.sg-sc.loss{color:rgba(255,255,255,.35);}
+  .sg-sc.none{color:transparent;}
 
-  /* divider + status column */
-  .tick-status{display:flex;flex-direction:column;align-items:center;justify-content:center;padding-left:8px;gap:2px;}
-  .tick-week{font-family:'Space Mono';font-size:8px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.35);}
-  .tick-result{font-family:'Space Mono';font-size:9px;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.45);}
-  .tick-time{font-family:'Space Mono';font-size:9px;letter-spacing:.5px;text-transform:uppercase;color:rgba(255,255,255,.5);}
+  /* divider between teams */
+  .sg-div{height:1px;background:rgba(255,255,255,.07);margin:2px 0;}
 
-  .tick-empty{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.35);padding:0 28px;display:inline-flex;align-items:center;height:70px;}
+  /* footer: week + status */
+  .sg-foot{display:flex;align-items:center;justify-content:space-between;margin-top:7px;gap:8px;}
+  .sg-week{font-family:'Space Mono';font-size:8px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.3);}
+  .sg-status{font-family:'Space Mono';font-size:9px;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.5);}
+  .sg-status.final{color:var(--red);opacity:.85;}
+
+  .sg-empty{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.3);padding:22px 28px;display:flex;align-items:center;}
 
   /* ── SECTION SHELL ── */
   .section{padding:64px 0;border-bottom:1px solid var(--line);}
@@ -201,11 +206,13 @@
   </div>
 </div>
 
-<!-- TICKER -->
-<div class="ticker">
-  <div class="ticker-track" id="tickerTrack">
-    <span class="tick-empty">Loading recent scores…</span>
+<!-- GAME STRIP -->
+<div class="game-strip-wrap">
+  <button class="strip-arrow left" id="stripPrev">&#8249;</button>
+  <div class="game-strip-inner" id="gameStrip">
+    <span class="sg-empty">Loading games…</span>
   </div>
+  <button class="strip-arrow right" id="stripNext">&#8250;</button>
 </div>
 
 <!-- STAT LEADERS -->
@@ -431,29 +438,31 @@
     }catch(e){ $('homeArticles').innerHTML='<p class="empty">Could not load.</p>'; }
   })();
 
-  // ── SCORES TICKER ──
+  // ── GAME STRIP ──
   (async function(){
+    const strip = $('gameStrip');
     try{
       const j = await fetch('/api/games').then(r=>r.json());
-      const allGames = (j.games||[]).sort((a,b)=>(b.game_date||'').localeCompare(a.game_date||''));
+      const allGames = (j.games||[]).sort((a,b)=>{
+        // sort: scored games by date desc, then upcoming by date asc
+        const as=a.home_score!=null, bs=b.home_score!=null;
+        if(as && bs) return (b.game_date||'').localeCompare(a.game_date||'');
+        if(as) return -1; if(bs) return 1;
+        return (a.game_date||'').localeCompare(b.game_date||'');
+      });
 
-      // build W-L records from scored games
-      const rec = {};
+      // W-L records
+      const rec={};
       allGames.forEach(g=>{
         if(g.home_score==null||g.away_score==null) return;
         [g.home_team_id,g.away_team_id].forEach(id=>{ if(!rec[id]) rec[id]={w:0,l:0}; });
         if(g.home_score>g.away_score){ rec[g.home_team_id].w++; rec[g.away_team_id].l++; }
         else if(g.away_score>g.home_score){ rec[g.away_team_id].w++; rec[g.home_team_id].l++; }
       });
-      const recStr = id => { const r=rec[id]; return r?`${r.w}-${r.l}`:'0-0'; };
+      const recStr=id=>{ const r=rec[id]; return r?`${r.w}-${r.l}`:'0-0'; };
 
-      const scored = allGames.filter(g=>g.home_score!=null&&g.away_score!=null).slice(0,16);
-      const upcoming = allGames.filter(g=>g.home_score==null).slice(0,6);
-      const games = [...scored, ...upcoming];
-
-      if(!games.length){
-        $('tickerTrack').innerHTML='<span class="tick-empty">OFL Season 48 — No games yet</span><span class="tick-empty">OFL Season 48 — No games yet</span>';
-        return;
+      if(!allGames.length){
+        strip.innerHTML='<span class="sg-empty">No games scheduled yet</span>'; return;
       }
 
       function weekShort(w){
@@ -464,47 +473,52 @@
       }
 
       function logoEl(team){
-        if(!team) return `<div class="tick-logo"></div>`;
-        if(team.logo_url) return `<img class="tick-logo" src="${team.logo_url}" onerror="this.style.display='none'" alt="">`;
-        const c=team.primary_color||'#15233E';
-        return `<div class="tick-logo" style="background:${c};display:flex;align-items:center;justify-content:center;font-family:Anton;font-size:8px;color:#fff;">${(team.abbreviation||'?').slice(0,2)}</div>`;
+        if(!team) return `<div class="sg-logo-fb" style="background:#223"></div>`;
+        if(team.logo_url) return `<img class="sg-logo" src="${team.logo_url}" onerror="this.outerHTML='<div class=\\'sg-logo-fb\\' style=\\'background:${team.primary_color||'#223'}\\'>'+('${(team.abbreviation||'?').slice(0,2)}'||'?')+'</div>'" alt="">`;
+        return `<div class="sg-logo-fb" style="background:${team.primary_color||'#223'}">${(team.abbreviation||'?').slice(0,2)}</div>`;
       }
 
-      function card(g){
+      function abbr(team){ return (team&&(team.abbreviation||(team.name||'').slice(0,3).toUpperCase()))||'???'; }
+
+      strip.innerHTML = allGames.map(g=>{
         const home=g.home_team||null, away=g.away_team||null;
         const final=g.home_score!=null&&g.away_score!=null;
         const hw=final&&g.home_score>g.away_score, aw=final&&g.away_score>g.home_score;
-        const hAbbr=(home&&(home.abbreviation||(home.name||'').slice(0,3)))||'???';
-        const aAbbr=(away&&(away.abbreviation||(away.name||'').slice(0,3)))||'???';
         const wk=weekShort(g.week);
-        const status=final?'FINAL':(g.game_time||'TBD');
-        const dateStr=(!final&&g.game_date)?new Date(g.game_date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
-        return `<div class="tick-game">
-          <div class="tick-teams">
-            <div class="tick-team-row">
-              ${logoEl(away)}<span class="tick-abbr">${aAbbr}</span><span class="tick-rec">${recStr(g.away_team_id)}</span>
-              ${final?`<span class="tick-sc ${aw?'winner':'loser'}">${g.away_score}</span>`:`<span class="tick-sc empty">-</span>`}
+        const statusText=final?'FINAL':(g.game_time||'TBD');
+        const dateText=(!final&&g.game_date)?new Date(g.game_date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}):'';
+        return `<div class="sg">
+          <div>
+            <div class="sg-team">
+              ${logoEl(away)}
+              <span class="sg-abbr">${abbr(away)}</span>
+              <span class="sg-rec">${recStr(g.away_team_id)}</span>
+              ${final?`<span class="sg-sc ${aw?'win':'loss'}">${g.away_score}</span>`:`<span class="sg-sc none">0</span>`}
             </div>
-            <div class="tick-team-row">
-              ${logoEl(home)}<span class="tick-abbr">${hAbbr}</span><span class="tick-rec">${recStr(g.home_team_id)}</span>
-              ${final?`<span class="tick-sc ${hw?'winner':'loser'}">${g.home_score}</span>`:`<span class="tick-sc empty">-</span>`}
+            <div class="sg-div"></div>
+            <div class="sg-team">
+              ${logoEl(home)}
+              <span class="sg-abbr">${abbr(home)}</span>
+              <span class="sg-rec">${recStr(g.home_team_id)}</span>
+              ${final?`<span class="sg-sc ${hw?'win':'loss'}">${g.home_score}</span>`:`<span class="sg-sc none">0</span>`}
             </div>
           </div>
-          <div class="tick-status">
-            ${wk?`<span class="tick-week">${wk}</span>`:''}
-            <span class="tick-result">${status}</span>
-            ${dateStr?`<span class="tick-time">${dateStr}</span>`:''}
+          <div class="sg-foot">
+            <span class="sg-week">${wk}</span>
+            <div style="text-align:right;">
+              <div class="sg-status ${final?'final':''}">${statusText}</div>
+              ${dateText?`<div class="sg-week" style="margin-top:1px;">${dateText}</div>`:''}
+            </div>
           </div>
         </div>`;
-      }
-
-      const html = games.map(card).join('');
-      $('tickerTrack').innerHTML = html + html;
-      const w = $('tickerTrack').scrollWidth / 2;
-      $('tickerTrack').style.animationDuration = Math.max(40, w/100)+'s';
+      }).join('');
     }catch(e){
-      $('tickerTrack').innerHTML='<span class="tick-empty">OFL · Season 48</span><span class="tick-empty">OFL · Season 48</span>';
+      strip.innerHTML='<span class="sg-empty">Could not load games</span>';
     }
+
+    // arrow scroll
+    $('stripPrev').addEventListener('click',()=>{ $('gameStrip').scrollBy({left:-500,behavior:'smooth'}); });
+    $('stripNext').addEventListener('click',()=>{ $('gameStrip').scrollBy({left:500,behavior:'smooth'}); });
   })();
 
   window.openVideo=openVideo;
