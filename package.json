@@ -6,7 +6,9 @@
   "scripts": {
     "start": "npm run build && node server.js",
     "server": "node server.js",
-    "dev": "vite --host 0.0.0.0",
+    "dev": "node scripts/dev.cjs",
+    "dev:api": "node server.js",
+    "dev:web": "vite --host 0.0.0.0",
     "sync:logos": "node scripts/sync-team-logos.cjs",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0"

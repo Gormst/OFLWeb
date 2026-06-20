@@ -290,12 +290,27 @@ function findTeamByName(teams, name) {
 
 function parseScheduleLines(text) {
   return String(text || '').split(/\r?\n/)
-    .map(line => line.trim())
-    .filter(Boolean)
-    .map(line => {
-      const parts = line.split(/\s+@\s+/);
-      if (parts.length !== 2) return { raw: line, error: 'Use Away Team @ Home Team' };
-      return { raw: line, awayName: parts[0].trim(), homeName: parts[1].trim() };
+    .map((line, index) => ({ raw: line.trim(), lineNumber: index + 1 }))
+    .filter(row => row.raw)
+    .map(row => {
+      const parts = row.raw.split(/\s+@\s+/);
+      if (parts.length !== 2) {
+        return {
+          raw: row.raw,
+          lineNumber: row.lineNumber,
+          error: `Line ${row.lineNumber}: use Away Team @ Home Team`
+        };
+      }
+      const awayName = parts[0].trim();
+      const homeName = parts[1].trim();
+      if (!awayName || !homeName) {
+        return {
+          raw: row.raw,
+          lineNumber: row.lineNumber,
+          error: `Line ${row.lineNumber}: both teams are required`
+        };
+      }
+      return { raw: row.raw, lineNumber: row.lineNumber, awayName, homeName };
     });
 }
 
@@ -743,6 +758,36 @@ function attachTeams(games, teams) {
   }));
 }
 
+function isMissingSupabaseTable(error, tableName) {
+  if (!error) return false;
+  const text = `${error.code || ''} ${error.message || ''} ${error.details || ''}`.toLowerCase();
+  return text.includes(tableName.toLowerCase()) && (text.includes('schema cache') || text.includes('does not exist') || text.includes('not found'));
+}
+
+function missingBoxScoresError() {
+  const error = new Error('Database setup needed: create the public.box_scores table before importing stats. Run supabase/2026-06-20_box_scores.sql in the Supabase SQL editor.');
+  error.statusCode = 500;
+  return error;
+}
+
+async function ensureBoxScoresTable() {
+  const { error } = await supabase.from('box_scores').select('id').limit(1);
+  if (isMissingSupabaseTable(error, 'box_scores')) throw missingBoxScoresError();
+  if (error) throw error;
+}
+
+function missingDiscordTransactionsError() {
+  const error = new Error('Database setup needed: create the public.discord_transactions table. Run supabase/2026-06-20_discord_transactions.sql in the Supabase SQL editor.');
+  error.statusCode = 500;
+  return error;
+}
+
+async function ensureDiscordTransactionsTable() {
+  const { error } = await supabase.from('discord_transactions').select('id').limit(1);
+  if (isMissingSupabaseTable(error, 'discord_transactions')) throw missingDiscordTransactionsError();
+  if (error) throw error;
+}
+
 // public â€” list all games (schedule + scores)
 app.get('/api/games', async (req, res) => {
   try {
@@ -750,7 +795,8 @@ app.get('/api/games', async (req, res) => {
       .from('games').select('*')
       .order('game_date', { ascending: true });
     const { data: teams } = await supabase.from('teams').select('*');
-    const { data: boxes } = await supabase.from('box_scores').select('id, game_id, created_at');
+    const { data: boxes, error: boxesError } = await supabase.from('box_scores').select('id, game_id, created_at');
+    if (boxesError && !isMissingSupabaseTable(boxesError, 'box_scores')) throw boxesError;
     const boxByGame = {};
     (boxes || []).forEach(box => {
       if (box.game_id && !boxByGame[box.game_id]) boxByGame[box.game_id] = box;
@@ -933,26 +979,34 @@ app.post('/api/admin/games/import-csv', async (req, res) => {
   try {
     const { csv, week } = req.body;
     if (!csv || !csv.trim()) return res.status(400).json({ error: 'Schedule CSV is required' });
+    const weekValue = String(week || '').trim();
+    if (!weekValue) return res.status(400).json({ error: 'Select a week before importing games' });
     const parsed = parseScheduleLines(csv);
     const invalid = parsed.filter(row => row.error);
-    if (invalid.length) return res.status(400).json({ error: invalid[0].error, line: invalid[0].raw });
+    if (invalid.length) {
+      return res.status(400).json({
+        error: invalid[0].error,
+        details: invalid.map(row => ({ line: row.lineNumber, text: row.raw, error: row.error }))
+      });
+    }
 
-    const { data: teams } = await supabase.from('teams').select('id,name');
+    const { data: teams, error: teamsError } = await supabase.from('teams').select('id,name');
+    if (teamsError) throw teamsError;
     const rows = [];
     const missing = [];
     for (const row of parsed) {
       const away = findTeamByName(teams || [], row.awayName);
       const home = findTeamByName(teams || [], row.homeName);
       if (!away || !home) {
-        missing.push(`${row.raw}${!away ? ` (away: ${row.awayName})` : ''}${!home ? ` (home: ${row.homeName})` : ''}`);
+        missing.push(`Line ${row.lineNumber}: ${row.raw}${!away ? ` (away team not found: ${row.awayName})` : ''}${!home ? ` (home team not found: ${row.homeName})` : ''}`);
         continue;
       }
       if (away.id === home.id) {
-        missing.push(`${row.raw} (same team matched twice)`);
+        missing.push(`Line ${row.lineNumber}: ${row.raw} (same team matched twice)`);
         continue;
       }
       rows.push({
-        week: (week !== undefined && week !== null && String(week).trim() !== '') ? String(week).trim() : null,
+        week: weekValue,
         away_team_id: away.id,
         home_team_id: home.id,
         game_date: null,
@@ -990,8 +1044,11 @@ async function importParsedGameStats({ players, game_id, team1_id, team2_id, tea
     throw error;
   }
 
+  await ensureBoxScoresTable();
+
   if (game_id) {
-    const { data: existingBox } = await supabase.from('box_scores').select('id').eq('game_id', game_id).maybeSingle();
+    const { data: existingBox, error: existingBoxError } = await supabase.from('box_scores').select('id').eq('game_id', game_id).maybeSingle();
+    if (existingBoxError) throw existingBoxError;
     if (existingBox) {
       const error = new Error('Stats have already been imported for this game. Remove them before importing again.');
       error.statusCode = 409;
@@ -1102,6 +1159,8 @@ app.delete('/api/admin/games/:id/stats', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
   try {
+    await ensureBoxScoresTable();
+
     const { data: box, error } = await supabase.from('box_scores').select('*').eq('game_id', req.params.id).maybeSingle();
     if (error) throw error;
     if (!box) return res.status(404).json({ error: 'No imported stats found for this game' });
@@ -1139,6 +1198,7 @@ app.delete('/api/admin/games/:id/stats', async (req, res) => {
 app.get('/api/box-scores/:id', async (req, res) => {
   try {
     const { data, error } = await supabase.from('box_scores').select('*').eq('id', req.params.id).single();
+    if (isMissingSupabaseTable(error, 'box_scores')) return res.status(404).json({ error: 'Box score storage is not set up yet' });
     if (error || !data) return res.status(404).json({ error: 'Not found' });
     res.json({ box_score: data });
   } catch (err) {
@@ -1149,7 +1209,9 @@ app.get('/api/box-scores/:id', async (req, res) => {
 // public â€” list box scores (most recent first)
 app.get('/api/box-scores', async (req, res) => {
   try {
-    const { data } = await supabase.from('box_scores').select('id, game_id, team1_name, team2_name, team1_id, team2_id, created_at').order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('box_scores').select('id, game_id, team1_name, team2_name, team1_id, team2_id, created_at').order('created_at', { ascending: false });
+    if (isMissingSupabaseTable(error, 'box_scores')) return res.json({ box_scores: [] });
+    if (error) throw error;
     res.json({ box_scores: data || [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1606,6 +1668,189 @@ app.post('/api/coach/move', async (req, res) => {
 
     res.status(400).json({ error: 'Unknown move type' });
   } catch (err) { console.error(err); res.status(500).json({ error: err.message }); }
+});
+
+function getWebhookSecret(req) {
+  const auth = String(req.headers.authorization || '');
+  const bearer = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7).trim() : '';
+  return String(req.headers['x-ofl-webhook-secret'] || bearer || '');
+}
+
+function parseSalary(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value) : null;
+  const raw = String(value).trim().toLowerCase().replace(/\$/g, '').replace(/,/g, '');
+  const multiplier = raw.endsWith('m') ? 1_000_000 : raw.endsWith('k') ? 1_000 : 1;
+  const number = parseFloat(raw.replace(/[mk]$/, ''));
+  return Number.isFinite(number) ? Math.round(number * multiplier) : null;
+}
+
+function normalizeClauses(value) {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'string') {
+    try { return JSON.parse(value); } catch { return { text: value }; }
+  }
+  return value;
+}
+
+function parseWebhookTimestamp(value) {
+  if (!value) return new Date().toISOString();
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+async function findPlayerForWebhook(playerId, playerName) {
+  if (playerId) {
+    const { data } = await supabase.from('players').select('*').eq('roblox_user_id', String(playerId)).maybeSingle();
+    if (data) return data;
+  }
+  if (playerName) {
+    const { data } = await supabase.from('players').select('*').ilike('roblox_username', String(playerName).trim()).maybeSingle();
+    if (data) return data;
+  }
+  return null;
+}
+
+async function upsertWebhookPlayer({ playerId, playerName, teamId, salary }) {
+  const existing = await findPlayerForWebhook(playerId, playerName);
+  if (existing) {
+    const update = {};
+    if (teamId !== undefined) update.team_id = teamId;
+    if (salary !== undefined) update.cap_value = salary || 0;
+    const { data, error } = await supabase.from('players').update(update).eq('id', existing.id).select().single();
+    if (error) throw error;
+    return data;
+  }
+
+  if (!playerName) {
+    const error = new Error('Player name is required when the player does not already exist');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const row = {
+    roblox_username: String(playerName).trim(),
+    roblox_user_id: playerId ? String(playerId) : null,
+    avatar_url: null,
+    team_id: teamId || null,
+    cap_value: salary || 0,
+    position: null
+  };
+  STAT_KEYS.forEach(k => row[k] = 0);
+  const { data, error } = await supabase.from('players').insert(row).select().single();
+  if (error) throw error;
+  return data;
+}
+
+app.post('/api/webhooks/discord/transactions', async (req, res) => {
+  try {
+    const expectedSecret = process.env.OFL_WEBHOOK_SECRET;
+    if (!expectedSecret) return res.status(500).json({ error: 'OFL_WEBHOOK_SECRET is not configured on the API server' });
+    if (getWebhookSecret(req) !== expectedSecret) return res.status(401).json({ error: 'Invalid webhook secret' });
+
+    await ensureDiscordTransactionsTable();
+
+    const body = req.body || {};
+    const eventType = String(body.event_type || body.eventType || body.type || '').trim().toLowerCase();
+    const playerId = body.player_id ?? body.playerId ?? null;
+    const playerName = String(body.player_name || body.playerName || body.player || '').trim();
+    const teamName = String(body.team_name || body.teamName || body.team || '').trim();
+    const salary = parseSalary(body.salary);
+    const clauses = normalizeClauses(body.clauses);
+    const eventTimestamp = parseWebhookTimestamp(body.timestamp || body.event_timestamp || body.eventTimestamp);
+
+    if (!['signed', 'released', 'traded'].includes(eventType)) {
+      return res.status(400).json({ error: 'event_type must be signed, released, or traded' });
+    }
+    if (!playerName && !playerId) return res.status(400).json({ error: 'player_name or player_id is required' });
+    if (!teamName) return res.status(400).json({ error: 'team_name is required' });
+    if (eventTimestamp === null) return res.status(400).json({ error: 'timestamp must be a valid date/time' });
+    if (body.salary !== undefined && salary === null) return res.status(400).json({ error: 'salary must be a number, or a value like 2.5M' });
+
+    const { data: teams, error: teamsError } = await supabase.from('teams').select('id,name');
+    if (teamsError) throw teamsError;
+    const team = findTeamByName(teams || [], teamName);
+    if (!team) return res.status(400).json({ error: `Could not match team_name "${teamName}"` });
+
+    let status = 'processed';
+    let errorMessage = null;
+    let player = null;
+    let move = null;
+
+    try {
+      if (eventType === 'signed') {
+        player = await upsertWebhookPlayer({ playerId, playerName, teamId: team.id, salary: salary || 0 });
+        const { data, error } = await supabase.from('roster_moves').insert({
+          team_id: team.id,
+          requesting_username: 'Discord Bot',
+          requesting_role: 'bot',
+          move_type: 'sign',
+          player_username: player.roblox_username || playerName || null,
+          details: { player_id: playerId, salary: salary || 0, clauses, source: 'discord_webhook', event_timestamp: eventTimestamp },
+          status: 'logged'
+        }).select().single();
+        if (error) throw error;
+        move = data;
+      } else if (eventType === 'released') {
+        player = await findPlayerForWebhook(playerId, playerName);
+        if (player) {
+          const { data, error } = await supabase.from('players').update({ team_id: null, position: null, cap_value: 0 }).eq('id', player.id).select().single();
+          if (error) throw error;
+          player = data;
+        }
+        const { data, error } = await supabase.from('roster_moves').insert({
+          team_id: team.id,
+          requesting_username: 'Discord Bot',
+          requesting_role: 'bot',
+          move_type: 'release',
+          player_username: player?.roblox_username || playerName || null,
+          details: { player_id: playerId, salary, clauses, source: 'discord_webhook', event_timestamp: eventTimestamp },
+          status: 'logged'
+        }).select().single();
+        if (error) throw error;
+        move = data;
+      } else if (eventType === 'traded') {
+        player = await upsertWebhookPlayer({ playerId, playerName, teamId: team.id, salary: salary || 0 });
+        const { data, error } = await supabase.from('roster_moves').insert({
+          team_id: team.id,
+          requesting_username: 'Discord Bot',
+          requesting_role: 'bot',
+          move_type: 'trade',
+          player_username: player.roblox_username || playerName || null,
+          details: { player_id: playerId, destination_team_id: team.id, salary: salary || 0, clauses, source: 'discord_webhook', event_timestamp: eventTimestamp },
+          status: 'logged'
+        }).select().single();
+        if (error) throw error;
+        move = data;
+      }
+    } catch (err) {
+      status = 'failed';
+      errorMessage = err.message || String(err);
+    }
+
+    const { data: transaction, error: txError } = await supabase.from('discord_transactions').insert({
+      event_type: eventType,
+      player_id: playerId ? String(playerId) : null,
+      player_name: playerName || player?.roblox_username || null,
+      team_name: team.name,
+      team_id: team.id,
+      salary,
+      clauses,
+      event_timestamp: eventTimestamp,
+      raw_payload: body,
+      roster_move_id: move?.id || null,
+      status,
+      error_message: errorMessage
+    }).select().single();
+    if (txError) throw txError;
+
+    if (status === 'failed') return res.status(422).json({ success: false, transaction, error: errorMessage });
+    res.json({ success: true, transaction, player, move });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ error: err.message || String(err) });
+  }
 });
 
 app.post('/api/coach/schedule/:id/action', async (req, res) => {
