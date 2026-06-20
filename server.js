@@ -1122,9 +1122,31 @@ app.post('/api/admin/games/:id/import-stats', async (req, res) => {
     const parsed = parseBoxScoreCSV(csv);
     if (!parsed || !parsed.team1 || !parsed.team2) return res.status(400).json({ error: 'Could not parse both team blocks from this CSV' });
 
-    const parsedTeam1 = findTeamByName([home, away], parsed.team1.teamName) || home;
-    const parsedTeam2 = findTeamByName([home, away], parsed.team2.teamName) || (parsedTeam1.id === home.id ? away : home);
-    if (parsedTeam1.id === parsedTeam2.id) return res.status(400).json({ error: 'CSV teams could not be matched to this game' });
+    const gameTeams = [home, away];
+    const parsedTeam1 = findTeamByName(gameTeams, parsed.team1.teamName);
+    const parsedTeam2 = findTeamByName(gameTeams, parsed.team2.teamName);
+    const selectedGameName = `${away.name} @ ${home.name}`;
+    const csvGameName = `${parsed.team1.teamName || 'Unknown'} vs ${parsed.team2.teamName || 'Unknown'}`;
+
+    if (!parsedTeam1 || !parsedTeam2) {
+      const missing = [];
+      if (!parsedTeam1) missing.push(parsed.team1.teamName || 'first CSV team');
+      if (!parsedTeam2) missing.push(parsed.team2.teamName || 'second CSV team');
+      return res.status(400).json({
+        error: `Wrong stats file for selected game. Selected game is ${selectedGameName}, but the CSV is for ${csvGameName}. Could not match: ${missing.join(', ')}.`
+      });
+    }
+    if (parsedTeam1.id === parsedTeam2.id) {
+      return res.status(400).json({
+        error: `Wrong stats file for selected game. Selected game is ${selectedGameName}, but both CSV team blocks matched ${parsedTeam1.name}.`
+      });
+    }
+    const csvTeamIds = new Set([parsedTeam1.id, parsedTeam2.id]);
+    if (!csvTeamIds.has(home.id) || !csvTeamIds.has(away.id)) {
+      return res.status(400).json({
+        error: `Wrong stats file for selected game. Selected game is ${selectedGameName}, but the CSV is for ${csvGameName}.`
+      });
+    }
 
     const rows = [
       ...flattenBoxPlayers(parsed.team1, parsedTeam1.id, 1),
