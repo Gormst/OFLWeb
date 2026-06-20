@@ -593,11 +593,30 @@
 
     <!-- MEDIA -->
     <div class="section" id="section-media">
+
       <div class="panel">
-        <h3>Media Access</h3>
-        <div class="desc">Users with the Media permission can post highlights and articles from the <strong>Media Editor</strong> in their profile dropdown. Use the User Access tab to grant or revoke access for any connected user.</div>
-        <p style="font-family:'Space Mono';font-size:12px;color:var(--muted);margin-top:10px;">To grant access: go to <strong>User Access</strong> → search the username → toggle the <strong>Media</strong> chip on.</p>
+        <h3>Grant Media Access</h3>
+        <div class="desc">Search connected accounts and give them permission to post highlights and articles from the Media Editor.</div>
+        <div class="search-row">
+          <input type="text" id="mediaSearchInput" placeholder="Search by Roblox username…" autocomplete="off">
+        </div>
+        <div class="results" id="mediaSearchResults" style="display:none;"></div>
+        <div class="admin-list" id="mediaUserList"></div>
+        <div class="msg" id="mediaAccessMsg"></div>
       </div>
+
+      <div class="panel">
+        <h3>Posted Highlights (<span id="vidCount">0</span>)</h3>
+        <div class="desc">Delete any highlight from here. Posting is done through the Media Editor.</div>
+        <div id="vidList"><p style="color:var(--muted);font-style:italic;">Loading…</p></div>
+      </div>
+
+      <div class="panel">
+        <h3>Posted Articles (<span id="artCount">0</span>)</h3>
+        <div class="desc">Delete any article from here. Posting is done through the Media Editor.</div>
+        <div id="artList"><p style="color:var(--muted);font-style:italic;">Loading…</p></div>
+      </div>
+
     </div>
 
   </div>
@@ -682,7 +701,7 @@
     const list=$('adminList');
     if(admins.length===0){ list.innerHTML='<p style="color:var(--muted);font-style:italic;padding:10px 0;">No admins yet.</p>'; return; }
     list.innerHTML = admins.map(u=>{
-      const chips = allTabs.map(t=>{
+      const chips = allTabs.filter(t=>t!=='media').map(t=>{
         const on = (u.admin_tabs||[]).includes(t);
         const disabled = u.is_superuser; // superuser tabs are locked on
         return `<span class="chip ${on?'on':''}" data-id="${u.id}" data-tab="${t}" ${disabled?'style="opacity:.6;pointer-events:none;"':''}>${TAB_LABELS[t]||t}</span>`;
@@ -1538,6 +1557,7 @@
     if(b.dataset.tab==='seasons') b.addEventListener('click',loadSeasonsList);
     if(b.dataset.tab==='requests') b.addEventListener('click',loadRequests);
     if(b.dataset.tab==='registry') b.addEventListener('click',loadRegStats);
+    if(b.dataset.tab==='media') b.addEventListener('click',loadMedia);
   });
 
 
@@ -1633,6 +1653,130 @@
     }catch(e){ rmMsg('Network error'); }
     finally{ $('rmRemoveBtn').disabled=false; $('rmRemoveBtn').textContent='Remove from Team'; }
   });
+
+  // ── MEDIA TAB ──
+  function mediaAccessMsg(t,ok){ const m=$('mediaAccessMsg'); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>m.className='msg',2500); }
+  function ytId(url){ const m=(url||'').match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/); return m?m[1]:null; }
+  function ytThumb(id){ return `https://img.youtube.com/vi/${id}/mqdefault.jpg`; }
+
+  async function loadMedia(){ loadMediaUsers(); loadVideos(); loadArticles(); }
+
+  // who already has media access
+  async function loadMediaUsers(){
+    try{
+      const r=await apiFetch('/api/admin/users'); const j=await r.json();
+      const mediaUsers=(j.admins||[]).filter(u=>(u.admin_tabs||[]).includes('media')&&!u.is_superuser);
+      const list=$('mediaUserList');
+      if(!mediaUsers.length){ list.innerHTML='<p style="color:var(--muted);font-style:italic;padding:10px 0;">No users have media access yet.</p>'; return; }
+      list.innerHTML=mediaUsers.map(u=>`
+        <div class="admin-row">
+          ${u.avatar_url?`<img src="${u.avatar_url}" alt="">`:`<span class="av"></span>`}
+          <div class="who"><div class="n">${u.roblox_username||'—'}</div><div class="role">Media Access</div></div>
+          <button class="revoke" onclick="revokeMedia('${u.id}')">Revoke</button>
+        </div>`).join('');
+    }catch(e){}
+  }
+
+  async function revokeMedia(id){
+    // remove only the media tab, keep any other tabs they have
+    try{
+      const r=await apiFetch('/api/admin/users'); const j=await r.json();
+      const user=(j.admins||[]).find(u=>u.id===id);
+      if(!user) return;
+      const newTabs=(user.admin_tabs||[]).filter(t=>t!=='media');
+      await apiFetch('/api/admin/grant',{method:'POST',body:JSON.stringify({profileId:id,tabs:newTabs})});
+      mediaAccessMsg('Access revoked',true); loadMediaUsers();
+    }catch(e){ mediaAccessMsg('Failed'); }
+  }
+  window.revokeMedia=revokeMedia;
+
+  // media user search
+  let mediaSearchTimer=null;
+  if($('mediaSearchInput')) $('mediaSearchInput').addEventListener('input',()=>{
+    clearTimeout(mediaSearchTimer);
+    const q=$('mediaSearchInput').value.trim();
+    if(!q){ $('mediaSearchResults').style.display='none'; return; }
+    mediaSearchTimer=setTimeout(async()=>{
+      try{
+        const r=await apiFetch('/api/admin/search?q='+encodeURIComponent(q));
+        const j=await r.json();
+        const box=$('mediaSearchResults');
+        if(!(j.users||[]).length){ box.style.display='none'; return; }
+        box.style.display='block';
+        box.innerHTML=(j.users||[]).map(u=>`
+          <div class="result" data-id="${u.id}">
+            ${u.avatar_url?`<img src="${u.avatar_url}" alt="">`:`<span class="av"></span>`}
+            <span class="rn">${u.roblox_username||'—'}</span>
+            <span class="add">+ Grant Media Access</span>
+          </div>`).join('');
+        box.querySelectorAll('.result').forEach(row=>{
+          row.addEventListener('click',async()=>{
+            // add media to their existing tabs
+            const allR=await apiFetch('/api/admin/users'); const allJ=await allR.json();
+            const existing=(allJ.admins||[]).find(u=>u.id===row.dataset.id);
+            const currentTabs=existing?(existing.admin_tabs||[]):[];
+            const newTabs=[...new Set([...currentTabs,'media'])];
+            await apiFetch('/api/admin/grant',{method:'POST',body:JSON.stringify({profileId:row.dataset.id,tabs:newTabs})});
+            mediaAccessMsg('Media access granted',true);
+            $('mediaSearchInput').value=''; box.style.display='none';
+            loadMediaUsers();
+          });
+        });
+      }catch(e){}
+    },250);
+  });
+
+  // posted videos list (admin can delete)
+  async function loadVideos(){
+    try{
+      const r=await fetch('/api/media/videos'); const j=await r.json();
+      const vids=j.videos||[];
+      $('vidCount').textContent=vids.length;
+      if(!vids.length){ $('vidList').innerHTML='<p style="color:var(--muted);font-style:italic;">No highlights posted yet.</p>'; return; }
+      $('vidList').innerHTML=vids.map(v=>`
+        <div style="display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);">
+          ${v.youtube_id?`<img src="${ytThumb(v.youtube_id)}" style="width:80px;height:45px;object-fit:cover;flex-shrink:0;border:1px solid var(--line);" onerror="this.style.display='none'">`:''}
+          <div style="flex:1;">
+            <div style="font-family:'Oswald';font-weight:700;font-size:15px;text-transform:uppercase;">${v.title}</div>
+            <div style="font-family:'Space Mono';font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:3px;">${[v.week_tag,v.team_tag].filter(Boolean).join(' · ')||'No tags'} · ${new Date(v.published_at).toLocaleDateString()}</div>
+          </div>
+          <button class="team-del" onclick="deleteVideo('${v.id}')">Delete</button>
+        </div>`).join('');
+    }catch(e){ $('vidList').innerHTML='<p style="color:var(--muted);font-style:italic;">Could not load.</p>'; }
+  }
+
+  async function deleteVideo(id){
+    if(!confirm('Delete this highlight?')) return;
+    await apiFetch('/api/media/videos/'+id,{method:'DELETE'});
+    loadVideos();
+  }
+
+  // posted articles list (admin can delete)
+  async function loadArticles(){
+    try{
+      const r=await fetch('/api/media/articles'); const j=await r.json();
+      const arts=j.articles||[];
+      $('artCount').textContent=arts.length;
+      if(!arts.length){ $('artList').innerHTML='<p style="color:var(--muted);font-style:italic;">No articles posted yet.</p>'; return; }
+      $('artList').innerHTML=arts.map(a=>`
+        <div style="display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line);">
+          ${a.thumbnail_url?`<img src="${a.thumbnail_url}" style="width:60px;height:60px;object-fit:cover;flex-shrink:0;border:1px solid var(--line);" onerror="this.style.display='none'">`:`<div style="width:60px;height:60px;background:var(--navy);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:Anton;font-size:13px;color:rgba(255,255,255,.2);">OFL</div>`}
+          <div style="flex:1;">
+            <div style="font-family:'Oswald';font-weight:700;font-size:15px;text-transform:uppercase;">${a.title}</div>
+            <div style="font-family:'Space Mono';font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:3px;">${a.author||'OFL Staff'} · ${new Date(a.published_at).toLocaleDateString()}</div>
+          </div>
+          <button class="team-del" onclick="deleteArticle('${a.id}')">Delete</button>
+        </div>`).join('');
+    }catch(e){ $('artList').innerHTML='<p style="color:var(--muted);font-style:italic;">Could not load.</p>'; }
+  }
+
+  async function deleteArticle(id){
+    if(!confirm('Delete this article?')) return;
+    await apiFetch('/api/media/articles/'+id,{method:'DELETE'});
+    loadArticles();
+  }
+
+  window.deleteVideo=deleteVideo; window.deleteArticle=deleteArticle;
 </script>
 </body>
 </html>

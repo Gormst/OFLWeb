@@ -191,9 +191,12 @@
         <div class="msg" id="vidMsg"></div>
       </div>
 
-      <div class="panel">
-        <h2>Posted Highlights (<span id="vidCount">0</span>)</h2>
-        <div class="item-list" id="vidList"><p class="empty">Loading…</p></div>
+      <div class="panel" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+        <div>
+          <h2 style="margin-bottom:4px;">Posted Highlights</h2>
+          <div style="font-family:'Space Mono';font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;" id="vidCount">Loading…</div>
+        </div>
+        <a href="/media" style="font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--navy);border-bottom:2px solid var(--red);padding-bottom:2px;">View on Media page →</a>
       </div>
 
     </div>
@@ -234,9 +237,12 @@
         <div class="msg" id="artMsg"></div>
       </div>
 
-      <div class="panel">
-        <h2>Posted Articles (<span id="artCount">0</span>)</h2>
-        <div class="item-list" id="artList"><p class="empty">Loading…</p></div>
+      <div class="panel" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;">
+        <div>
+          <h2 style="margin-bottom:4px;">Posted Articles</h2>
+          <div style="font-family:'Space Mono';font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;" id="artCount">Loading…</div>
+        </div>
+        <a href="/media" style="font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--navy);border-bottom:2px solid var(--red);padding-bottom:2px;">View on Media page →</a>
       </div>
 
     </div>
@@ -328,18 +334,8 @@
     try{
       const j=await(await fetch('/api/media/videos')).json();
       const vids=j.videos||[];
-      $('vidCount').textContent=vids.length;
-      if(!vids.length){ $('vidList').innerHTML='<p class="empty">No highlights posted yet.</p>'; return; }
-      $('vidList').innerHTML=vids.map(v=>`
-        <div class="item-row">
-          <img class="item-thumb" src="${ytThumb(v.youtube_id)}" onerror="this.style.display='none'">
-          <div class="item-info">
-            <div class="it">${v.title}</div>
-            <div class="im">${[v.week_tag,v.team_tag].filter(Boolean).join(' · ')||'No tags'} · ${new Date(v.published_at).toLocaleDateString()}</div>
-          </div>
-          <button class="btn btn-danger" onclick="deleteVideo('${v.id}')">Delete</button>
-        </div>`).join('');
-    }catch(e){ $('vidList').innerHTML='<p class="empty">Could not load.</p>'; }
+      $('vidCount').textContent=vids.length+' highlight'+(vids.length!==1?'s':'')+' posted';
+    }catch(e){}
   }
 
   $('vidPostBtn').addEventListener('click', async()=>{
@@ -364,31 +360,15 @@
     finally{ $('vidPostBtn').disabled=false; $('vidPostBtn').textContent='Post Highlight'; }
   });
 
-  async function deleteVideo(id){
-    if(!confirm('Delete this highlight?')) return;
-    await apiFetch('/api/media/videos/'+id,{method:'DELETE'});
-    loadVideos();
-  }
+
 
   // ── ARTICLES ──
   async function loadArticles(){
     try{
       const j=await(await fetch('/api/media/articles')).json();
       const arts=j.articles||[];
-      $('artCount').textContent=arts.length;
-      if(!arts.length){ $('artList').innerHTML='<p class="empty">No articles posted yet.</p>'; return; }
-      $('artList').innerHTML=arts.map(a=>`
-        <div class="item-row">
-          ${a.thumbnail_url
-            ? `<img class="item-thumb" src="${a.thumbnail_url}" onerror="this.outerHTML='<div class=\\'item-thumb-placeholder\\'>OFL</div>'">`
-            : `<div class="item-thumb-placeholder">OFL</div>`}
-          <div class="item-info">
-            <div class="it">${a.title}</div>
-            <div class="im">${a.author||'OFL Staff'} · ${new Date(a.published_at).toLocaleDateString()}</div>
-          </div>
-          <button class="btn btn-danger" onclick="deleteArticle('${a.id}')">Delete</button>
-        </div>`).join('');
-    }catch(e){ $('artList').innerHTML='<p class="empty">Could not load.</p>'; }
+      $('artCount').textContent=arts.length+' article'+(arts.length!==1?'s':'')+' posted';
+    }catch(e){}
   }
 
   $('artPostBtn').addEventListener('click', async()=>{
@@ -412,14 +392,9 @@
     finally{ $('artPostBtn').disabled=false; $('artPostBtn').textContent='Post Article'; }
   });
 
-  async function deleteArticle(id){
-    if(!confirm('Delete this article?')) return;
-    await apiFetch('/api/media/articles/'+id,{method:'DELETE'});
-    loadArticles();
-  }
 
-  window.deleteVideo=deleteVideo;
-  window.deleteArticle=deleteArticle;
+
+
   window.switchView=switchView;
   window.previewYT=previewYT;
   window.previewThumb=previewThumb;
