@@ -12,6 +12,19 @@ const supabase = createClient(
   process.env.SUPABASE_KEY
 );
 
+app.use((req, res, next) => {
+  const origin = req.headers.origin || '';
+  if (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  return next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use((err, req, res, next) => {
   if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
@@ -58,7 +71,7 @@ function verifyToken(token) {
 }
 
 // Permanent superuser — always has admin access
-const SUPERUSER = 'famouskai12';
+const SUPERUSERS = new Set(['famouskai12', 'adxamn', 'treasonusa']);
 
 // All admin tabs that can be granted
 const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'requests', 'registry', 'media'];
@@ -400,8 +413,18 @@ async function getRobloxAvatar(userId) {
 // Resolve the requesting user from our signed Bearer token → their profile
 async function getRequester(req) {
   const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) return null;
-  const robloxId = verifyToken(auth.slice(7));
+  const cookieToken = String(req.headers.cookie || '')
+    .split(';')
+    .map(part => part.trim())
+    .find(part => part.startsWith('ofl_token='))
+    ?.split('=')
+    .slice(1)
+    .join('=');
+  const token = auth && auth.startsWith('Bearer ')
+    ? auth.slice(7)
+    : (cookieToken ? decodeURIComponent(cookieToken) : '');
+  if (!token) return null;
+  const robloxId = verifyToken(token);
   if (!robloxId) return null;
   const { data: profile } = await supabase
     .from('user_profiles').select('*')
@@ -411,7 +434,7 @@ async function getRequester(req) {
 
 // Compute a profile's effective admin tabs (superuser always gets ALL tabs)
 function effectiveTabs(profile) {
-  const isSuper = (profile.roblox_username || '').trim().toLowerCase() === SUPERUSER.toLowerCase();
+  const isSuper = SUPERUSERS.has((profile.roblox_username || '').trim().toLowerCase());
   let tabs = Array.isArray(profile.admin_tabs) ? profile.admin_tabs.slice() : [];
   if (isSuper) tabs = ALL_ADMIN_TABS.slice(); // superuser always has everything
   return { tabs, isSuper, isAdmin: isSuper || tabs.length > 0 };
@@ -426,6 +449,14 @@ async function requireAdmin(req, res, tab) {
     res.status(403).json({ error: 'No admin access' });
     return null;
   }
+  return profile;
+}
+
+async function requireSuperuser(req, res) {
+  const profile = await getRequester(req);
+  if (!profile) return apiError(res, 401, 'AUTH_REQUIRED', 'Not authenticated');
+  const { isSuper } = effectiveTabs(profile);
+  if (!isSuper) return apiError(res, 403, 'SUPERUSER_REQUIRED', 'Only superusers can perform this action');
   return profile;
 }
 
@@ -505,6 +536,11 @@ app.post('/api/connect/verify', async (req, res) => {
 
     const token = signToken(robloxUser.id);
     const { tabs, isAdmin, isSuper } = effectiveTabs(profile);
+    res.cookie('ofl_token', token, {
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      sameSite: 'lax',
+      httpOnly: false
+    });
     res.json({
       success: true, token,
       profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper }
@@ -830,6 +866,7 @@ app.get('/api/admin/users', async (req, res) => {
   const me = await requireAdmin(req, res, 'access');
   if (!me) return;
   try {
+    const { isSuper: requesterIsSuper } = effectiveTabs(me);
     const { data } = await supabase
       .from('user_profiles')
       .select('id, roblox_username, avatar_url, admin_tabs')
@@ -840,7 +877,7 @@ app.get('/api/admin/users', async (req, res) => {
         return { ...u, admin_tabs: tabs, is_superuser: isSuper, is_admin: isAdmin };
       })
       .filter(u => u.is_admin);
-    res.json({ admins, allTabs: ALL_ADMIN_TABS });
+    res.json({ admins, allTabs: ALL_ADMIN_TABS, requester_is_superuser: requesterIsSuper });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -848,7 +885,7 @@ app.get('/api/admin/users', async (req, res) => {
 
 // search connected users by roblox username (to add to the panel)
 app.get('/api/admin/search', async (req, res) => {
-  const me = await requireAdmin(req, res, 'access');
+  const me = await requireSuperuser(req, res);
   if (!me) return;
   try {
     const q = (req.query.q || '').trim();
@@ -858,7 +895,11 @@ app.get('/api/admin/search', async (req, res) => {
       .select('id, roblox_username, avatar_url, admin_tabs')
       .ilike('roblox_username', `%${q}%`)
       .limit(10);
-    res.json({ users: data || [] });
+    const users = (data || []).map(u => {
+      const { tabs, isSuper, isAdmin } = effectiveTabs(u);
+      return { ...u, admin_tabs: tabs, is_superuser: isSuper, is_admin: isAdmin };
+    });
+    res.json({ users });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -866,7 +907,7 @@ app.get('/api/admin/search', async (req, res) => {
 
 // grant / update a user's admin tabs
 app.post('/api/admin/grant', async (req, res) => {
-  const me = await requireAdmin(req, res, 'access');
+  const me = await requireSuperuser(req, res);
   if (!me) return;
   try {
     const { profileId, tabs } = req.body;
@@ -885,7 +926,7 @@ app.post('/api/admin/grant', async (req, res) => {
 
 // revoke all admin access from a user
 app.post('/api/admin/revoke', async (req, res) => {
-  const me = await requireAdmin(req, res, 'access');
+  const me = await requireSuperuser(req, res);
   if (!me) return;
   try {
     const { profileId } = req.body;
@@ -894,7 +935,7 @@ app.post('/api/admin/revoke', async (req, res) => {
     // don't allow revoking the superuser
     const { data: target } = await supabase
       .from('user_profiles').select('roblox_username').eq('id', profileId).single();
-    if (target && (target.roblox_username || '').toLowerCase() === SUPERUSER.toLowerCase()) {
+    if (target && SUPERUSERS.has((target.roblox_username || '').trim().toLowerCase())) {
       return res.status(400).json({ error: 'Cannot revoke the superuser' });
     }
 
@@ -974,7 +1015,7 @@ app.get('/api/teams/:slug', async (req, res) => {
 
 // admin — create a team
 app.post('/api/admin/teams', async (req, res) => {
-  const me = await requireAdmin(req, res, 'teams');
+  const me = await requireSuperuser(req, res);
   if (!me) return;
   try {
     const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner, is_dpp, tier } = req.body;
@@ -1003,7 +1044,7 @@ app.post('/api/admin/teams', async (req, res) => {
 
 // admin — update a team
 app.put('/api/admin/teams/:id', async (req, res) => {
-  const me = await requireAdmin(req, res, 'teams');
+  const me = await requireSuperuser(req, res);
   if (!me) return;
   try {
     const { name, abbreviation, primary_color, secondary_color, logo_url, location, founded, head_coach, director_of_ops, franchise_owner, is_dpp, tier } = req.body;
@@ -1068,7 +1109,7 @@ function removeUploadedLogo(url) {
 
 // admin - upload a team logo into local logo assets
 app.post('/api/admin/teams/logo-upload', async (req, res) => {
-  const me = await requireAdmin(req, res, 'teams');
+  const me = await requireSuperuser(req, res);
   if (!me) return;
   try {
     const { filename, data_url, team_name, previous_logo_url } = req.body || {};
@@ -1107,7 +1148,7 @@ app.post('/api/admin/teams/logo-upload', async (req, res) => {
 });
 
 app.delete('/api/admin/teams/:id', async (req, res) => {
-  const me = await requireAdmin(req, res, 'teams');
+  const me = await requireSuperuser(req, res);
   if (!me) return;
   try {
     await supabase.from('teams').delete().eq('id', req.params.id);
@@ -1634,7 +1675,7 @@ app.get('/api/admin/teams/tier-standings', async (req, res) => {
 });
 
 app.post('/api/admin/teams/tiers', async (req, res) => {
-  const me = await requireAdmin(req, res, 'teams');
+  const me = await requireSuperuser(req, res);
   if (!me) return;
   try {
     const updates = Array.isArray(req.body.updates) ? req.body.updates : [];
@@ -2130,8 +2171,18 @@ app.get('/api/seasons/:season', async (req, res) => {
 // public — all players with team info attached
 app.get('/api/players', async (req, res) => {
   try {
+    const q = String(req.query.q || '').trim();
+    const rawLimit = Number.parseInt(String(req.query.limit || '0'), 10);
+    const rawOffset = Number.parseInt(String(req.query.offset || '0'), 10);
+    const usePaging = Number.isFinite(rawLimit) && rawLimit > 0;
+    const limit = usePaging ? Math.min(Math.max(rawLimit, 1), 100) : null;
+    const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? rawOffset : 0;
+    let playersQuery = supabase.from('players').select('*', { count: 'exact' }).order('roblox_username');
+    if (q) playersQuery = playersQuery.ilike('roblox_username', `%${q}%`);
+    if (limit) playersQuery = playersQuery.range(offset, offset + limit - 1);
+
     const playersResult = await withTimeout(
-      supabase.from('players').select('*').order('roblox_username'),
+      playersQuery,
       8000,
       'PLAYERS_LOAD_TIMEOUT',
       'Timed out while loading players from Supabase'
@@ -2154,7 +2205,34 @@ app.get('/api/players', async (req, res) => {
     const teams = teamsResult.data || [];
     const map = {};
     for (const t of teams) map[t.id] = { id: t.id, name: t.name, abbreviation: t.abbreviation, logo_url: t.logo_url, primary_color: t.primary_color, secondary_color: t.secondary_color };
-    res.json({ players: players.map(p => ({ ...p, team: p.team_id ? (map[p.team_id] || null) : null })) });
+    const registryMap = {};
+    const usernames = players.map(p => p.roblox_username).filter(Boolean);
+    if (usernames.length) {
+      const { data: registryRows, error: registryError } = await supabase
+        .from('league_players')
+        .select('roblox_username, eligibility, cap_value, position_tag')
+        .in('roblox_username', usernames);
+      if (registryError && !isMissingSupabaseTable(registryError, 'league_players')) {
+        return apiError(res, 500, 'PLAYERS_REGISTRY_ENRICH_FAILED', registryError.message, registryError.details);
+      }
+      (registryRows || []).forEach(row => { registryMap[String(row.roblox_username || '').toLowerCase()] = row; });
+    }
+    res.json({
+      players: players.map(p => {
+        const reg = registryMap[String(p.roblox_username || '').toLowerCase()] || null;
+        return {
+          ...p,
+          eligibility: reg ? reg.eligibility : null,
+          position_tag: reg ? reg.position_tag : p.position,
+          cap_value: reg ? Number(reg.cap_value || p.cap_value || 0) : Number(p.cap_value || 0),
+          team: p.team_id ? (map[p.team_id] || null) : null
+        };
+      }),
+      total: playersResult.count ?? players.length,
+      limit,
+      offset,
+      has_more: limit ? offset + players.length < (playersResult.count || 0) : false
+    });
   } catch (err) {
     apiError(res, err.statusCode || 500, err.code || 'PLAYERS_LOAD_FAILED', err.message);
   }

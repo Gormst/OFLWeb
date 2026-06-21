@@ -23,7 +23,7 @@ const page = {
   nav.links a::after{content:'';position:absolute;left:0;bottom:-2px;height:2px;width:0;background:var(--red);transition:width .25s;}
   nav.links a:hover::after,nav.links a.active::after{width:100%;}
   .connect-btn{background:var(--navy);color:var(--paper);font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:2px;padding:14px 26px;}
-  .account-wrap{position:relative;}
+  .account-wrap{position:relative;margin-right:28px;}
   .account{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;}
   .account img{width:38px;height:38px;border-radius:50%;border:2px solid var(--navy);object-fit:cover;}
   .account .uname{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1px;}
@@ -128,7 +128,7 @@ const page = {
     <button class="filter-btn" id="btnFA" type="button">Free Agents</button>
   </div>
   <div class="result-count" id="resultCount"></div>
-  <div id="playerOutput"></div>
+  <div id="playerOutput"><p class="empty">Loading players...</p></div>
 </div>
 
 <div class="detail-shell" id="detailShell">
@@ -145,7 +145,9 @@ const page = {
 const $ = id => document.getElementById(id);
 const STAT_KEYS=['pass_yards','pass_td','pass_int','pass_att','pass_comp','rush_att','rush_yards','rush_td','targets','receptions','rec_yards','rec_td','sacks_allowed','tfls_allowed','pressures_allowed','snaps_played','games_played','pr_sacks','pr_pressures','pr_tfl','pr_safeties','pr_swats','pr_td','cov_int','cov_td'];
 let REGISTRY=[], PLAYERS=[], MERGED=[], eligFilter='all', faFilter=false;
+let PAGE_SIZE=60, nextOffset=0, totalPlayers=0, hasMore=true, loadingPage=false, searchTimer=null;
 const TIER_LABELS={17500000:'$17.5M',15000000:'$15M',12500000:'$12.5M',10000000:'$10M',7500000:'$7.5M',5000000:'$5M',2500000:'$2.5M',0:'$0'};
+const API_BASE=(location.hostname==='localhost'||location.hostname==='127.0.0.1')&&location.port&&location.port!=='3000'?'http://localhost:3000':'';
 
 function esc(v){return String(v==null?'':v).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));}
 function slug(v){return String(v||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');}
@@ -153,46 +155,132 @@ function fmtCap(v){v=Number(v||0); if(v>=1000000) return '$'+(v/1000000).toFixed
 function num(v){return Number(v||0);}
 function img(src,cls,alt){return src?'<img class="'+cls+'" src="'+esc(src)+'" alt="'+esc(alt||'')+'" onerror="this.remove()">':'<span class="'+cls+' fallback">'+esc((alt||'?').slice(0,2).toUpperCase())+'</span>';}
 function teamLogo(team){if(!team)return '<span class="fa-label">Free Agent</span>'; const c=team.primary_color||'#15233E'; const init=(team.abbreviation||(team.name||'').slice(0,2)).toUpperCase(); return '<div class="team-cell"><span class="team-logo-mini" data-init="'+esc(init)+'" style="background:'+esc(c)+'">'+(team.logo_url?'<img src="'+esc(team.logo_url)+'" onerror="this.parentNode.textContent=this.parentNode.dataset.init">':esc(init))+'</span>'+esc(team.name)+'</div>';}
-function authHeaders(){const token=localStorage.getItem('ofl_token'); return token?{Authorization:'Bearer '+token}:{};}
-async function readJson(url,opts={}){opts.headers=Object.assign({},opts.headers||{}); const r=await fetch(url,opts); const text=await r.text(); let data=null; try{data=text?JSON.parse(text):{};}catch(e){} if(!r.ok){const code=data&&data.code?data.code:(data?'HTTP_'+r.status:'NON_JSON_RESPONSE'); throw new Error('['+code+'] '+((data&&data.error)||text.slice(0,200)||r.statusText));} if(!data) throw new Error('[INVALID_JSON_RESPONSE] '+url); return data;}
+function cookieValue(name){
+  const parts=document.cookie?document.cookie.split('; '):[];
+  for(let i=0;i<parts.length;i++){
+    if(parts[i].indexOf(name+'=')===0) return parts[i].split('=').slice(1).join('=');
+  }
+  return '';
+}
+function getToken(){
+  const direct=localStorage.getItem('ofl_token')||decodeURIComponent(cookieValue('ofl_token')||'');
+  if(direct) return direct;
+  try{
+    const session=JSON.parse(localStorage.getItem('ofl_session')||'null');
+    return session && (session.token||session.access_token||session.ofl_token) || '';
+  }catch(e){ return ''; }
+}
+function authHeaders(){const token=getToken(); return token?{Authorization:'Bearer '+token}:{};}
+function apiUrl(url){return url.startsWith('/api/')?API_BASE+url:url;}
+async function readJson(url,opts){
+  opts=opts||{}; opts.headers=Object.assign({},opts.headers||{});
+  const request=fetch(apiUrl(url),opts);
+  const timeout=new Promise((_,reject)=>setTimeout(()=>reject(new Error('[REQUEST_TIMEOUT] '+url+' did not respond')),8000));
+  const r=await Promise.race([request,timeout]);
+  const text=await r.text();
+  let data=null;
+  try{data=text?JSON.parse(text):{};}catch(e){}
+  if(!r.ok){const code=data&&data.code?data.code:(data?'HTTP_'+r.status:'NON_JSON_RESPONSE'); throw new Error('['+code+'] '+((data&&data.error)||text.slice(0,200)||r.statusText));}
+  if(!data) throw new Error('[INVALID_JSON_RESPONSE] '+url+' returned non-JSON. Make sure the API server is running on localhost:3000.');
+  return data;
+}
 
 (async function header(){
-  let p=null; const token=localStorage.getItem('ofl_token');
+  let p=null; const token=getToken();
   try{p=JSON.parse(localStorage.getItem('ofl_profile')||'null');}catch(e){}
+  if(p&&p.roblox_username){
+    $('connectBtn').style.display='none'; $('accountWrap').style.display='block';
+    $('accountName').textContent=p.roblox_username;
+    if(p.avatar_url) $('accountAvatar').src=p.avatar_url;
+  } else if(token) {
+    $('connectBtn').style.display='none'; $('accountWrap').style.display='block';
+    $('accountName').textContent='Account';
+  }
   if(token){
     try{
       const j=await readJson('/api/me',{headers:authHeaders()});
-      if(j.profile){p=j.profile; localStorage.setItem('ofl_profile',JSON.stringify(j.profile));}
+      if(j.profile){
+        p=j.profile;
+        localStorage.setItem('ofl_profile',JSON.stringify(j.profile));
+        $('connectBtn').style.display='none'; $('accountWrap').style.display='block';
+        $('accountName').textContent=j.profile.roblox_username||'Account';
+        if(j.profile.avatar_url) $('accountAvatar').src=j.profile.avatar_url;
+        if(j.profile.is_admin) $('adminLink').style.display='block';
+        if((j.profile.admin_tabs||[]).includes('media')) $('mediaEditorLink').style.display='block';
+      }
     }catch(e){}
+    try{const j=await readJson('/api/coach/me',{headers:authHeaders()}); if(j.coach){const cl=$('coachesLink'); cl.href='/coaches/'+j.team.slug; cl.style.display='block';}}catch(e){}
   }
-  if(p&&p.roblox_username){
-    $('connectBtn').style.display='none'; $('accountWrap').style.display='block'; $('accountName').textContent=p.roblox_username; if(p.avatar_url) $('accountAvatar').src=p.avatar_url;
-    if(token){
-      try{if(p.is_admin) $('adminLink').style.display='block'; if((p.admin_tabs||[]).includes('media')) $('mediaEditorLink').style.display='block';}catch(e){}
-      try{const j=await readJson('/api/coach/me',{headers:authHeaders()}); if(j.coach){const cl=$('coachesLink'); cl.href='/coaches/'+j.team.slug; cl.style.display='block';}}catch(e){}
-    }
-  }
-  const wrap=$('accountWrap'), pill=$('accountPill'); if(pill) pill.addEventListener('click',e=>{e.stopPropagation();wrap.classList.toggle('open');});
-  document.addEventListener('click',()=>wrap&&wrap.classList.remove('open'));
-  const lo=$('logoutBtn'); if(lo) lo.addEventListener('click',e=>{e.preventDefault();localStorage.removeItem('ofl_profile');localStorage.removeItem('ofl_token');localStorage.removeItem('ofl_session');location.href='/';});
-  document.querySelector('.menu-toggle').addEventListener('click',()=>{const l=document.querySelector('nav.links'); const o=l.style.display==='flex'; l.style.cssText=o?'':'display:flex;position:absolute;top:78px;left:0;right:0;background:var(--paper);flex-direction:column;padding:20px 22px;gap:18px;border-bottom:1px solid var(--navy);';});
+  const wrap=$('accountWrap'), pill=$('accountPill');
+  if(pill){pill.addEventListener('click',e=>{e.stopPropagation();wrap.classList.toggle('open');}); document.addEventListener('click',()=>wrap.classList.remove('open'));}
+  const lo=$('logoutBtn'); if(lo) lo.addEventListener('click',e=>{e.preventDefault();localStorage.removeItem('ofl_profile');localStorage.removeItem('ofl_token');localStorage.removeItem('ofl_session');document.cookie='ofl_token=; path=/; max-age=0; SameSite=Lax';location.href='/';});
+  document.querySelector('.menu-toggle').addEventListener('click',()=>{const l=document.querySelector('nav.links');const o=l.style.display==='flex';l.style.cssText=o?'':'display:flex;position:absolute;top:78px;left:0;right:0;background:var(--paper);flex-direction:column;padding:20px 22px;gap:18px;border-bottom:1px solid var(--navy);';});
 })();
 
 function mergePlayers(){
   const byName={};
   PLAYERS.forEach(p=>{byName[(p.roblox_username||'').toLowerCase()]=p;});
-  MERGED=REGISTRY.map(r=>({...r, roster:byName[(r.roblox_username||'').toLowerCase()]||null, team:(byName[(r.roblox_username||'').toLowerCase()]||{}).team||r.team||null}));
-  PLAYERS.forEach(p=>{if(!REGISTRY.some(r=>(r.roblox_username||'').toLowerCase()===(p.roblox_username||'').toLowerCase())) MERGED.push({...p,roster:p,eligibility:null,position_tag:p.position,cap_value:p.cap_value||0,team:p.team||null});});
+  const registryNames={};
+  REGISTRY.forEach(r=>{registryNames[(r.roblox_username||'').toLowerCase()]=true;});
+  MERGED=REGISTRY.map(r=>{
+    const roster=byName[(r.roblox_username||'').toLowerCase()]||null;
+    return Object.assign({},r,{roster:roster,team:(roster||{}).team||r.team||null});
+  });
+  PLAYERS.forEach(p=>{
+    if(!registryNames[(p.roblox_username||'').toLowerCase()]){
+      MERGED.push(Object.assign({},p,{roster:p,eligibility:p.eligibility||null,position_tag:p.position_tag||p.position,cap_value:p.cap_value||0,team:p.team||null}));
+    }
+  });
 }
 
 async function load(){
+  return loadPage(true);
+}
+
+async function loadPage(reset){
+  if(loadingPage) return;
+  if(reset){
+    REGISTRY=[]; PLAYERS=[]; MERGED=[]; nextOffset=0; totalPlayers=0; hasMore=true;
+  }
+  if(!hasMore && !reset) return;
+  loadingPage=true;
   try{
-    const reg=await readJson('/api/registry');
-    const players=await readJson('/api/players');
-    REGISTRY=reg.players||[]; PLAYERS=players.players||[]; mergePlayers();
+    const q=$('searchInput').value.trim();
+    if(reset){
+      $('resultCount').textContent='';
+      $('playerOutput').innerHTML='<p class="empty">Loading players...</p>';
+    } else {
+      $('resultCount').textContent='';
+    }
+    let playersError=null;
+    try{
+      const url='/api/players?limit='+PAGE_SIZE+'&offset='+nextOffset+(q?'&q='+encodeURIComponent(q):'');
+      const players=await readJson(url);
+      const rows=players.players||[];
+      totalPlayers=Number(players.total||0);
+      hasMore=!!players.has_more;
+      nextOffset+=rows.length;
+      PLAYERS=reset?rows:PLAYERS.concat(rows);
+    }catch(e){playersError=e; if(reset) PLAYERS=[];}
+    if(playersError) throw playersError;
+    if(reset && q.length>=2){
+      try{
+        const reg=await readJson('/api/registry/search?q='+encodeURIComponent(q));
+        REGISTRY=(reg.players||[]).filter(r=>!PLAYERS.some(p=>(p.roblox_username||'').toLowerCase()===(r.roblox_username||'').toLowerCase()));
+      }catch(e){REGISTRY=[];}
+    }
+    mergePlayers();
+    if(!MERGED.length){
+      $('resultCount').textContent='';
+      $('playerOutput').innerHTML='<p class="empty">'+(q?'No players match your search.':'No players are loaded yet. Import the registry or add players to the roster database.')+'</p>';
+      return;
+    }
     if(getDetailName()) renderDetail(); else renderList();
   }catch(e){
+    $('resultCount').textContent='';
     $('playerOutput').innerHTML='<p class="empty">'+esc(e.message||e)+'</p>';
+  }finally{
+    loadingPage=false;
   }
 }
 
@@ -219,7 +307,8 @@ function renderList(){
     if(faFilter && p.team) return false;
     return true;
   });
-  $('resultCount').textContent=filtered.length+' player'+(filtered.length!==1?'s':'')+' shown';
+  const totalLabel=totalPlayers?(' of '+totalPlayers):'';
+  $('resultCount').textContent='';
   if(!filtered.length){$('playerOutput').innerHTML='<p class="empty">No players match your search.</p>';return;}
   const tiers=[...new Set(filtered.map(p=>Number(p.cap_value||0)))].sort((a,b)=>b-a);
   $('playerOutput').innerHTML=tiers.map(tier=>{
@@ -285,7 +374,14 @@ $('btnAll').addEventListener('click',()=>{eligFilter='all';faFilter=false;render
 $('btnDPP').addEventListener('click',()=>{eligFilter='DPP-ELIGIBLE';faFilter=false;renderList();});
 $('btnEst').addEventListener('click',()=>{eligFilter='ESTABLISHED';faFilter=false;renderList();});
 $('btnFA').addEventListener('click',()=>{faFilter=!faFilter;if(faFilter)eligFilter='all';renderList();});
-$('searchInput').addEventListener('input',renderList);
+$('searchInput').addEventListener('input',()=>{
+  clearTimeout(searchTimer);
+  searchTimer=setTimeout(()=>loadPage(true),250);
+});
+window.addEventListener('scroll',()=>{
+  if(getDetailName()||loadingPage||!hasMore) return;
+  if(window.innerHeight+window.scrollY>=document.body.offsetHeight-700) loadPage(false);
+});
 load();
       `
     }
