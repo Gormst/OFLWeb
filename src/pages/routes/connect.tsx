@@ -7,8 +7,10 @@ type Message = {
 };
 
 export default function ConnectPage() {
-  const robloxClientId = String(import.meta.env.VITE_ROBLOX_CLIENT_ID || '').trim();
-  const robloxScopes = String(import.meta.env.VITE_ROBLOX_OAUTH_SCOPES || 'openid profile').trim();
+  const envRobloxClientId = String(import.meta.env.VITE_ROBLOX_CLIENT_ID || import.meta.env.VITE_oAuth_client_id || '').trim();
+  const envRobloxScopes = String(import.meta.env.VITE_ROBLOX_OAUTH_SCOPES || 'openid profile').trim();
+  const [robloxClientId, setRobloxClientId] = useState(envRobloxClientId);
+  const [robloxScopes, setRobloxScopes] = useState(envRobloxScopes);
   const [username, setUsername] = useState('');
   const [currentUsername, setCurrentUsername] = useState('');
   const [code, setCode] = useState('OFL-XXXX');
@@ -24,9 +26,25 @@ export default function ConnectPage() {
     document.title = 'Connect Account - OFL';
   }, []);
 
+  useEffect(() => {
+    if (envRobloxClientId) return;
+    let cancelled = false;
+    fetch('/api/auth/roblox/config')
+      .then(response => response.ok ? response.json() : null)
+      .then(data => {
+        if (cancelled || !data) return;
+        if (data.client_id) setRobloxClientId(String(data.client_id));
+        if (data.scopes) setRobloxScopes(String(data.scopes));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [envRobloxClientId]);
+
   async function createRobloxAuthorizationUrl() {
     if (!robloxClientId) {
-      setMessage({ text: 'Roblox OAuth is not configured yet. Set VITE_ROBLOX_CLIENT_ID first.' });
+      setMessage({ text: 'Roblox OAuth is not configured yet. Set oAuth_client_id or ROBLOX_CLIENT_ID first, then restart the server.' });
       return null;
     }
 

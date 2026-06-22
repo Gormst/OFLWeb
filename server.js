@@ -608,10 +608,10 @@ function robloxUsernameFromClaims(claims) {
 }
 
 async function exchangeRobloxAuthorizationCode({ code, codeVerifier, redirectUri }) {
-  const clientId = process.env.ROBLOX_CLIENT_ID || process.env.VITE_ROBLOX_CLIENT_ID;
-  const clientSecret = process.env.ROBLOX_CLIENT_SECRET || '';
+  const clientId = process.env.ROBLOX_CLIENT_ID || process.env.oAuth_client_id || process.env.OAUTH_CLIENT_ID || process.env.VITE_ROBLOX_CLIENT_ID || process.env.VITE_oAuth_client_id;
+  const clientSecret = process.env.ROBLOX_CLIENT_SECRET || process.env.oAuth_client_secret || process.env.OAUTH_CLIENT_SECRET || '';
   if (!clientId) {
-    const error = new Error('Set ROBLOX_CLIENT_ID before exchanging Roblox OAuth codes.');
+    const error = new Error('Set ROBLOX_CLIENT_ID or oAuth_client_id before exchanging Roblox OAuth codes.');
     error.statusCode = 500;
     error.code = 'ROBLOX_CLIENT_ID_MISSING';
     throw error;
@@ -889,6 +889,20 @@ app.get('/api/me', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+app.get('/api/auth/roblox/config', (req, res) => {
+  const clientId = process.env.ROBLOX_CLIENT_ID
+    || process.env.oAuth_client_id
+    || process.env.OAUTH_CLIENT_ID
+    || process.env.VITE_ROBLOX_CLIENT_ID
+    || process.env.VITE_oAuth_client_id
+    || '';
+  res.json({
+    configured: Boolean(clientId),
+    client_id: clientId,
+    scopes: process.env.ROBLOX_OAUTH_SCOPES || process.env.VITE_ROBLOX_OAUTH_SCOPES || 'openid profile'
+  });
 });
 
 function apiError(res, status, code, message, details) {
