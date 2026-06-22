@@ -180,7 +180,7 @@ const page = {
   }
   function positionLine(player){
     const parts=[selectedOffensivePosition(),selectedDefensivePosition()].filter(Boolean);
-    return parts.length ? parts.join(' / ') : roleFromStats(payload.current_stats||{});
+    return parts.length ? parts.join(' / ') : 'Player';
   }
   function seasonsPlayed(){
     const seasons=new Set((payload.historical||[]).map(row=>String(row.season||'')).filter(Boolean));

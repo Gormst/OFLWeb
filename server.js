@@ -87,6 +87,9 @@ const STAT_KEYS = [
 ];
 function normInt(v){ const n=parseInt(v,10); return isNaN(n)?0:(n<0?0:n); }
 function pickStats(body){ const o={}; STAT_KEYS.forEach(k=>{ o[k]=normInt(body[k]); }); return o; }
+function statLabelFromKey(key) {
+  return String(key || '').replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+}
 
 const BOX_SCORE_COMPARISON_STATS = [
   { key: 'pass_yards', label: 'Pass Yards' },
@@ -199,6 +202,10 @@ function normFloatVal(v) {
   return isNaN(n) ? 0 : n;
 }
 
+function normalizeImportedPosition(value) {
+  return String(value || '').trim().toUpperCase();
+}
+
 // Parse a single-category CSV paste into rows of { username, stats: {key: value} }.
 // Tolerant of stray section/team-name rows above the header.
 function parseCategoryCSV(text, category) {
@@ -218,9 +225,15 @@ function parseCategoryCSV(text, category) {
   }
 
   const idxToKey = {};
+  let posIdx = null;
   headerRow.forEach((h, i) => {
     if (i === 0) return;
-    const key = def.keys[(h || '').trim().toUpperCase()];
+    const label = (h || '').trim().toUpperCase();
+    if (label === 'POS' || label === 'POSITION') {
+      posIdx = i;
+      return;
+    }
+    const key = def.keys[label];
     if (key) idxToKey[i] = key;
   });
 
@@ -233,7 +246,7 @@ function parseCategoryCSV(text, category) {
     if (Object.values(CATEGORY_DEFS).some(c => c.section === upper) || upper.startsWith('USERNAME')) continue;
     const stats = {};
     for (const [idx, key] of Object.entries(idxToKey)) stats[key] = normFloatVal(row[idx]);
-    out.push({ username, stats });
+    out.push({ username, position: posIdx == null ? '' : normalizeImportedPosition(row[posIdx]), stats });
   }
   return out;
 }
@@ -275,6 +288,12 @@ function parseTeamBlock(rows, c0, c1, r0) {
     if (!players[username]) players[username] = {};
     players[username][key] = (players[username][key] || 0) + (normFloat(value) || 0);
   }
+  function addPosition(username, value) {
+    const position = normalizeImportedPosition(value);
+    if (!username || !position) return;
+    if (!players[username]) players[username] = {};
+    if (!players[username].position) players[username].position = position;
+  }
   function normFloat(v) {
     if (v === undefined || v === null) return 0;
     const s = String(v).replace('%', '').trim();
@@ -296,12 +315,13 @@ function parseTeamBlock(rows, c0, c1, r0) {
       const headerRow = rows[r + 1] || [];
       // build column index -> stat key for this block's columns
       const idxToKey = {};
+      let posCol = null;
       for (let c = c0; c <= c1; c++) {
         const h = (headerRow[c] || '').trim().toUpperCase();
+        if (h === 'POS' || h === 'POSITION') posCol = c;
         if (colMap[h]) idxToKey[c] = colMap[h];
       }
       const usernameCol = c0; // first column of the block is always the username
-      const posCol = (section === 'RECEIVING' || section === 'DEFENSE') ? c0 + 1 : null;
 
       r += 2; // skip section header + column header rows
       // consume player rows until blank row or a new known section
@@ -312,6 +332,7 @@ function parseTeamBlock(rows, c0, c1, r0) {
         if (KNOWN_SECTIONS.includes(nextLabel) || nextLabel === 'QB THROWAWAYS') break;
         const username = (pr[usernameCol] || '').trim();
         if (username) {
+          if (posCol != null) addPosition(username, pr[posCol]);
           for (const [colIdx, key] of Object.entries(idxToKey)) {
             addStat(username, key, pr[colIdx]);
           }
@@ -399,6 +420,7 @@ function parseScheduleLines(text) {
 function flattenBoxPlayers(box, teamId, side) {
   return Object.entries((box && box.players) || {}).map(([username, stats]) => ({
     username,
+    position: normalizeImportedPosition(stats?.position || stats?.pos),
     stats,
     team_id: teamId || null,
     side
@@ -782,10 +804,136 @@ function totalStatValue(stats) {
   return STAT_KEYS.reduce((sum, key) => sum + Number(stats?.[key] || 0), 0);
 }
 
+function usernameKey(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function displayUsername(value) {
+  return String(value || '').trim();
+}
+
+function searchTerms(value) {
+  return String(value || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+function playerSearchText(player) {
+  return [
+    player?.roblox_username,
+    player?.position,
+    player?.position_tag,
+    player?.team?.name,
+    player?.team?.abbreviation,
+    ...(player?.formerly_known_as || []),
+    ...(player?.alias_usernames || [])
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+function matchesPlayerSearch(player, query) {
+  const terms = searchTerms(query);
+  if (!terms.length) return true;
+  const haystack = playerSearchText(player);
+  const compactHaystack = haystack.replace(/\s+/g, '');
+  return terms.every(term => haystack.includes(term) || compactHaystack.includes(term));
+}
+
+async function fetchPlayerAliases() {
+  const { data, error } = await supabase
+    .from('player_aliases')
+    .select('*')
+    .order('created_at', { ascending: true });
+  if (error && isMissingSupabaseTable(error, 'player_aliases')) return [];
+  if (error) throw error;
+  return data || [];
+}
+
+function buildAliasMaps(aliases) {
+  const aliasToCanonical = {};
+  const canonicalToAliases = {};
+  (aliases || []).forEach(row => {
+    const canonical = usernameKey(row.canonical_username);
+    const alias = usernameKey(row.alias_username);
+    if (!canonical || !alias) return;
+    aliasToCanonical[alias] = canonical;
+    if (!canonicalToAliases[canonical]) canonicalToAliases[canonical] = [];
+    canonicalToAliases[canonical].push(displayUsername(row.alias_username));
+  });
+  return { aliasToCanonical, canonicalToAliases };
+}
+
+function canonicalUsernameKey(username, aliasToCanonical) {
+  const key = usernameKey(username);
+  return aliasToCanonical[key] || key;
+}
+
+function combinePlayerRowsByAlias(rows, aliases) {
+  const { aliasToCanonical, canonicalToAliases } = buildAliasMaps(aliases);
+  const groups = {};
+  (rows || []).forEach(row => {
+    const key = canonicalUsernameKey(row.roblox_username, aliasToCanonical);
+    if (!key) return;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(row);
+  });
+
+  return Object.entries(groups).map(([key, group]) => {
+    const canonicalRow = group.find(row => usernameKey(row.roblox_username) === key) || group[0] || {};
+    const preferredTeamRow = group.find(row => row.team_id) || canonicalRow;
+    const combined = { ...canonicalRow };
+    combined.id = canonicalRow.id || preferredTeamRow.id || null;
+    combined.roblox_username = displayUsername(canonicalRow.roblox_username) || displayUsername(preferredTeamRow.roblox_username);
+    combined.roblox_user_id = canonicalRow.roblox_user_id || preferredTeamRow.roblox_user_id || null;
+    combined.avatar_url = canonicalRow.avatar_url || preferredTeamRow.avatar_url || group.find(row => row.avatar_url)?.avatar_url || null;
+    combined.team_id = preferredTeamRow.team_id || null;
+    combined.position = canonicalRow.position || preferredTeamRow.position || null;
+    combined.offensive_position = canonicalRow.offensive_position || preferredTeamRow.offensive_position || null;
+    combined.defensive_position = canonicalRow.defensive_position || preferredTeamRow.defensive_position || null;
+    combined.jersey_number = canonicalRow.jersey_number ?? preferredTeamRow.jersey_number ?? null;
+    combined.cap_value = Number(canonicalRow.cap_value || preferredTeamRow.cap_value || 0);
+    combined.formerly_known_as = (canonicalToAliases[key] || []).filter(alias => usernameKey(alias) !== usernameKey(combined.roblox_username));
+    combined.alias_usernames = group.map(row => displayUsername(row.roblox_username)).filter(Boolean);
+    STAT_KEYS.forEach(statKey => {
+      combined[statKey] = group.reduce((sum, row) => sum + Number(row?.[statKey] || 0), 0);
+    });
+    return combined;
+  });
+}
+
+function aliasNameGroup(username, aliases) {
+  const { aliasToCanonical, canonicalToAliases } = buildAliasMaps(aliases);
+  const canonical = canonicalUsernameKey(username, aliasToCanonical);
+  return [canonical, ...(canonicalToAliases[canonical] || []).map(usernameKey)]
+    .filter(Boolean)
+    .filter((value, index, list) => list.indexOf(value) === index);
+}
+
 function moveTeamId(move) {
   const details = move.details || {};
   if (move.move_type === 'trade' && details.destination_team_id) return details.destination_team_id;
   return move.team_id || null;
+}
+
+function isSyncGeneratedMove(move) {
+  const details = move?.details || {};
+  return move?.requesting_role === 'bot'
+    || move?.requesting_username === 'Discord Bot'
+    || details.source === 'discord_roster_sync'
+    || details.source === 'discord_webhook';
+}
+
+function condenseDuplicateSyncMoves(moves) {
+  const seen = new Set();
+  return (moves || []).filter(move => {
+    if (!isSyncGeneratedMove(move)) return true;
+    const key = [
+      usernameKey(move.player_username),
+      move.move_type || '',
+      moveTeamId(move) || '',
+      move.status || ''
+    ].join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 app.get('/api/me/player-profile', async (req, res) => {
@@ -794,23 +942,29 @@ app.get('/api/me/player-profile', async (req, res) => {
     if (!profile) return apiError(res, 401, 'AUTH_REQUIRED', 'Not authenticated');
 
     const username = (profile.roblox_username || '').trim();
-    const [teamsResult, playerByIdResult, playerByNameResult, registryByNameResult] = await Promise.all([
+    const aliases = await fetchPlayerAliases();
+    const nameKeys = aliasNameGroup(username, aliases);
+    const nameSet = new Set(nameKeys);
+    const [teamsResult, playerByIdResult, playersByNamesResult, registryByNamesResult] = await Promise.all([
       supabase.from('teams').select('*').order('name'),
       profile.roblox_user_id ? supabase.from('players').select('*').eq('roblox_user_id', String(profile.roblox_user_id)).maybeSingle() : Promise.resolve({ data: null, error: null }),
-      username ? supabase.from('players').select('*').ilike('roblox_username', username).maybeSingle() : Promise.resolve({ data: null, error: null }),
-      username ? supabase.from('league_players').select('roblox_username, cap_value, position_tag').ilike('roblox_username', username).maybeSingle() : Promise.resolve({ data: null, error: null })
+      nameSet.size ? supabase.from('players').select('*') : Promise.resolve({ data: [], error: null }),
+      nameSet.size ? supabase.from('league_players').select('roblox_username, cap_value, position_tag') : Promise.resolve({ data: [], error: null })
     ]);
 
     if (teamsResult.error) throw teamsResult.error;
     if (playerByIdResult.error) throw playerByIdResult.error;
-    if (playerByNameResult.error) throw playerByNameResult.error;
-    if (registryByNameResult.error && !isMissingSupabaseTable(registryByNameResult.error, 'league_players')) throw registryByNameResult.error;
+    if (playersByNamesResult.error) throw playersByNamesResult.error;
+    if (registryByNamesResult.error && !isMissingSupabaseTable(registryByNamesResult.error, 'league_players')) throw registryByNamesResult.error;
 
     const teams = teamsResult.data || [];
     const teamMap = {};
     teams.forEach(team => { teamMap[team.id] = team; });
-    const registryPlayer = registryByNameResult.error ? null : registryByNameResult.data;
-    let player = playerByIdResult.data || playerByNameResult.data || null;
+    const matchingPlayerRows = (playersByNamesResult.data || []).filter(row => nameSet.has(usernameKey(row.roblox_username)));
+    const registryRows = registryByNamesResult.error ? [] : (registryByNamesResult.data || []).filter(row => nameSet.has(usernameKey(row.roblox_username)));
+    const registryPlayer = registryRows[0] || null;
+    const profilePlayerRows = [playerByIdResult.data, ...matchingPlayerRows].filter(Boolean);
+    let player = combinePlayerRowsByAlias(profilePlayerRows, aliases)[0] || null;
     if (player && registryPlayer) {
       player = {
         ...player,
@@ -820,14 +974,13 @@ app.get('/api/me/player-profile', async (req, res) => {
     }
 
     let historicalRows = [];
-    if (username) {
+    if (nameSet.size) {
       const { data, error } = await supabase
         .from('season_stats')
         .select('*')
-        .ilike('roblox_username', username)
         .order('season', { ascending: false });
       if (error && !isMissingSupabaseTable(error, 'season_stats')) throw error;
-      historicalRows = error ? [] : (data || []);
+      historicalRows = error ? [] : (data || []).filter(row => nameSet.has(usernameKey(row.roblox_username)));
     }
 
     const bySeason = {};
@@ -851,16 +1004,16 @@ app.get('/api/me/player-profile', async (req, res) => {
       });
 
     let moves = [];
-    if (username) {
+    if (nameSet.size) {
       const { data, error } = await supabase
         .from('roster_moves')
         .select('*')
-        .ilike('player_username', username)
         .in('move_type', ['sign', 'release', 'trade'])
         .order('created_at', { ascending: true });
       if (error) throw error;
-      moves = data || [];
+      moves = (data || []).filter(row => nameSet.has(usernameKey(row.player_username)));
     }
+    moves = condenseDuplicateSyncMoves(moves);
     const timeline = moves.map(move => {
       const team = teamMap[moveTeamId(move)] || null;
       return {
@@ -879,10 +1032,12 @@ app.get('/api/me/player-profile', async (req, res) => {
     if (username || profile.roblox_user_id) {
       let awardQuery = supabase.from('player_awards').select('*').order('awarded_at', { ascending: false });
       if (profile.roblox_user_id) awardQuery = awardQuery.eq('roblox_user_id', String(profile.roblox_user_id));
-      else awardQuery = awardQuery.ilike('player_username', username);
+      else awardQuery = awardQuery;
       const { data, error } = await awardQuery;
       if (error && !isMissingSupabaseTable(error, 'player_awards')) throw error;
-      awards = error ? [] : (data || []).map(award => ({
+      awards = error ? [] : (data || [])
+        .filter(award => profile.roblox_user_id || nameSet.has(usernameKey(award.player_username)))
+        .map(award => ({
         ...award,
         team: publicTeamSummary(teamMap[award.team_id])
       }));
@@ -1332,6 +1487,13 @@ function missingBoxScoresError() {
   return error;
 }
 
+function httpError(statusCode, message, details = []) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.details = details;
+  return error;
+}
+
 async function ensureBoxScoresTable() {
   const { error } = await supabase.from('box_scores').select('id').limit(1);
   if (isMissingSupabaseTable(error, 'box_scores')) throw missingBoxScoresError();
@@ -1391,6 +1553,191 @@ async function ensureBoxScoreForCompletedGame(gameId) {
   return box;
 }
 
+function boxScoreRows(box) {
+  const data = asBoxData(box?.data);
+  const rowLike = Array.isArray(data?.rows) ? data.rows : Array.isArray(data?.players) ? data.players : null;
+  if (rowLike) {
+    return rowLike.map(row => {
+      const side = Number(row?.side || row?.team_side) === 2 ? 2 : 1;
+      return {
+        username: displayUsername(row?.username || row?.roblox_username || row?.player_username || row?.name),
+        team_id: row?.team_id || (side === 2 ? box?.team2_id : box?.team1_id) || null,
+        side,
+        position: row?.position || row?.pos || row?.stats?.position || null,
+        stats: pickStats(row?.stats || row || {})
+      };
+    }).filter(row => row.username);
+  }
+  if (data?.players && typeof data.players === 'object') {
+    return Object.entries(data.players).map(([username, stats]) => ({
+      username: displayUsername(username),
+      team_id: stats?.team_id || null,
+      side: Number(stats?.side) === 2 ? 2 : 1,
+      position: stats?.position || stats?.pos || null,
+      stats: pickStats(stats || {})
+    })).filter(row => row.username);
+  }
+  return ['team1', 'team2'].flatMap((slot, index) => {
+    const players = data?.[slot]?.players || {};
+    const teamId = slot === 'team1' ? box?.team1_id : box?.team2_id;
+    return Object.entries(players).map(([username, stats]) => ({
+      username,
+      team_id: teamId || null,
+      side: index + 1,
+      position: stats?.position || stats?.pos || null,
+      stats: pickStats(stats || {})
+    }));
+  });
+}
+
+function buildBoxDataFromRows(rows, team1Name, team2Name) {
+  const data = {
+    team1: { teamName: team1Name || null, players: {} },
+    team2: { teamName: team2Name || null, players: {} }
+  };
+  (Array.isArray(rows) ? rows : []).forEach(row => {
+    const username = displayUsername(row.username || row.roblox_username);
+    if (!username) return;
+    const side = Number(row.side) === 2 ? 2 : 1;
+    const stats = pickStats(row.stats || row);
+    if (row.position || row.pos) stats.position = String(row.position || row.pos).trim().toUpperCase();
+    data[side === 2 ? 'team2' : 'team1'].players[username] = stats;
+  });
+  return data;
+}
+
+function validateStatRowsHavePositions(rows) {
+  const missing = (Array.isArray(rows) ? rows : [])
+    .filter(row => displayUsername(row?.username || row?.roblox_username) && !normalizeImportedPosition(row?.position || row?.pos))
+    .map(row => displayUsername(row.username || row.roblox_username));
+  if (!missing.length) return;
+  const uniqueMissing = [...new Set(missing)];
+  throw httpError(
+    400,
+    'Every player row needs a position before stats can be finalized.',
+    [
+      'Add a position for each player in Edit Stats, then finalize again.',
+      `Missing position${uniqueMissing.length === 1 ? '' : 's'}: ${uniqueMissing.join(', ')}`
+    ]
+  );
+}
+
+async function adjustPlayerTotalsForRows(rows, direction = 1, { updateTeam = false } = {}) {
+  if (!Array.isArray(rows) || rows.length === 0) return 0;
+  const [playersResult, aliases] = await Promise.all([
+    supabase.from('players').select('*'),
+    fetchPlayerAliases()
+  ]);
+  const { data: allPlayers, error: playersError } = playersResult;
+  if (playersError) throw playersError;
+  const { aliasToCanonical } = buildAliasMaps(aliases);
+  const byUsername = {};
+  (allPlayers || []).forEach(player => { byUsername[canonicalUsernameKey(player.roblox_username, aliasToCanonical)] = player; });
+
+  if (direction > 0) {
+    const missing = [];
+    (rows || []).forEach(row => {
+      const username = displayUsername(row.username);
+      if (!username) return;
+      const key = canonicalUsernameKey(username, aliasToCanonical);
+      if (!byUsername[key]) missing.push(username);
+    });
+    if (missing.length) {
+      const uniqueMissing = [...new Set(missing)];
+      throw httpError(
+        400,
+        'Stats include players that are not valid roster users.',
+        [
+          'Create or connect these players before finalizing stats.',
+          `Unmatched player${uniqueMissing.length === 1 ? '' : 's'}: ${uniqueMissing.join(', ')}`
+        ]
+      );
+    }
+  }
+
+  let adjusted = 0;
+  for (const row of rows) {
+    const username = displayUsername(row.username);
+    if (!username) continue;
+    const key = canonicalUsernameKey(username, aliasToCanonical);
+    const player = byUsername[key];
+    const deltas = pickStats(row.stats || {});
+
+    if (!player) continue;
+
+    const update = {};
+    STAT_KEYS.forEach(k => {
+      const next = Number(player[k] || 0) + (Number(deltas[k] || 0) * direction);
+      update[k] = Math.max(0, next);
+    });
+    if (direction > 0 && normalizeImportedPosition(row.position || row.pos)) {
+      update.position = normalizeImportedPosition(row.position || row.pos);
+    }
+    if (direction > 0 && updateTeam && row.team_id && row.team_id !== player.team_id) {
+      update.team_id = row.team_id;
+    }
+    const { data: updated, error } = await supabase.from('players').update(update).eq('id', player.id).select().single();
+    if (error) throw error;
+    byUsername[key] = updated || { ...player, ...update };
+    adjusted += 1;
+  }
+  return adjusted;
+}
+
+async function adjustPlayerTotalsForBox(box, direction = 1) {
+  const meta = asBoxData(box?.data)?.meta || {};
+  if (meta.updates_player_totals === false) return 0;
+  return adjustPlayerTotalsForRows(boxScoreRows(box), direction);
+}
+
+async function resolveExistingStatRows(rows) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  if (!sourceRows.length) return [];
+  const [playersResult, aliases] = await Promise.all([
+    supabase.from('players').select('id,roblox_username,team_id,avatar_url'),
+    fetchPlayerAliases()
+  ]);
+  const { data: players, error: playersError } = playersResult;
+  if (playersError) throw playersError;
+  const { aliasToCanonical } = buildAliasMaps(aliases);
+  const playersByKey = {};
+  (players || []).forEach(player => {
+    const key = canonicalUsernameKey(player.roblox_username, aliasToCanonical);
+    if (key && !playersByKey[key]) playersByKey[key] = player;
+  });
+
+  const missing = [];
+  const resolvedRows = sourceRows.map(row => {
+    const username = displayUsername(row.username || row.roblox_username);
+    const key = canonicalUsernameKey(username, aliasToCanonical);
+    const player = playersByKey[key];
+    if (!player) {
+      if (username) missing.push(username);
+      return { ...row, username };
+    }
+    return {
+      ...row,
+      username: displayUsername(player.roblox_username),
+      player_id: player.id
+    };
+  });
+
+  if (missing.length) {
+    const uniqueMissing = [...new Set(missing)];
+    throw httpError(
+      400,
+      'Stats include players that are not valid roster users.',
+      [
+        'Stat imports no longer create players automatically.',
+        'Create or connect these players first, then import again.',
+        `Unmatched player${uniqueMissing.length === 1 ? '' : 's'}: ${uniqueMissing.join(', ')}`
+      ]
+    );
+  }
+
+  return resolvedRows;
+}
+
 async function assertHighlightGameAvailable(gameId, currentVideoId = null) {
   if (!gameId) return null;
   const { data: game, error: gameError } = await supabase
@@ -1440,30 +1787,8 @@ async function removeImportedStatsForGame(gameId, { requireBoxScores = false } =
   if (error) throw error;
   if (!box) return { hadStats: false, removed: 0 };
 
-  const updatesPlayerTotals = box.data?.meta?.updates_player_totals !== false;
-  const usernames = [];
-  ['team1', 'team2'].forEach(slot => {
-    Object.keys(box.data?.[slot]?.players || {}).forEach(username => usernames.push(username));
-  });
-
-  if (updatesPlayerTotals) {
-    const { data: players, error: playersError } = await supabase.from('players').select('*');
-    if (playersError) throw playersError;
-    const byUsername = {};
-    (players || []).forEach(player => { byUsername[(player.roblox_username || '').toLowerCase()] = player; });
-
-    for (const username of usernames) {
-      const player = byUsername[username.toLowerCase()];
-      if (!player) continue;
-      const deltas = {
-        ...(box.data?.team1?.players?.[username] || {}),
-        ...(box.data?.team2?.players?.[username] || {})
-      };
-      const update = {};
-      STAT_KEYS.forEach(k => { update[k] = Math.max(0, (player[k] || 0) - (deltas[k] || 0)); });
-      await supabase.from('players').update(update).eq('id', player.id);
-    }
-  }
+  const usernames = boxScoreRows(box).map(row => row.username).filter(Boolean);
+  await adjustPlayerTotalsForBox(box, -1);
 
   const { error: deleteError } = await supabase.from('box_scores').delete().eq('id', box.id);
   if (deleteError) throw deleteError;
@@ -1594,7 +1919,7 @@ app.get('/api/games', async (req, res) => {
       .from('games').select('*')
       .order('game_date', { ascending: true });
     const { data: teams } = await supabase.from('teams').select('*');
-    const { data: boxes, error: boxesError } = await supabase.from('box_scores').select('id, game_id, created_at');
+    const { data: boxes, error: boxesError } = await supabase.from('box_scores').select('id, game_id, created_at, data');
     if (boxesError && !isMissingSupabaseTable(boxesError, 'box_scores')) throw boxesError;
     const boxByGame = {};
     (boxes || []).forEach(box => {
@@ -1604,7 +1929,9 @@ app.get('/api/games', async (req, res) => {
       ...game,
       stats_imported: Boolean(boxByGame[game.id]),
       box_score_id: boxByGame[game.id]?.id || null,
-      stats_imported_at: boxByGame[game.id]?.created_at || null
+      stats_imported_at: boxByGame[game.id]?.created_at || null,
+      stats_finalized: asBoxData(boxByGame[game.id]?.data)?.meta?.finalized === true,
+      stats_draft: Boolean(boxByGame[game.id]) && asBoxData(boxByGame[game.id]?.data)?.meta?.finalized !== true
     }));
     const weeks = await listLeagueWeeksWithFallback(rows);
     const activeWeek = await getLeagueSetting('active_week');
@@ -2149,7 +2476,7 @@ app.post('/api/admin/games/import-csv', async (req, res) => {
 // ─────────────────────────────────────────────
 
 // admin — parse a single-category CSV paste into editable rows
-async function importParsedGameStats({ players, game_id, team1_id, team2_id, team1_name, team2_name }) {
+async function importParsedGameStats({ players, game_id, team1_id, team2_id, team1_name, team2_name, finalize = true, replaceExisting = false, finalScore = null }) {
   if (!Array.isArray(players) || players.length === 0) {
     const error = new Error('No player rows to import');
     error.statusCode = 400;
@@ -2158,6 +2485,7 @@ async function importParsedGameStats({ players, game_id, team1_id, team2_id, tea
   }
 
   await ensureBoxScoresTable();
+  if (finalize) validateStatRowsHavePositions(players);
 
   let existingHighlightOnlyBox = null;
   if (game_id) {
@@ -2166,10 +2494,10 @@ async function importParsedGameStats({ players, game_id, team1_id, team2_id, tea
     if (existingBox) {
       if (existingBox.data?.meta?.highlight_only === true) {
         existingHighlightOnlyBox = existingBox;
-      } else {
+      } else if (!replaceExisting) {
         const error = new Error('Stats have already been imported for this game. Remove them before importing again.');
         error.statusCode = 409;
-        error.details = ['This game already has a stored box score. Use Remove Stats on the game card before importing a replacement CSV.'];
+        error.details = ['This game already has stored stats. Use Edit Stats on the game card to review or correct them.'];
         throw error;
       }
     }
@@ -2181,45 +2509,23 @@ async function importParsedGameStats({ players, game_id, team1_id, team2_id, tea
     if (gameForPhaseError) throw gameForPhaseError;
     statPhase = await getWeekPhase(gameForPhase?.week);
   }
-  const updatesPlayerTotals = statPhase !== 'playoffs';
-
-  const { data: allPlayers } = await supabase.from('players').select('*');
-  const byUsername = {};
-  (allPlayers || []).forEach(p => { byUsername[(p.roblox_username || '').toLowerCase()] = p; });
+  const updatesPlayerTotals = finalize && statPhase !== 'playoffs';
 
   const boxData = { team1: { teamName: team1_name || null, players: {} }, team2: { teamName: team2_name || null, players: {} } };
 
   for (const row of players) {
     const username = (row.username || '').trim();
     if (!username) continue;
-    const key = username.toLowerCase();
-    let player = byUsername[key];
     const deltas = pickStats(row.stats || {});
-
-    if (!player) {
-      let roblox_user_id = null, avatar_url = null, rname = username;
-      const ru = await getRobloxUser(username);
-      if (ru) { roblox_user_id = String(ru.id); rname = ru.name; avatar_url = await getRobloxAvatar(ru.id); }
-      const insertRow = { roblox_username: rname, roblox_user_id, avatar_url, team_id: row.team_id || null };
-      STAT_KEYS.forEach(k => insertRow[k] = 0);
-      const { data } = await supabase.from('players').insert(insertRow).select().single();
-      player = data;
-      byUsername[key] = player;
-    } else if (row.team_id && row.team_id !== player.team_id) {
-      await supabase.from('players').update({ team_id: row.team_id }).eq('id', player.id);
-      player.team_id = row.team_id;
-    }
-
-    if (updatesPlayerTotals) {
-      const update = {};
-      STAT_KEYS.forEach(k => { update[k] = (player[k] || 0) + (deltas[k] || 0); });
-      const { data: updated } = await supabase.from('players').update(update).eq('id', player.id).select().single();
-      byUsername[key] = updated;
-    }
-
-    const assignedTeamId = row.team_id || player.team_id;
+    const position = normalizeImportedPosition(row.position || row.pos || row.stats?.position || row.stats?.pos);
+    if (position) deltas.position = position;
+    const assignedTeamId = row.team_id || null;
     const slot = (assignedTeamId === team1_id) ? 'team1' : (assignedTeamId === team2_id) ? 'team2' : (row.side === 2 ? 'team2' : 'team1');
     boxData[slot].players[username] = deltas;
+  }
+
+  if (updatesPlayerTotals) {
+    await adjustPlayerTotalsForRows(players, 1, { updateTeam: true });
   }
 
   const boxRow = {
@@ -2228,7 +2534,7 @@ async function importParsedGameStats({ players, game_id, team1_id, team2_id, tea
     team2_name: team2_name || null,
     team1_id: team1_id || null,
     team2_id: team2_id || null,
-    data: { ...boxData, meta: { phase: statPhase, updates_player_totals: updatesPlayerTotals } }
+    data: { ...boxData, meta: { phase: statPhase, updates_player_totals: updatesPlayerTotals, finalized: !!finalize, draft: !finalize, final_score: finalScore || null } }
   };
   const query = existingHighlightOnlyBox
     ? supabase.from('box_scores').update(boxRow).eq('id', existingHighlightOnlyBox.id)
@@ -2319,16 +2625,19 @@ app.post('/api/admin/games/:id/import-stats', async (req, res) => {
       });
     }
 
+    const resolvedRows = await resolveExistingStatRows(rows);
+    const finalScore = parseFinalScoreFromCSV(csv, parsed.team1.teamName, parsed.team2.teamName);
     const box = await importParsedGameStats({
-      players: rows,
+      players: resolvedRows,
       game_id: game.id,
       team1_id: parsedTeam1.id,
       team2_id: parsedTeam2.id,
       team1_name: parsedTeam1.name,
-      team2_name: parsedTeam2.name
+      team2_name: parsedTeam2.name,
+      finalize: false,
+      finalScore
     });
 
-    const finalScore = parseFinalScoreFromCSV(csv, parsed.team1.teamName, parsed.team2.teamName);
     if (finalScore && finalScore.team1 != null && finalScore.team2 != null) {
       const scoreUpdate = parsedTeam1.id === game.home_team_id
         ? { home_score: finalScore.team1, away_score: finalScore.team2 }
@@ -2336,7 +2645,117 @@ app.post('/api/admin/games/:id/import-stats', async (req, res) => {
       await supabase.from('games').update(scoreUpdate).eq('id', game.id);
     }
 
-    res.json({ success: true, box_score_id: box.id, imported: rows.length });
+    res.json({ success: true, box_score_id: box.id, imported: resolvedRows.length, review_url: `/admin?tab=schedule&page=stats&game=${game.id}`, finalized: false });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ error: err.message, details: err.details || [] });
+  }
+});
+
+app.get('/api/admin/games/:id/stats-review', async (req, res) => {
+  const me = await requireAdmin(req, res, 'schedule');
+  if (!me) return;
+  try {
+    await ensureBoxScoresTable();
+    const { data: game, error: gameError } = await supabase.from('games').select('*').eq('id', req.params.id).single();
+    if (gameError || !game) return res.status(404).json({ error: 'Game not found' });
+    const { data: box, error: boxError } = await supabase.from('box_scores').select('*').eq('game_id', req.params.id).maybeSingle();
+    if (boxError) throw boxError;
+    if (!box) return res.status(404).json({ error: 'No stats have been imported for this game yet' });
+    const { data: teams, error: teamsError } = await supabase.from('teams').select('id,name,abbreviation,logo_url,primary_color');
+    if (teamsError) throw teamsError;
+    const { data: players, error: playersError } = await supabase.from('players').select('id,roblox_username,team_id,avatar_url').order('roblox_username');
+    if (playersError) throw playersError;
+    const [gameWithTeams] = attachTeams([game], teams || []);
+    res.json({
+      game: gameWithTeams,
+      box_score: box,
+      rows: boxScoreRows(box),
+      stat_keys: STAT_KEYS.map(key => ({ key, label: statLabelFromKey(key) })),
+      teams: (teams || []).filter(team => [box.team1_id, box.team2_id, game.away_team_id, game.home_team_id].includes(team.id)),
+      players: players || [],
+      finalized: asBoxData(box.data)?.meta?.finalized === true
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ error: err.message, details: err.details || [] });
+  }
+});
+
+app.put('/api/admin/games/:id/stats-review', async (req, res) => {
+  const me = await requireAdmin(req, res, 'schedule');
+  if (!me) return;
+  try {
+    await ensureBoxScoresTable();
+    const { data: box, error: boxError } = await supabase.from('box_scores').select('*').eq('game_id', req.params.id).maybeSingle();
+    if (boxError) throw boxError;
+    if (!box) return res.status(404).json({ error: 'No stats have been imported for this game yet' });
+    const oldMeta = asBoxData(box.data)?.meta || {};
+    if (oldMeta.finalized === true) await adjustPlayerTotalsForBox(box, -1);
+
+    const rows = (Array.isArray(req.body.rows) ? req.body.rows : []).map(row => ({
+      username: displayUsername(row.username || row.roblox_username),
+      team_id: row.team_id || null,
+      side: Number(row.side) === 2 ? 2 : 1,
+      position: normalizeImportedPosition(row.position || row.pos),
+      stats: pickStats(row.stats || row)
+    })).filter(row => row.username);
+    if (!rows.length) return res.status(400).json({ error: 'At least one player stat row is required' });
+    const resolvedRows = await resolveExistingStatRows(rows);
+
+    const meta = {
+      ...oldMeta,
+      finalized: oldMeta.finalized === true,
+      draft: oldMeta.finalized !== true,
+      updates_player_totals: oldMeta.finalized === true && oldMeta.phase !== 'playoffs',
+      edited_at: new Date().toISOString()
+    };
+    const data = { ...buildBoxDataFromRows(resolvedRows, box.team1_name, box.team2_name), meta };
+    const { data: updated, error: updateError } = await supabase
+      .from('box_scores')
+      .update({ data })
+      .eq('id', box.id)
+      .select()
+      .single();
+    if (updateError) throw updateError;
+    if (meta.updates_player_totals) await adjustPlayerTotalsForBox(updated, 1);
+    res.json({ success: true, box_score: updated, rows: boxScoreRows(updated), finalized: meta.finalized });
+  } catch (err) {
+    console.error(err);
+    res.status(err.statusCode || 500).json({ error: err.message, details: err.details || [] });
+  }
+});
+
+app.post('/api/admin/games/:id/stats-review/finalize', async (req, res) => {
+  const me = await requireAdmin(req, res, 'schedule');
+  if (!me) return;
+  try {
+    await ensureBoxScoresTable();
+    const { data: box, error: boxError } = await supabase.from('box_scores').select('*').eq('game_id', req.params.id).maybeSingle();
+    if (boxError) throw boxError;
+    if (!box) return res.status(404).json({ error: 'No stats have been imported for this game yet' });
+    const current = asBoxData(box.data);
+    const oldMeta = current.meta || {};
+    if (oldMeta.finalized === true) return res.json({ success: true, box_score: box, rows: boxScoreRows(box), finalized: true, applied: 0 });
+    const rows = boxScoreRows(box);
+    validateStatRowsHavePositions(rows);
+
+    const meta = {
+      ...oldMeta,
+      finalized: true,
+      draft: false,
+      updates_player_totals: oldMeta.phase !== 'playoffs',
+      finalized_at: new Date().toISOString()
+    };
+    const { data: updated, error: updateError } = await supabase
+      .from('box_scores')
+      .update({ data: { ...current, meta } })
+      .eq('id', box.id)
+      .select()
+      .single();
+    if (updateError) throw updateError;
+    const applied = await adjustPlayerTotalsForBox(updated, 1);
+    res.json({ success: true, box_score: updated, rows: boxScoreRows(updated), finalized: true, applied });
   } catch (err) {
     console.error(err);
     res.status(err.statusCode || 500).json({ error: err.message, details: err.details || [] });
@@ -2476,12 +2895,12 @@ app.get('/api/players', async (req, res) => {
     const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? rawOffset : 0;
 
     if (includeRegistry) {
-      const registryRows = await fetchAll(
-        supabase.from('league_players').select('*').order('cap_value', { ascending: false }).order('roblox_username')
-      );
-      const rosterRows = await fetchAll(
-        supabase.from('players').select('*').order('roblox_username')
-      );
+      const [registryRows, rawRosterRows, aliases] = await Promise.all([
+        fetchAll(supabase.from('league_players').select('*').order('cap_value', { ascending: false }).order('roblox_username')),
+        fetchAll(supabase.from('players').select('*').order('roblox_username')),
+        fetchPlayerAliases()
+      ]);
+      const rosterRows = combinePlayerRowsByAlias(rawRosterRows || [], aliases);
       const teamsResult = await withTimeout(
         supabase.from('teams').select('*'),
         8000,
@@ -2497,11 +2916,12 @@ app.get('/api/players', async (req, res) => {
         teamMap[t.id] = { id: t.id, name: t.name, abbreviation: t.abbreviation, logo_url: t.logo_url, primary_color: t.primary_color, secondary_color: t.secondary_color };
       });
       const rosterMap = {};
-      (rosterRows || []).forEach(p => { rosterMap[String(p.roblox_username || '').toLowerCase()] = p; });
+      const { aliasToCanonical } = buildAliasMaps(aliases);
+      (rosterRows || []).forEach(p => { rosterMap[canonicalUsernameKey(p.roblox_username, aliasToCanonical)] = p; });
       const registryMap = {};
       const combined = [];
       (registryRows || []).forEach(row => {
-        const key = String(row.roblox_username || '').toLowerCase();
+        const key = canonicalUsernameKey(row.roblox_username, aliasToCanonical);
         registryMap[key] = row;
         const roster = rosterMap[key] || {};
         combined.push({
@@ -2519,7 +2939,7 @@ app.get('/api/players', async (req, res) => {
         });
       });
       (rosterRows || []).forEach(roster => {
-        const key = String(roster.roblox_username || '').toLowerCase();
+        const key = canonicalUsernameKey(roster.roblox_username, aliasToCanonical);
         if (registryMap[key]) return;
         combined.push({
           ...roster,
@@ -2530,7 +2950,7 @@ app.get('/api/players', async (req, res) => {
         });
       });
 
-      const filtered = q ? combined.filter(p => String(p.roblox_username || '').toLowerCase().includes(q.toLowerCase())) : combined;
+      const filtered = q ? combined.filter(p => matchesPlayerSearch(p, q)) : combined;
       return res.json({
         players: filtered,
         total: filtered.length,
@@ -2564,12 +2984,14 @@ app.get('/api/players', async (req, res) => {
       return apiError(res, 500, 'TEAMS_LOAD_FAILED', teamsResult.error.message, teamsResult.error.details);
     }
 
-    const players = playersResult.data || [];
+    const aliases = await fetchPlayerAliases();
+    const players = combinePlayerRowsByAlias(playersResult.data || [], aliases);
     const teams = teamsResult.data || [];
     const map = {};
     for (const t of teams) map[t.id] = { id: t.id, name: t.name, abbreviation: t.abbreviation, logo_url: t.logo_url, primary_color: t.primary_color, secondary_color: t.secondary_color };
     const registryMap = {};
-    const usernames = players.map(p => p.roblox_username).filter(Boolean);
+    const { aliasToCanonical } = buildAliasMaps(aliases);
+    const usernames = players.flatMap(p => [p.roblox_username, ...(p.formerly_known_as || [])]).filter(Boolean);
     if (usernames.length) {
       const { data: registryRows, error: registryError } = await supabase
         .from('league_players')
@@ -2578,11 +3000,11 @@ app.get('/api/players', async (req, res) => {
       if (registryError && !isMissingSupabaseTable(registryError, 'league_players')) {
         return apiError(res, 500, 'PLAYERS_REGISTRY_ENRICH_FAILED', registryError.message, registryError.details);
       }
-      (registryRows || []).forEach(row => { registryMap[String(row.roblox_username || '').toLowerCase()] = row; });
+      (registryRows || []).forEach(row => { registryMap[canonicalUsernameKey(row.roblox_username, aliasToCanonical)] = row; });
     }
     res.json({
       players: players.map(p => {
-        const reg = registryMap[String(p.roblox_username || '').toLowerCase()] || null;
+        const reg = registryMap[canonicalUsernameKey(p.roblox_username, aliasToCanonical)] || null;
         return {
           ...p,
           eligibility: reg ? reg.eligibility : null,
@@ -2666,6 +3088,35 @@ app.delete('/api/admin/players/:id', async (req, res) => {
 
 
 // helper — fetch all rows from a table past Supabase's 1000-row default limit
+// admin - combine stats for a renamed player without rewriting imported box scores
+app.post('/api/admin/players/combine', async (req, res) => {
+  const me = await requireAdmin(req, res, 'registry');
+  if (!me) return;
+  try {
+    const canonical = displayUsername(req.body.canonical_username || req.body.current_username);
+    const alias = displayUsername(req.body.alias_username || req.body.former_username);
+    if (!canonical || !alias) return apiError(res, 400, 'PLAYER_ALIAS_FIELDS_REQUIRED', 'canonical_username and alias_username are required');
+    if (usernameKey(canonical) === usernameKey(alias)) return apiError(res, 400, 'PLAYER_ALIAS_SELF_REFERENCE', 'Choose two different usernames');
+
+    const { data, error } = await supabase
+      .from('player_aliases')
+      .upsert({
+        canonical_username: canonical,
+        alias_username: alias,
+        note: req.body.note || 'Formerly known as'
+      }, { onConflict: 'alias_key' })
+      .select()
+      .single();
+    if (isMissingSupabaseTable(error, 'player_aliases')) {
+      return apiError(res, 500, 'DB_MISSING_PLAYER_ALIASES', 'Database setup needed: run supabase/2026-06-22_player_aliases.sql in the Supabase SQL editor.');
+    }
+    if (error) throw error;
+    res.json({ success: true, alias: data });
+  } catch (err) {
+    apiError(res, err.statusCode || 500, err.code || 'PLAYER_ALIAS_SAVE_FAILED', err.message);
+  }
+});
+
 async function fetchAll(query) {
   const PAGE = 1000;
   let page = 0, all = [];
@@ -2955,7 +3406,7 @@ app.get('/api/registry/search', async (req, res) => {
     if (q.length < 2) return res.json({ players: [] });
     const { data: rostered } = await supabase.from('players').select('roblox_username').not('team_id', 'is', null);
     const rosteredSet = new Set((rostered || []).map(p => p.roblox_username.toLowerCase()));
-    const { data: results } = await supabase.from('league_players').select('roblox_username, eligibility, cap_value, position_tag').ilike('roblox_username', `${q}%`).limit(10);
+    const { data: results } = await supabase.from('league_players').select('roblox_username, eligibility, cap_value, position_tag').ilike('roblox_username', `%${q}%`).limit(10);
     const free = (results || []).filter(p => !rosteredSet.has(p.roblox_username.toLowerCase()));
     res.json({ players: free });
   } catch (err) { res.status(500).json({ error: err.message }); }
