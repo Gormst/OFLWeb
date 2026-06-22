@@ -46,6 +46,7 @@ function routeToPage(pathname: string): PageKey | null {
   const path = pathname.replace(/\/+$/, '') || '/';
 
   if (path === '/' || path === '/index') return 'home';
+  if (path === '/auth/redirect') return 'authRedirect';
   if (path.startsWith('/teams/')) return 'teams';
   if (path.startsWith('/box-score/')) return 'boxScore';
   if (path.startsWith('/media/article/')) return 'article';
