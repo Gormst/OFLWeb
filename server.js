@@ -245,6 +245,36 @@ function normalizeImportedPosition(value) {
   return String(value || '').trim().toUpperCase();
 }
 
+const OFFENSIVE_POSITIONS = ['QB', 'RB', 'FB', 'WR', 'TE', 'OL', 'C', 'G', 'OG', 'T', 'OT', 'LT', 'RT', 'LG', 'RG', 'K', 'P', 'ATH', ''];
+const DEFENSIVE_POSITIONS = ['DL', 'DE', 'DT', 'NT', 'EDGE', 'LB', 'OLB', 'MLB', 'ILB', 'CB', 'DB', 'DCB', 'S', 'FS', 'SS', 'SAF', 'ATH', ''];
+
+function isOffensivePosition(value) {
+  const position = normalizeImportedPosition(value);
+  return OFFENSIVE_POSITIONS.includes(position);
+}
+
+function isDefensivePosition(value) {
+  const position = normalizeImportedPosition(value);
+  return DEFENSIVE_POSITIONS.includes(position);
+}
+
+function hasAnyStats(stats, keys) {
+  return keys.some(key => Number(stats?.[key] || 0) !== 0);
+}
+
+function hasDefensiveStats(stats) {
+  return hasAnyStats(stats, CATEGORY_STAT_KEYS.passrush) || hasAnyStats(stats, CATEGORY_STAT_KEYS.coverage);
+}
+
+function hasOffensiveStats(stats) {
+  return hasAnyStats(stats, [
+    ...CATEGORY_STAT_KEYS.passing,
+    ...CATEGORY_STAT_KEYS.rushing,
+    ...CATEGORY_STAT_KEYS.receiving,
+    ...CATEGORY_STAT_KEYS.blocking
+  ]);
+}
+
 // Parse a single-category CSV paste into rows of { username, stats: {key: value} }.
 // Tolerant of stray section/team-name rows above the header.
 function parseCategoryCSV(text, category) {
@@ -1005,9 +1035,8 @@ app.patch('/api/me/settings', async (req, res) => {
 
     if (req.body.position !== undefined || req.body.offensive_position !== undefined) {
       const offensivePosition = String(req.body.offensive_position ?? req.body.position ?? '').trim().toUpperCase();
-      const allowedOffense = ['QB', 'RB', 'WR', 'TE', 'OL', 'K', 'P', 'ATH', ''];
-      if (!allowedOffense.includes(offensivePosition)) {
-        return apiError(res, 400, 'PROFILE_INVALID_OFFENSIVE_POSITION', 'offensive_position must be one of QB, RB, WR, TE, OL, K, P, ATH, or blank');
+      if (!isOffensivePosition(offensivePosition)) {
+        return apiError(res, 400, 'PROFILE_INVALID_OFFENSIVE_POSITION', 'offensive_position must be a valid offensive position or blank');
       }
       playerUpdates.offensive_position = offensivePosition || null;
       playerUpdates.position = offensivePosition || null;
@@ -1015,9 +1044,8 @@ app.patch('/api/me/settings', async (req, res) => {
 
     if (req.body.defensive_position !== undefined) {
       const defensivePosition = String(req.body.defensive_position || '').trim().toUpperCase();
-      const allowedDefense = ['DL', 'LB', 'CB', 'S', 'ATH', ''];
-      if (!allowedDefense.includes(defensivePosition)) {
-        return apiError(res, 400, 'PROFILE_INVALID_DEFENSIVE_POSITION', 'defensive_position must be one of DL, LB, CB, S, ATH, or blank');
+      if (!isDefensivePosition(defensivePosition)) {
+        return apiError(res, 400, 'PROFILE_INVALID_DEFENSIVE_POSITION', 'defensive_position must be a valid defensive position or blank');
       }
       playerUpdates.defensive_position = defensivePosition || null;
     }
@@ -2057,7 +2085,16 @@ async function adjustPlayerTotalsForRows(rows, direction = 1, { updateTeam = fal
       update[k] = Math.max(0, next);
     });
     if (direction > 0 && normalizeImportedPosition(row.position || row.pos)) {
-      update.position = normalizeImportedPosition(row.position || row.pos);
+      const importedPosition = normalizeImportedPosition(row.position || row.pos);
+      const rowHasDefense = hasDefensiveStats(deltas);
+      const rowHasOffense = hasOffensiveStats(deltas);
+      if (rowHasDefense || (isDefensivePosition(importedPosition) && !rowHasOffense)) {
+        update.defensive_position = importedPosition;
+      }
+      if (rowHasOffense || (isOffensivePosition(importedPosition) && !rowHasDefense)) {
+        update.offensive_position = importedPosition;
+        update.position = importedPosition;
+      }
     }
     if (direction > 0 && updateTeam && row.team_id && row.team_id !== player.team_id) {
       update.team_id = row.team_id;
@@ -3354,8 +3391,20 @@ app.get('/api/stats', async (_req, res) => {
         const key = canonicalUsernameKey(username, aliasToCanonical);
         if (!key) return;
         if (!totalsByKey[key]) {
+          const initialPosition = normalizeImportedPosition(row.position);
+          const initialStats = row.stats || {};
+          const initialDefensivePosition = hasDefensiveStats(initialStats) || (isDefensivePosition(initialPosition) && !hasOffensiveStats(initialStats))
+            ? initialPosition
+            : null;
+          const initialOffensivePosition = hasOffensiveStats(initialStats) || (isOffensivePosition(initialPosition) && !hasDefensiveStats(initialStats))
+            ? initialPosition
+            : null;
           totalsByKey[key] = {
             roblox_username: displayUsername(playersByKey[key]?.roblox_username || username),
+            avatar_url: playersByKey[key]?.avatar_url || null,
+            position: playersByKey[key]?.position || playersByKey[key]?.offensive_position || initialOffensivePosition || initialPosition || null,
+            offensive_position: playersByKey[key]?.offensive_position || initialOffensivePosition || null,
+            defensive_position: playersByKey[key]?.defensive_position || initialDefensivePosition || null,
             team_id: playersByKey[key]?.team_id || row.team_id || null
           };
           STAT_KEYS.forEach(statKey => { totalsByKey[key][statKey] = 0; });
@@ -3364,6 +3413,17 @@ app.get('/api/stats', async (_req, res) => {
           totalsByKey[key][statKey] += Number(row.stats?.[statKey] || 0);
         });
         if (!playersByKey[key]?.team_id && row.team_id) totalsByKey[key].team_id = row.team_id;
+        const rowPosition = normalizeImportedPosition(row.position);
+        if (rowPosition) {
+          if ((hasDefensiveStats(row.stats) || (isDefensivePosition(rowPosition) && !hasOffensiveStats(row.stats))) && !totalsByKey[key].defensive_position) {
+            totalsByKey[key].defensive_position = rowPosition;
+          }
+          if ((hasOffensiveStats(row.stats) || (isOffensivePosition(rowPosition) && !hasDefensiveStats(row.stats))) && !totalsByKey[key].offensive_position) {
+            totalsByKey[key].offensive_position = rowPosition;
+          }
+          if (!totalsByKey[key].position && totalsByKey[key].offensive_position) totalsByKey[key].position = totalsByKey[key].offensive_position;
+          if (!totalsByKey[key].position) totalsByKey[key].position = rowPosition;
+        }
       });
     });
 
