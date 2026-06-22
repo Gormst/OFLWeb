@@ -3,6 +3,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
+const { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } = require('@aws-sdk/client-s3');
 const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
@@ -41,6 +42,26 @@ app.use((err, req, res, next) => {
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DIST_DIR = path.join(__dirname, 'dist');
 const CLIENT_DIR = fs.existsSync(DIST_DIR) ? DIST_DIR : PUBLIC_DIR;
+const R2_BUCKET = (process.env.R2_BUCKET || '').trim();
+const R2_ACCOUNT_ID = (process.env.R2_ACCOUNT_ID || '').trim();
+const R2_ENDPOINT_RAW = (process.env.R2_ENDPOINT || '').trim();
+const escapedR2Bucket = R2_BUCKET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const R2_ENDPOINT = (R2_ENDPOINT_RAW || (R2_ACCOUNT_ID ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : ''))
+  .replace(escapedR2Bucket ? new RegExp(`/${escapedR2Bucket}/?$`) : /\/+$/, '')
+  .replace(/\/+$/, '');
+const R2_PUBLIC_BASE_URL = (process.env.R2_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+const R2_UPLOAD_PREFIX = (process.env.R2_UPLOAD_PREFIX || '').trim().replace(/^\/+|\/+$/g, '');
+const r2Client = R2_ENDPOINT && R2_BUCKET && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY
+  ? new S3Client({
+      region: 'auto',
+      endpoint: R2_ENDPOINT,
+      credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY_ID,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY
+      },
+      forcePathStyle: true
+    })
+  : null;
 
 // Secret for signing our own auth tokens. Set OFL_TOKEN_SECRET in env for production;
 // falls back to the Supabase key so it's always defined.
@@ -1612,25 +1633,56 @@ function imageExtForMime(mime) {
   }[mime] || null;
 }
 
-function removeUploadedLogo(url) {
+function r2KeyFromPublicUrl(url) {
   const value = String(url || '').trim();
-  const match = value.match(/^\/?logos\/uploads\/([a-z0-9._-]+\.(?:png|jpe?g|webp|svg))$/i);
+  if (!r2Client || !value) return null;
+  const proxyMatch = value.match(/^\/api\/uploads\/(.+)$/);
+  if (proxyMatch) return proxyMatch[1].split('/').map(part => decodeURIComponent(part)).join('/');
+  if (!R2_PUBLIC_BASE_URL) return null;
+  try {
+    const publicUrl = new URL(value);
+    const baseUrl = new URL(R2_PUBLIC_BASE_URL);
+    if (publicUrl.origin !== baseUrl.origin) return null;
+    const basePath = baseUrl.pathname.replace(/\/+$/, '');
+    const objectPath = publicUrl.pathname;
+    if (basePath && objectPath !== basePath && !objectPath.startsWith(`${basePath}/`)) return null;
+    return decodeURIComponent(objectPath.slice(basePath.length).replace(/^\/+/, ''));
+  } catch (_err) {
+    if (!value.startsWith(`${R2_PUBLIC_BASE_URL}/`)) return null;
+    return value.slice(R2_PUBLIC_BASE_URL.length).replace(/^\/+/, '');
+  }
+}
+
+async function removeUploadedImage(url) {
+  const value = String(url || '').trim();
+  if (!value) return;
+
+  const r2Key = r2KeyFromPublicUrl(value);
+  if (r2Key) {
+    try {
+      await r2Client.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: r2Key }));
+    } catch (err) {
+      console.warn('Could not remove old uploaded R2 image:', err.message);
+    }
+  }
+
+  const match = value.match(/^\/?((?:logos|media)\/uploads\/[a-z0-9._-]+\.(?:png|jpe?g|webp|svg))$/i);
   if (!match) return;
 
-  const relative = path.join('logos', 'uploads', match[1]);
+  const relative = match[1].replace(/\//g, path.sep);
   for (const root of [PUBLIC_DIR, DIST_DIR]) {
     const target = path.resolve(root, relative);
-    const uploadsDir = path.resolve(root, 'logos', 'uploads');
-    if (!target.startsWith(uploadsDir + path.sep)) continue;
+    const localRoot = path.resolve(root);
+    if (!target.startsWith(localRoot + path.sep)) continue;
     try {
       if (fs.existsSync(target)) fs.unlinkSync(target);
     } catch (err) {
-      console.warn('Could not remove old uploaded logo:', err.message);
+      console.warn('Could not remove old uploaded image:', err.message);
     }
   }
 }
 
-function writeUploadedImage({ folder, filename, dataUrl, fallbackName, maxBytes = 5 * 1024 * 1024 }) {
+function parseUploadedImage({ dataUrl, maxBytes = 5 * 1024 * 1024 }) {
   const match = String(dataUrl || '').match(/^data:(image\/(?:png|jpeg|webp|svg\+xml));base64,([a-zA-Z0-9+/=]+)$/);
   if (!match) {
     const error = new Error('Upload must be a PNG, JPG, WEBP, or SVG image data URL');
@@ -1662,17 +1714,37 @@ function writeUploadedImage({ folder, filename, dataUrl, fallbackName, maxBytes 
     throw error;
   }
 
-  const safeFolder = String(folder || '').replace(/[^a-z0-9/_-]/gi, '').replace(/^\/+|\/+$/g, '');
-  if (!safeFolder) {
-    const error = new Error('Upload folder is required');
-    error.code = 'IMAGE_UPLOAD_INVALID_FOLDER';
-    error.statusCode = 500;
-    throw error;
-  }
+  return { buffer, mime, ext };
+}
 
-  const base = safeAssetName(fallbackName || filename || 'image');
-  const name = `${base}-${Date.now().toString(36)}.${ext}`;
-  const relative = path.join(safeFolder, name);
+function r2ObjectKey(folder, name) {
+  return [R2_UPLOAD_PREFIX, folder, name]
+    .filter(Boolean)
+    .join('/')
+    .replace(/\/+/g, '/')
+    .replace(/^\/+/, '');
+}
+
+function r2PublicUrl(key) {
+  if (!R2_PUBLIC_BASE_URL) return `/api/uploads/${key.split('/').map(part => encodeURIComponent(part)).join('/')}`;
+  return `${R2_PUBLIC_BASE_URL}/${key}`;
+}
+
+async function uploadImageToR2({ folder, name, buffer, mime }) {
+  if (!r2Client) return null;
+  const key = r2ObjectKey(folder, name);
+  await r2Client.send(new PutObjectCommand({
+    Bucket: R2_BUCKET,
+    Key: key,
+    Body: buffer,
+    ContentType: mime,
+    CacheControl: 'public, max-age=31536000, immutable'
+  }));
+  return { key, url: r2PublicUrl(key) };
+}
+
+function writeUploadedImageLocal({ folder, name, buffer, mime }) {
+  const relative = path.join(folder, name);
   const publicTarget = path.join(PUBLIC_DIR, relative);
   fs.mkdirSync(path.dirname(publicTarget), { recursive: true });
   fs.writeFileSync(publicTarget, buffer);
@@ -1683,46 +1755,65 @@ function writeUploadedImage({ folder, filename, dataUrl, fallbackName, maxBytes 
     fs.writeFileSync(distTarget, buffer);
   }
 
-  return { url: `/${safeFolder.replace(/\\/g, '/')}/${name}`, filename: name, mime, size: buffer.length };
+  return { url: `/${folder.replace(/\\/g, '/')}/${name}`, filename: name, mime, size: buffer.length };
 }
 
-// admin - upload a team logo into local logo assets
+async function writeUploadedImage({ folder, filename, dataUrl, fallbackName, maxBytes = 5 * 1024 * 1024 }) {
+  const { buffer, mime, ext } = parseUploadedImage({ dataUrl, maxBytes });
+  const safeFolder = String(folder || '').replace(/[^a-z0-9/_-]/gi, '').replace(/^\/+|\/+$/g, '');
+  if (!safeFolder) {
+    const error = new Error('Upload folder is required');
+    error.code = 'IMAGE_UPLOAD_INVALID_FOLDER';
+    error.statusCode = 500;
+    throw error;
+  }
+
+  const base = safeAssetName(fallbackName || filename || 'image');
+  const name = `${base}-${Date.now().toString(36)}.${ext}`;
+
+  const uploaded = await uploadImageToR2({ folder: safeFolder, name, buffer, mime });
+  if (uploaded?.url) return { url: uploaded.url, key: uploaded.key, filename: name, mime, size: buffer.length, storage: 'r2' };
+
+  return { ...writeUploadedImageLocal({ folder: safeFolder, name, buffer, mime }), storage: 'local' };
+}
+
+app.get('/api/uploads/*', async (req, res) => {
+  if (!r2Client) return res.status(404).send('Uploads storage is not configured');
+  const key = String(req.params[0] || '').split('/').map(part => decodeURIComponent(part)).join('/');
+  if (!key || key.includes('..')) return res.status(400).send('Invalid upload path');
+  try {
+    const object = await r2Client.send(new GetObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+    if (object.ContentType) res.setHeader('Content-Type', object.ContentType);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    if (object.Body && typeof object.Body.pipe === 'function') return object.Body.pipe(res);
+    if (object.Body && typeof object.Body.transformToByteArray === 'function') {
+      const bytes = await object.Body.transformToByteArray();
+      return res.end(Buffer.from(bytes));
+    }
+    return res.status(404).send('Upload not found');
+  } catch (err) {
+    return res.status(err?.$metadata?.httpStatusCode === 404 ? 404 : 500).send('Upload not found');
+  }
+});
+
+// admin - upload a team logo into durable image storage
 app.post('/api/admin/teams/logo-upload', async (req, res) => {
   const me = await requireSuperuser(req, res);
   if (!me) return;
   try {
     const { filename, data_url, team_name, previous_logo_url } = req.body || {};
-    const match = String(data_url || '').match(/^data:(image\/(?:png|jpeg|webp|svg\+xml));base64,([a-zA-Z0-9+/=]+)$/);
-    if (!match) {
-      return apiError(res, 400, 'TEAM_LOGO_INVALID_DATA_URL', 'Upload must be a PNG, JPG, WEBP, or SVG image data URL');
-    }
+    const uploaded = await writeUploadedImage({
+      folder: 'logos/uploads',
+      filename,
+      dataUrl: data_url,
+      fallbackName: team_name || filename || 'team-logo',
+      maxBytes: 5 * 1024 * 1024
+    });
+    await removeUploadedImage(previous_logo_url);
 
-    const mime = match[1];
-    const ext = imageExtForMime(mime);
-    if (!ext) return apiError(res, 400, 'TEAM_LOGO_UNSUPPORTED_TYPE', 'Logo must be PNG, JPG, WEBP, or SVG');
-
-    const buffer = Buffer.from(match[2], 'base64');
-    if (!buffer.length) return apiError(res, 400, 'TEAM_LOGO_EMPTY_FILE', 'Logo file is empty');
-    if (buffer.length > 5 * 1024 * 1024) return apiError(res, 413, 'TEAM_LOGO_TOO_LARGE', 'Logo file must be 5MB or smaller');
-
-    const base = safeAssetName(team_name || filename || 'team-logo');
-    const name = `${base}-${Date.now().toString(36)}.${ext}`;
-    const relative = path.join('logos', 'uploads', name);
-    const publicTarget = path.join(PUBLIC_DIR, relative);
-    fs.mkdirSync(path.dirname(publicTarget), { recursive: true });
-    fs.writeFileSync(publicTarget, buffer);
-
-    if (fs.existsSync(DIST_DIR)) {
-      const distTarget = path.join(DIST_DIR, relative);
-      fs.mkdirSync(path.dirname(distTarget), { recursive: true });
-      fs.writeFileSync(distTarget, buffer);
-    }
-
-    removeUploadedLogo(previous_logo_url);
-
-    res.json({ success: true, url: `/logos/uploads/${name}`, filename: name, mime, size: buffer.length });
+    res.json({ success: true, ...uploaded });
   } catch (err) {
-    apiError(res, 500, 'TEAM_LOGO_UPLOAD_FAILED', err.message);
+    apiError(res, err.statusCode || 500, err.code || 'TEAM_LOGO_UPLOAD_FAILED', err.message);
   }
 });
 
@@ -1878,6 +1969,11 @@ function boxScoreRows(box) {
       stats: pickStats(stats || {})
     }));
   });
+}
+
+function boxScoreCountsForStats(box) {
+  const meta = asBoxData(box?.data)?.meta || {};
+  return meta.finalized === true && meta.updates_player_totals !== false;
 }
 
 function buildBoxDataFromRows(rows, team1Name, team2Name) {
@@ -3230,6 +3326,65 @@ app.get('/api/seasons/:season', async (req, res) => {
 //  PLAYERS / STATS
 // ─────────────────────────────────────────────
 
+// public - current-season stats from finalized raw box scores
+app.get('/api/stats', async (_req, res) => {
+  try {
+    const [boxes, rosterRows, teamsResult, aliases] = await Promise.all([
+      fetchAll(supabase.from('box_scores').select('id, team1_id, team2_id, data, created_at').order('created_at', { ascending: true })),
+      fetchAll(supabase.from('players').select('*').order('roblox_username')),
+      supabase.from('teams').select('*'),
+      fetchPlayerAliases()
+    ]);
+
+    if (teamsResult.error) throw teamsResult.error;
+    const { aliasToCanonical } = buildAliasMaps(aliases);
+    const teamsById = {};
+    (teamsResult.data || []).forEach(team => { teamsById[team.id] = team; });
+
+    const playersByKey = {};
+    combinePlayerRowsByAlias(rosterRows || [], aliases).forEach(player => {
+      const key = canonicalUsernameKey(player.roblox_username, aliasToCanonical);
+      if (key) playersByKey[key] = player;
+    });
+
+    const totalsByKey = {};
+    (boxes || []).filter(boxScoreCountsForStats).forEach(box => {
+      boxScoreRows(box).forEach(row => {
+        const username = displayUsername(row.username);
+        const key = canonicalUsernameKey(username, aliasToCanonical);
+        if (!key) return;
+        if (!totalsByKey[key]) {
+          totalsByKey[key] = {
+            roblox_username: displayUsername(playersByKey[key]?.roblox_username || username),
+            team_id: playersByKey[key]?.team_id || row.team_id || null
+          };
+          STAT_KEYS.forEach(statKey => { totalsByKey[key][statKey] = 0; });
+        }
+        STAT_KEYS.forEach(statKey => {
+          totalsByKey[key][statKey] += Number(row.stats?.[statKey] || 0);
+        });
+        if (!playersByKey[key]?.team_id && row.team_id) totalsByKey[key].team_id = row.team_id;
+      });
+    });
+
+    const players = Object.values(totalsByKey).map(player => {
+      const team = teamsById[player.team_id] || null;
+      return {
+        ...player,
+        team: publicTeamSummary(team),
+        team_name: team?.name || null,
+        total_yards: Number(player.pass_yards || 0) + Number(player.rush_yards || 0) + Number(player.rec_yards || 0),
+        total_td: Number(player.pass_td || 0) + Number(player.rush_td || 0) + Number(player.rec_td || 0)
+      };
+    });
+
+    res.json({ season: 'current', source: 'box_scores', players });
+  } catch (err) {
+    if (isMissingSupabaseTable(err, 'box_scores')) return res.json({ season: 'current', source: 'box_scores', players: [] });
+    apiError(res, err.statusCode || 500, err.code || 'STATS_LOAD_FAILED', err.message);
+  }
+});
+
 // public — all players with team info attached
 app.get('/api/players', async (req, res) => {
   try {
@@ -4333,7 +4488,7 @@ app.post('/api/media/articles/thumbnail-upload', async (req, res) => {
   if (!me) return;
   try {
     const { filename, data_url, title } = req.body || {};
-    const uploaded = writeUploadedImage({
+    const uploaded = await writeUploadedImage({
       folder: 'media/uploads',
       filename,
       dataUrl: data_url,
@@ -4479,7 +4634,7 @@ app.delete('/api/media/articles/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'media');
   if (!me) return;
   try {
-    const { data: article, error: articleError } = await supabase.from('media_articles').select('posted_by').eq('id', req.params.id).maybeSingle();
+    const { data: article, error: articleError } = await supabase.from('media_articles').select('posted_by, thumbnail_url').eq('id', req.params.id).maybeSingle();
     if (isMissingSupabaseColumn(articleError, 'posted_by')) {
       return apiError(res, 500, 'MEDIA_POSTED_BY_MISSING', 'Run supabase/2026-06-20_media_game_highlights.sql to add media ownership columns, then retry.');
     }
@@ -4490,6 +4645,7 @@ app.delete('/api/media/articles/:id', async (req, res) => {
     const isOwner = article.posted_by && article.posted_by.toLowerCase() === (me.roblox_username || '').toLowerCase();
     if (!isOwner && !isFullAdmin) return res.status(403).json({ error: 'You can only delete your own posts' });
     await supabase.from('media_articles').delete().eq('id', req.params.id);
+    await removeUploadedImage(article.thumbnail_url);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
