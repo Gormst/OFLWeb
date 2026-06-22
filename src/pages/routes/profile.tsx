@@ -98,7 +98,7 @@ const page = {
   </div>
   <div class="settings-page" id="settingsPage" style="display:none;">
     <h1>Settings</h1>
-    <p class="desc">Player details are saved to your OFL account. Display preferences stay on this device.</p>
+    <p class="desc">Preferences are saved locally instead of by profile.</p>
     <div class="setting-row"><div><div class="setting-title">Player Details</div><div class="setting-copy">Choose offensive and defensive positions plus your jersey number.</div></div><div class="settings-controls"><select class="setting-select" id="offensivePositionSelect"><option value="">Offense</option><option value="QB">QB</option><option value="RB">RB</option><option value="WR">WR</option><option value="TE">TE</option><option value="OL">OL</option><option value="K">K</option><option value="P">P</option><option value="ATH">ATH</option></select><select class="setting-select" id="defensivePositionSelect"><option value="">Defense</option><option value="DL">DL</option><option value="LB">LB</option><option value="CB">CB</option><option value="S">S</option><option value="ATH">ATH</option></select><input class="setting-input" id="jerseyNumberInput" type="number" min="0" max="99" inputmode="numeric" placeholder="#"></div></div>
     <div class="setting-row"><div><div class="setting-title">Dark Mode</div><div class="setting-copy">Use a darker interface across OFL Network.</div></div><button class="toggle" id="darkToggle" type="button" aria-label="Toggle dark mode"></button></div>
     <div class="msg" id="settingsMsg"></div>
@@ -327,7 +327,7 @@ const page = {
   const timelineViewAll=$('timelineViewAll'); if(timelineViewAll) timelineViewAll.addEventListener('click',()=>showProfileTab('timeline'));
   $('darkToggle').addEventListener('click',async()=>{
     const next=currentTheme()==='dark'?'light':'dark';
-    setTheme(next); renderHeader(); msg('Display preference saved on this device',true);
+    setTheme(next); renderHeader(); msg('Preference saved locally',true);
   });
   async function savePlayerDetails(){
     if(!payload) return;

@@ -6,6 +6,12 @@ type Message = {
   ok?: boolean;
 };
 
+function RobloxWordmark({ compact = false }: { compact?: boolean }) {
+  return (
+    <img className={compact ? 'roblox-wordmark compact' : 'roblox-wordmark'} src="/logos/roblox-wordmark-clean.png" alt="Roblox" />
+  );
+}
+
 export default function ConnectPage() {
   const envRobloxClientId = String(import.meta.env.VITE_ROBLOX_CLIENT_ID || import.meta.env.VITE_oAuth_client_id || '').trim();
   const envRobloxScopes = String(import.meta.env.VITE_ROBLOX_OAUTH_SCOPES || 'openid profile').trim();
@@ -22,7 +28,7 @@ export default function ConnectPage() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    document.title = 'Connect Account - OFL';
+    document.title = 'Login - OFL';
   }, []);
 
   useEffect(() => {
@@ -147,13 +153,26 @@ export default function ConnectPage() {
         body{background:var(--paper);color:var(--navy);font-family:'Spectral',Georgia,serif;min-height:100vh;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E");}
         body[data-theme="dark"]{--paper:#0F1726;--paper-2:#182235;--navy:#F3F6FB;--muted:#AFC0DA;--line:rgba(142,164,201,.18);--line-strong:rgba(142,164,201,.34);background:#0F1726;color:#F3F6FB;}
         .connect-stage{display:flex;justify-content:center;padding:70px 20px 90px;}
-        .connect-card{width:100%;max-width:540px;background:var(--paper-2);border:1px solid var(--line-strong);padding:46px;}
-        .connect-eyebrow{font-family:'Space Mono';font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--red);margin-bottom:14px;}
-        .connect-card h1{font-family:'Oswald';font-weight:700;font-size:42px;text-transform:uppercase;line-height:.95;margin:0 0 10px;}
-        .connect-card .sub{font-size:17px;font-style:italic;color:var(--muted);margin:0 0 34px;}
-        .oauth-box{margin-bottom:28px;}
-        .oauth-divider{display:flex;align-items:center;gap:12px;margin:28px 0;color:var(--muted);font-family:'Space Mono';font-size:10px;letter-spacing:2px;text-transform:uppercase;}
-        .oauth-divider::before,.oauth-divider::after{content:'';height:1px;background:var(--line-strong);flex:1;}
+        .connect-card{width:100%;max-width:520px;background:var(--paper-2);border:1px solid var(--line-strong);padding:38px;}
+        .login-brand{display:none;}
+        .roblox-wordmark{width:min(100%,285px);height:auto;display:block;object-fit:contain;}
+        body[data-theme="dark"] .login-brand .roblox-wordmark{filter:invert(1);}
+        .roblox-wordmark.compact{width:196px;height:auto;max-height:56px;flex:0 0 auto;}
+        body[data-theme="dark"] .oauth-btn .roblox-wordmark{filter:none;}
+        .login-title{display:flex;align-items:center;justify-content:center;gap:18px;font-family:'Arial Black','Arial Narrow',Arial,sans-serif;font-size:20px;font-weight:900;letter-spacing:.4px;text-transform:uppercase;color:var(--navy);text-align:center;margin-bottom:34px;}
+        .login-title img{width:96px;height:96px;object-fit:contain;display:block;}
+        .login-title-fallback{width:96px;height:96px;border:1px solid var(--line-strong);display:inline-flex;align-items:center;justify-content:center;font-family:'Anton';font-size:24px;letter-spacing:0;color:var(--navy);}
+        .auth-divider{display:flex;align-items:center;gap:12px;margin:24px 0;color:var(--muted);font-family:'Space Mono';font-size:10px;letter-spacing:2px;text-transform:uppercase;}
+        .auth-divider::before,.auth-divider::after{content:'';height:1px;background:var(--line-strong);flex:1;}
+        .auth-divider:first-child{margin-top:0;}
+        .oauth-section{margin-bottom:24px;}
+        .oauth-box{margin-bottom:0;}
+        .oauth-btn{min-height:66px;display:flex;align-items:center;justify-content:center;gap:16px;font-family:'Oswald';font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:1.5px;padding:4px 22px;border:2px solid #5E6673;cursor:pointer;transition:all .2s;width:100%;margin-top:0;background:#5E6673;color:#fff;}
+        .oauth-btn .roblox-wordmark{filter:invert(1);opacity:.98;}
+        .oauth-btn:hover{background:#444B55;border-color:#444B55;color:#fff;}
+        .oauth-btn:disabled{opacity:.5;cursor:not-allowed;}
+        body[data-theme="dark"] .oauth-btn{background:#64748B;color:#fff;border-color:#64748B;}
+        body[data-theme="dark"] .oauth-btn:hover{background:#4B5563;border-color:#4B5563;color:#fff;}
         .connect-card label{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:8px;}
         .connect-card input[type=text]{width:100%;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:500;font-size:17px;padding:14px 16px;}
         .connect-card input[type=text]:focus{outline:none;border-color:var(--navy);}
@@ -171,21 +190,26 @@ export default function ConnectPage() {
         .msg.ok{background:rgba(60,122,78,.14);color:#3c7a4e;}
         .backlink{font-family:'Space Mono';font-size:12px;letter-spacing:1px;color:var(--muted);margin-top:18px;display:inline-block;cursor:pointer;background:none;border:0;padding:0;}
         .backlink:hover{color:var(--red);}
+        @media(max-width:560px){.connect-card{padding:28px 22px;}.roblox-wordmark{width:min(100%,235px);}.roblox-wordmark.compact{width:174px;max-height:50px;}}
       `}</style>
       <main className="connect-stage">
         <section className="connect-card">
-          <div className="connect-eyebrow">// Account</div>
-          <h1>Connect Your<br />Roblox Account</h1>
-          <p className="sub">Verify ownership by placing a short code in your Roblox profile bio. No password needed.</p>
-
+          <div className="login-title">
+            <img src="/logos/league.png" alt="OFL" onError={(event) => { event.currentTarget.outerHTML = '<span class="login-title-fallback">OFL</span>'; }} />
+            <span>Login</span>
+          </div>
           {step === 1 ? (
             <div>
-              <div className="oauth-box">
-                <button className="connect-btn-main" type="button" disabled={oauthLoading} onClick={startRobloxOAuth}>
-                  {oauthLoading ? 'Redirecting...' : 'Continue with Roblox'}
-                </button>
-                <div className="oauth-divider">Legacy verification</div>
+              <div className="auth-divider">OAuth Login</div>
+              <div className="oauth-section">
+                <div className="oauth-box">
+                  <button className="oauth-btn" type="button" disabled={oauthLoading} onClick={startRobloxOAuth}>
+                    <RobloxWordmark compact />
+                    {oauthLoading && <span>Redirecting...</span>}
+                  </button>
+                </div>
               </div>
+              <div className="auth-divider">Legacy verification</div>
 
               <label htmlFor="username">Roblox Username</label>
               <input
