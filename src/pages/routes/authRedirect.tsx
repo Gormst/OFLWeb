@@ -12,6 +12,11 @@ type ExchangeStatus =
   | { kind: 'success'; username: string }
   | { kind: 'error'; message: string };
 
+type RobloxConfig = {
+  client_id?: string;
+  scopes?: string;
+};
+
 export default function AuthRedirectPage() {
   const [exchangeStatus, setExchangeStatus] = useState<ExchangeStatus>({ kind: 'idle' });
   const status = useMemo<OAuthStatus>(() => {
@@ -60,15 +65,38 @@ export default function AuthRedirectPage() {
     async function exchangeCode() {
       setExchangeStatus({ kind: 'loading' });
       try {
-        const response = await fetch('/api/auth/roblox/exchange', {
+        const configResponse = await fetch('/api/auth/roblox/config');
+        const config = (configResponse.ok ? await configResponse.json() : null) as RobloxConfig | null;
+        const clientId = String(config?.client_id || import.meta.env.VITE_ROBLOX_CLIENT_ID || import.meta.env.VITE_oAuth_client_id || '').trim();
+        if (!clientId) throw new Error('Roblox OAuth client id is not configured.');
+
+        const tokenParams = new URLSearchParams({
+          grant_type: 'authorization_code',
+          code: status.code,
+          redirect_uri: status.redirectUri,
+          client_id: clientId,
+          code_verifier: status.codeVerifier
+        });
+        const robloxResponse = await fetch('https://apis.roblox.com/oauth/v1/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: tokenParams
+        });
+        const robloxText = await robloxResponse.text();
+        let tokenData: Record<string, unknown> | null = null;
+        try { tokenData = robloxText ? JSON.parse(robloxText) : {}; } catch {}
+        if (!robloxResponse.ok || !tokenData) {
+          throw new Error(
+            (tokenData && String(tokenData.error_description || tokenData.error || ''))
+            || robloxText
+            || 'Roblox token exchange failed.'
+          );
+        }
+
+        const response = await fetch('/api/auth/roblox/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            code: status.code,
-            state: status.state,
-            code_verifier: status.codeVerifier,
-            redirect_uri: status.redirectUri
-          })
+          body: JSON.stringify({ token_data: tokenData })
         });
         const text = await response.text();
         let data: { token?: string; profile?: { roblox_username?: string }; error?: string; code?: string } | null = null;

@@ -749,6 +749,24 @@ async function storeRobloxOAuthTokens(profile, robloxUserId, tokenData) {
   }
 }
 
+async function completeRobloxOAuthSession(tokenData) {
+  const claims = await getRobloxOAuthClaims(tokenData);
+  if (!claims) {
+    const error = new Error('Roblox did not return profile claims');
+    error.statusCode = 502;
+    error.code = 'ROBLOX_PROFILE_MISSING';
+    throw error;
+  }
+  const { profile, robloxUserId } = await upsertRobloxOAuthProfile(claims);
+  await storeRobloxOAuthTokens(profile, robloxUserId, tokenData);
+  const token = signToken(robloxUserId);
+  const { tabs, isAdmin, isSuper } = effectiveTabs(profile);
+  return {
+    token,
+    profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper }
+  };
+}
+
 app.post('/api/auth/roblox/exchange', async (req, res) => {
   try {
     const code = String(req.body.code || '').trim();
@@ -761,12 +779,7 @@ app.post('/api/auth/roblox/exchange', async (req, res) => {
     if (!redirectUri) return apiError(res, 400, 'REDIRECT_URI_REQUIRED', 'Redirect URI required');
 
     const tokenData = await exchangeRobloxAuthorizationCode({ code, codeVerifier, redirectUri });
-    const claims = await getRobloxOAuthClaims(tokenData);
-    if (!claims) return apiError(res, 502, 'ROBLOX_PROFILE_MISSING', 'Roblox did not return profile claims');
-    const { profile, robloxUserId } = await upsertRobloxOAuthProfile(claims);
-    await storeRobloxOAuthTokens(profile, robloxUserId, tokenData);
-    const token = signToken(robloxUserId);
-    const { tabs, isAdmin, isSuper } = effectiveTabs(profile);
+    const { token, profile } = await completeRobloxOAuthSession(tokenData);
     res.cookie('ofl_token', token, {
       maxAge: 30 * 24 * 60 * 60 * 1000,
       sameSite: 'lax',
@@ -775,7 +788,7 @@ app.post('/api/auth/roblox/exchange', async (req, res) => {
     res.json({
       success: true,
       token,
-      profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper }
+      profile
     });
   } catch (err) {
     console.error('roblox oauth exchange error:', err);
@@ -784,6 +797,30 @@ app.post('/api/auth/roblox/exchange', async (req, res) => {
       err.statusCode || 500,
       err.code || 'ROBLOX_OAUTH_EXCHANGE_FAILED',
       err.message || 'Roblox OAuth exchange failed'
+    );
+  }
+});
+
+app.post('/api/auth/roblox/session', async (req, res) => {
+  try {
+    const tokenData = req.body && req.body.token_data;
+    if (!tokenData || !tokenData.access_token) {
+      return apiError(res, 400, 'ROBLOX_TOKEN_DATA_REQUIRED', 'Roblox token response required');
+    }
+    const { token, profile } = await completeRobloxOAuthSession(tokenData);
+    res.cookie('ofl_token', token, {
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      sameSite: 'lax',
+      httpOnly: false
+    });
+    res.json({ success: true, token, profile });
+  } catch (err) {
+    console.error('roblox oauth session error:', err);
+    return apiError(
+      res,
+      err.statusCode || 500,
+      err.code || 'ROBLOX_OAUTH_SESSION_FAILED',
+      err.message || 'Roblox OAuth session failed'
     );
   }
 });
