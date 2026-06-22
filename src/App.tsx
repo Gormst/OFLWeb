@@ -3,6 +3,7 @@ import type { ComponentType, LazyExoticComponent } from 'react';
 import { LegacyPage } from './LegacyPage';
 import { pageLoaders, type PageKey } from './pages/manifest';
 import { isLegacyPageData } from './pages/types';
+import { SharedFooter } from './SharedFooter';
 import { SharedHeader } from './SharedHeader';
 
 class RouteErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -74,6 +75,7 @@ export function App() {
       <Suspense fallback={null}>
         <SharedHeader />
         <Page key={pageKey} />
+        <SharedFooter />
       </Suspense>
     </RouteErrorBoundary>
   );
