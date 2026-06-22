@@ -10,7 +10,7 @@ const page = {
   header{position:sticky;top:0;z-index:50;background:var(--paper);border-bottom:1px solid var(--navy);}.nav{display:flex;align-items:center;justify-content:flex-start;gap:28px;height:78px;width:100%;min-width:0;margin:0;padding:0;}.brand{display:flex;align-items:center;gap:0;flex:0 0 auto;margin-left:18px;}.brand img{height:44px;width:44px;object-fit:contain;}.brand .logo-fallback{height:44px;width:44px;border:2px solid var(--navy);display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:15px;}nav.links{display:flex;gap:clamp(16px,2vw,34px);margin-right:auto;}nav.links a{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1.5px;padding:4px 0;position:relative;}nav.links a:hover{color:var(--red);}
   .account-wrap{position:relative;margin-right:clamp(16px,2vw,28px);}.account{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;}.account img{width:38px;height:38px;border-radius:50%;border:2px solid var(--navy);object-fit:cover;}.account .uname{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1px;}.account .chev{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--navy);transition:transform .2s;}.account-wrap.open .chev{transform:rotate(180deg);}.dropdown{position:absolute;top:calc(100% + 12px);right:0;min-width:190px;background:var(--paper);border:1px solid var(--navy);opacity:0;visibility:hidden;transform:translateY(-6px);transition:all .18s ease;box-shadow:0 14px 30px rgba(21,35,62,.16);}.account-wrap.open .dropdown{opacity:1;visibility:visible;transform:none;}.dropdown a{display:block;font-family:'Oswald';font-weight:500;font-size:14px;text-transform:uppercase;letter-spacing:1px;padding:14px 18px;border-bottom:1px solid var(--line);}.dropdown a:last-child{border-bottom:none;}.dropdown a:hover{background:var(--navy);color:var(--paper);}.dropdown a.admin,.dropdown a.logout{color:var(--red);}.dropdown a.admin:hover,.dropdown a.logout:hover{background:var(--red);color:var(--paper);}@media(max-width:820px){nav.links{display:none;}.account-wrap{margin-left:auto;}}
   .page{padding:0 0 90px;}.gate{max-width:520px;margin:80px auto;text-align:center;}.gate h2{font-family:'Oswald';font-size:34px;text-transform:uppercase;margin-bottom:12px;}.gate p{font-size:17px;font-style:italic;color:var(--muted);margin-bottom:24px;}.gate a{font-family:'Oswald';font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:2px;background:var(--navy);color:var(--paper);padding:14px 26px;display:inline-block;}
-  .hero{--team-color:var(--navy);position:relative;display:grid;grid-template-columns:minmax(170px,230px) minmax(0,1fr) minmax(220px,260px) minmax(280px,360px);gap:24px;align-items:center;min-height:210px;background:linear-gradient(90deg,var(--team-color) 0 18px,rgba(255,255,255,.55) 18px 100%);border-bottom:1px solid var(--line-strong);padding:24px 34px;overflow:hidden;}.hero-avatar{position:relative;z-index:1;width:180px;height:180px;border:0;border-radius:0;object-fit:cover;background:var(--paper-2);align-self:end;}.eyebrow{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--red);margin-bottom:7px;}h1{font-family:'Oswald';font-weight:500;font-size:34px;text-transform:uppercase;line-height:1.08;letter-spacing:0;}.hero-meta{font-family:'Oswald';font-size:14px;color:var(--navy);margin-top:10px;}.team-pill{display:inline-flex;align-items:center;gap:12px;background:transparent;border:0;padding:0;min-width:0;margin-top:8px;}.team-logo{width:42px;height:42px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#fff;font-family:'Anton';font-size:12px;flex:0 0 auto;}.team-logo img{width:100%;height:100%;object-fit:contain;}.team-pill .label{display:none;}.team-pill .name{font-family:'Oswald';font-weight:600;text-transform:none;line-height:1.05;}
+  .hero{--team-color:var(--navy);position:relative;display:grid;grid-template-columns:minmax(170px,230px) minmax(0,1fr) minmax(220px,260px) minmax(280px,360px);gap:24px;align-items:center;min-height:210px;background:linear-gradient(90deg,var(--team-color) 0 18px,rgba(255,255,255,.55) 18px 100%);border-bottom:1px solid var(--line-strong);padding:24px 34px;overflow:hidden;}.hero-roblox-link{position:absolute;right:18px;top:18px;z-index:3;width:42px;height:42px;display:none;align-items:center;justify-content:center;color:var(--navy);border:1px solid var(--line-strong);background:rgba(255,255,255,.72);transition:all .15s;}.hero-roblox-link:hover{background:var(--red);border-color:var(--red);color:#fff;}.hero-roblox-link svg{width:22px;height:22px;fill:currentColor;display:block;}.hero-avatar{position:relative;z-index:1;width:180px;height:180px;border:0;border-radius:0;object-fit:cover;background:var(--paper-2);align-self:end;}.eyebrow{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--red);margin-bottom:7px;}h1{font-family:'Oswald';font-weight:500;font-size:34px;text-transform:uppercase;line-height:1.08;letter-spacing:0;}.hero-meta{font-family:'Oswald';font-size:14px;color:var(--navy);margin-top:10px;}.team-pill{display:inline-flex;align-items:center;gap:12px;background:transparent;border:0;padding:0;min-width:0;margin-top:8px;}.team-logo{width:42px;height:42px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#fff;font-family:'Anton';font-size:12px;flex:0 0 auto;}.team-logo img{width:100%;height:100%;object-fit:contain;}.team-pill .label{display:none;}.team-pill .name{font-family:'Oswald';font-weight:600;text-transform:none;line-height:1.05;}
   .hero-facts{display:grid;grid-template-columns:88px 1fr;gap:8px 14px;border-left:1px dotted var(--line-strong);padding-left:22px;font-family:'Oswald';font-size:14px;}.hero-facts .k{color:var(--muted);font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;}.hero-facts .v{font-weight:700;}.status-dot{width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block;margin-right:5px;}.season-card{border:1px solid var(--line-strong);border-radius:8px;overflow:hidden;background:rgba(255,255,255,.48);}.season-card h2{font-family:'Oswald';font-size:13px;text-align:center;text-transform:uppercase;background:var(--navy);color:#fff;padding:8px;}.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin:0;}.summary-card{background:transparent;border:0;border-right:1px solid var(--line);padding:13px 9px;text-align:center;}.summary-card:last-child{border-right:0;}.summary-card .k{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:5px;}.summary-card .v{font-family:'Anton';font-size:30px;line-height:1;}
   .profile-nav{display:flex;gap:28px;height:45px;align-items:end;background:rgba(255,255,255,.55);border-bottom:1px solid var(--line);padding:0 34px;}.profile-nav a{font-family:'Oswald';font-size:14px;padding:0 0 10px;}.profile-nav a.active{border-bottom:3px solid var(--red);}
   .layout{background:transparent;padding:10px 0 0;}.panel{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,320px);gap:20px;background:transparent;border:0;align-items:start;}.rail{display:none;}.panel-view{background:rgba(255,255,255,.5);border:0;border-radius:8px;padding:16px;box-shadow:0 1px 0 rgba(21,35,62,.06);}.panel-view{display:block;}.center-stack,.right-stack{display:grid;gap:10px;}.panel h2{font-family:'Oswald';font-size:16px;text-transform:none;margin-bottom:12px;}.desc{display:none;}.empty{font-style:italic;color:var(--muted);padding:18px 0;}
@@ -64,6 +64,7 @@ const page = {
   <div class="gate" id="gate" style="display:none;"><h2>Connect Account</h2><p>You need to connect your Roblox account before viewing your player profile.</p><a href="/connect">Connect Account</a></div>
   <div id="profilePage" style="display:none;">
     <section class="hero">
+      <a class="hero-roblox-link" id="heroRobloxLink" href="#" target="_blank" rel="noopener" aria-label="Open Roblox profile"></a>
       <img class="hero-avatar" id="heroAvatar" src="" alt="">
       <div>
         <div class="eyebrow">// Player Profile</div>
@@ -97,7 +98,7 @@ const page = {
   </div>
   <div class="settings-page" id="settingsPage" style="display:none;">
     <h1>Settings</h1>
-    <p class="desc">Preferences saved to your OFL account and loaded whenever your token is active.</p>
+    <p class="desc">Player details are saved to your OFL account. Display preferences stay on this device.</p>
     <div class="setting-row"><div><div class="setting-title">Player Details</div><div class="setting-copy">Choose offensive and defensive positions plus your jersey number.</div></div><div class="settings-controls"><select class="setting-select" id="offensivePositionSelect"><option value="">Offense</option><option value="QB">QB</option><option value="RB">RB</option><option value="WR">WR</option><option value="TE">TE</option><option value="OL">OL</option><option value="K">K</option><option value="P">P</option><option value="ATH">ATH</option></select><select class="setting-select" id="defensivePositionSelect"><option value="">Defense</option><option value="DL">DL</option><option value="LB">LB</option><option value="CB">CB</option><option value="S">S</option><option value="ATH">ATH</option></select><input class="setting-input" id="jerseyNumberInput" type="number" min="0" max="99" inputmode="numeric" placeholder="#"></div></div>
     <div class="setting-row"><div><div class="setting-title">Dark Mode</div><div class="setting-copy">Use a darker interface across OFL Network.</div></div><button class="toggle" id="darkToggle" type="button" aria-label="Toggle dark mode"></button></div>
     <div class="msg" id="settingsMsg"></div>
@@ -125,8 +126,9 @@ const page = {
   function fmt(n){ n=Number(n||0); return n>=1000 ? (n/1000).toFixed(1).replace('.0','')+'K' : String(n); }
   function fmtCap(n){ n=Number(n||0); if(!n) return '$0'; return '$'+(n/1000000).toFixed(2).replace(/\.?0+$/,'')+'M'; }
   function dateText(v){ if(!v) return 'Unknown'; try{return new Date(v).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});}catch(e){return String(v);} }
-  function setTheme(theme){ document.body.dataset.theme=theme==='dark'?'dark':'light'; if(window.applyOflTheme) window.applyOflTheme(); }
-  function saveLocalProfile(p){ localStorage.setItem('ofl_profile',JSON.stringify(p)); profile=p; setTheme(p.theme_preference); }
+  function currentTheme(){ return localStorage.getItem('ofl_theme')==='dark'?'dark':'light'; }
+  function setTheme(theme){ localStorage.setItem('ofl_theme',theme==='dark'?'dark':'light'); if(window.applyOflTheme) window.applyOflTheme(); else document.body.dataset.theme=theme==='dark'?'dark':'light'; }
+  function saveLocalProfile(p){ localStorage.setItem('ofl_profile',JSON.stringify(p)); profile=p; }
   function msg(text,ok){ const m=$('settingsMsg'); if(!m) return; m.textContent=text; m.className='msg '+(ok?'ok':'err'); clearTimeout(m._timer); m._timer=setTimeout(()=>m.className='msg',8000); }
   async function readApiResponse(response){
     const text=await response.text();
@@ -158,6 +160,8 @@ const page = {
   function faLogo(cls){
     return '<span class="'+cls+'" style="background:#15233E">FA</span>';
   }
+  function robloxIcon(){ return '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" clip-rule="evenodd" d="M6.35 1.75 22.25 6l-4.28 15.95L2.05 17.68 6.35 1.75Zm4.43 8.82 2.66.72-.72 2.66-2.66-.72.72-2.66Z"></path></svg>'; }
+  function robloxProfileUrl(player){ const id=player&&(player.roblox_user_id||player.roblox_id)||(profile&&profile.roblox_user_id); const name=player&&player.roblox_username||profile&&profile.roblox_username||''; return id?'https://www.roblox.com/users/'+encodeURIComponent(id)+'/profile':(name?'https://www.roblox.com/search/users?keyword='+encodeURIComponent(name):''); }
   function isSettingsMode(){ return new URLSearchParams(location.search).get('tab')==='settings'; }
   function roleFromStats(stats){
     const pass=num(stats.pass_yards)+num(stats.pass_td)+num(stats.pass_comp);
@@ -205,6 +209,10 @@ const page = {
     const player=payload.player, team=player&&player.team;
     const name=(player&&player.roblox_username)||profile.roblox_username||'Profile';
     $('heroName').textContent=name;
+    const robloxAnchor=$('heroRobloxLink');
+    const robloxUrl=robloxProfileUrl(player);
+    if(robloxAnchor&&robloxUrl){robloxAnchor.href=robloxUrl;robloxAnchor.innerHTML=robloxIcon();robloxAnchor.style.display='inline-flex';robloxAnchor.setAttribute('aria-label','Open '+name+' on Roblox');}
+    else if(robloxAnchor){robloxAnchor.style.display='none';}
     $('accountWrap').style.display='block'; $('accountName').textContent=profile.roblox_username||name;
     const avatar=(player&&player.avatar_url)||profile.avatar_url;
     if(avatar){ $('heroAvatar').src=avatar; $('accountAvatar').src=avatar; }
@@ -222,7 +230,7 @@ const page = {
     $('heroStatus').textContent=team?'Signed':'Free Agent';
     if(profile.is_admin){ const a=$('adminLink'); if(a) a.style.display='block'; }
     if((profile.admin_tabs||[]).includes('media')){ const m=$('mediaEditorLink'); if(m) m.style.display='block'; }
-    const toggle=$('darkToggle'); toggle.classList.toggle('on',profile.theme_preference==='dark'); toggle.setAttribute('aria-pressed',String(profile.theme_preference==='dark'));
+    const toggle=$('darkToggle'); const dark=currentTheme()==='dark'; toggle.classList.toggle('on',dark); toggle.setAttribute('aria-pressed',String(dark));
     const off=$('offensivePositionSelect'); if(off) off.value=selectedOffensivePosition();
     const def=$('defensivePositionSelect'); if(def) def.value=selectedDefensivePosition();
     const numInput=$('jerseyNumberInput'); if(numInput) numInput.value=player&&player.jersey_number!=null?String(player.jersey_number):'';
@@ -318,15 +326,8 @@ const page = {
   document.querySelectorAll('.profile-nav a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();showProfileTab(a.dataset.profileTab||'overview');}));
   const timelineViewAll=$('timelineViewAll'); if(timelineViewAll) timelineViewAll.addEventListener('click',()=>showProfileTab('timeline'));
   $('darkToggle').addEventListener('click',async()=>{
-    if(!profile) return;
-    const next=profile.theme_preference==='dark'?'light':'dark';
-    saveLocalProfile({...profile,theme_preference:next}); renderHeader();
-    try{
-      const r=await fetch('/api/me/settings',{method:'PATCH',headers:authHeaders(),body:JSON.stringify({theme_preference:next})});
-      const result=await readApiResponse(r);
-      if(!result.ok){ msg('Applied locally, but not saved. '+errorLabel(result,'Could not save settings')); return; }
-      saveLocalProfile(result.data.profile); renderHeader(); msg('Settings saved',true);
-    }catch(e){ msg('Applied locally, but not saved. [NETWORK_REQUEST_FAILED] '+(e&&e.message?e.message:'Could not reach the API')); }
+    const next=currentTheme()==='dark'?'light':'dark';
+    setTheme(next); renderHeader(); msg('Display preference saved on this device',true);
   });
   async function savePlayerDetails(){
     if(!payload) return;

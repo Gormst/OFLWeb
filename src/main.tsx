@@ -48,17 +48,24 @@ themeStyle.textContent = `
 document.head.appendChild(themeStyle);
 
 function applySavedTheme() {
-  try {
-    const profile = JSON.parse(localStorage.getItem('ofl_profile') || 'null');
-    document.body.dataset.theme = profile?.theme_preference === 'dark' ? 'dark' : 'light';
-  } catch {
-    document.body.dataset.theme = 'light';
+  let theme = localStorage.getItem('ofl_theme');
+  if (!theme) {
+    try {
+      const profile = JSON.parse(localStorage.getItem('ofl_profile') || 'null');
+      if (profile?.theme_preference === 'dark') {
+        theme = 'dark';
+        localStorage.setItem('ofl_theme', theme);
+      }
+    } catch {
+      theme = null;
+    }
   }
+  document.body.dataset.theme = theme === 'dark' ? 'dark' : 'light';
 }
 
 applySavedTheme();
 window.addEventListener('storage', (event) => {
-  if (event.key === 'ofl_profile') applySavedTheme();
+  if (event.key === 'ofl_theme') applySavedTheme();
 });
 (window as unknown as { applyOflTheme?: () => void }).applyOflTheme = applySavedTheme;
 
