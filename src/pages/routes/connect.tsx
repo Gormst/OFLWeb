@@ -17,7 +17,6 @@ export default function ConnectPage() {
   const [step, setStep] = useState<1 | 2>(1);
   const [message, setMessage] = useState<Message | null>(null);
   const [oauthLoading, setOauthLoading] = useState(false);
-  const [copyAuthUrlLoading, setCopyAuthUrlLoading] = useState(false);
   const [startLoading, setStartLoading] = useState(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -68,21 +67,6 @@ export default function ConnectPage() {
       setMessage({ text: 'Could not start Roblox OAuth. Try again.' });
     } finally {
       setOauthLoading(false);
-    }
-  }
-
-  async function copyRobloxAuthorizationUrl() {
-    setMessage(null);
-    setCopyAuthUrlLoading(true);
-    try {
-      const url = await createRobloxAuthorizationUrl();
-      if (!url) return;
-      await navigator.clipboard.writeText(url);
-      setMessage({ text: 'Authorization URL copied. Use it soon; it is tied to the current PKCE verifier.', ok: true });
-    } catch {
-      setMessage({ text: 'Could not copy the authorization URL.' });
-    } finally {
-      setCopyAuthUrlLoading(false);
     }
   }
 
@@ -168,7 +152,6 @@ export default function ConnectPage() {
         .connect-card h1{font-family:'Oswald';font-weight:700;font-size:42px;text-transform:uppercase;line-height:.95;margin:0 0 10px;}
         .connect-card .sub{font-size:17px;font-style:italic;color:var(--muted);margin:0 0 34px;}
         .oauth-box{margin-bottom:28px;}
-        .oauth-actions{display:grid;grid-template-columns:1fr;gap:10px;}
         .oauth-divider{display:flex;align-items:center;gap:12px;margin:28px 0;color:var(--muted);font-family:'Space Mono';font-size:10px;letter-spacing:2px;text-transform:uppercase;}
         .oauth-divider::before,.oauth-divider::after{content:'';height:1px;background:var(--line-strong);flex:1;}
         .connect-card label{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:8px;}
@@ -200,9 +183,6 @@ export default function ConnectPage() {
               <div className="oauth-box">
                 <button className="connect-btn-main" type="button" disabled={oauthLoading} onClick={startRobloxOAuth}>
                   {oauthLoading ? 'Redirecting...' : 'Continue with Roblox'}
-                </button>
-                <button className="backlink" type="button" disabled={copyAuthUrlLoading} onClick={copyRobloxAuthorizationUrl}>
-                  {copyAuthUrlLoading ? 'Generating authorization URL...' : 'Copy authorization URL'}
                 </button>
                 <div className="oauth-divider">Legacy verification</div>
               </div>
