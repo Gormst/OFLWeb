@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { buildRobloxAuthorizeUrl } from '../../lib/pkce';
 
 type Message = {
   text: string;
@@ -6,11 +7,15 @@ type Message = {
 };
 
 export default function ConnectPage() {
+  const robloxClientId = String(import.meta.env.VITE_ROBLOX_CLIENT_ID || '').trim();
+  const robloxScopes = String(import.meta.env.VITE_ROBLOX_OAUTH_SCOPES || 'openid profile').trim();
   const [username, setUsername] = useState('');
   const [currentUsername, setCurrentUsername] = useState('');
   const [code, setCode] = useState('OFL-XXXX');
   const [step, setStep] = useState<1 | 2>(1);
   const [message, setMessage] = useState<Message | null>(null);
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const [copyAuthUrlLoading, setCopyAuthUrlLoading] = useState(false);
   const [startLoading, setStartLoading] = useState(false);
   const [verifyLoading, setVerifyLoading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -18,6 +23,50 @@ export default function ConnectPage() {
   useEffect(() => {
     document.title = 'Connect Account - OFL';
   }, []);
+
+  async function createRobloxAuthorizationUrl() {
+    if (!robloxClientId) {
+      setMessage({ text: 'Roblox OAuth is not configured yet. Set VITE_ROBLOX_CLIENT_ID first.' });
+      return null;
+    }
+
+    const redirectUri = `${window.location.origin}/auth/redirect`;
+    const { url } = await buildRobloxAuthorizeUrl({
+      clientId: robloxClientId,
+      redirectUri,
+      scope: robloxScopes
+    });
+    return url;
+  }
+
+  async function startRobloxOAuth() {
+    setMessage(null);
+    setOauthLoading(true);
+    try {
+      const url = await createRobloxAuthorizationUrl();
+      if (!url) return;
+      window.location.assign(url);
+    } catch {
+      setMessage({ text: 'Could not start Roblox OAuth. Try again.' });
+    } finally {
+      setOauthLoading(false);
+    }
+  }
+
+  async function copyRobloxAuthorizationUrl() {
+    setMessage(null);
+    setCopyAuthUrlLoading(true);
+    try {
+      const url = await createRobloxAuthorizationUrl();
+      if (!url) return;
+      await navigator.clipboard.writeText(url);
+      setMessage({ text: 'Authorization URL copied. Use it soon; it is tied to the current PKCE verifier.', ok: true });
+    } catch {
+      setMessage({ text: 'Could not copy the authorization URL.' });
+    } finally {
+      setCopyAuthUrlLoading(false);
+    }
+  }
 
   async function startVerification() {
     const cleanUsername = username.trim();
@@ -100,6 +149,10 @@ export default function ConnectPage() {
         .connect-eyebrow{font-family:'Space Mono';font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--red);margin-bottom:14px;}
         .connect-card h1{font-family:'Oswald';font-weight:700;font-size:42px;text-transform:uppercase;line-height:.95;margin:0 0 10px;}
         .connect-card .sub{font-size:17px;font-style:italic;color:var(--muted);margin:0 0 34px;}
+        .oauth-box{margin-bottom:28px;}
+        .oauth-actions{display:grid;grid-template-columns:1fr;gap:10px;}
+        .oauth-divider{display:flex;align-items:center;gap:12px;margin:28px 0;color:var(--muted);font-family:'Space Mono';font-size:10px;letter-spacing:2px;text-transform:uppercase;}
+        .oauth-divider::before,.oauth-divider::after{content:'';height:1px;background:var(--line-strong);flex:1;}
         .connect-card label{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:8px;}
         .connect-card input[type=text]{width:100%;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:500;font-size:17px;padding:14px 16px;}
         .connect-card input[type=text]:focus{outline:none;border-color:var(--navy);}
@@ -126,6 +179,16 @@ export default function ConnectPage() {
 
           {step === 1 ? (
             <div>
+              <div className="oauth-box">
+                <button className="connect-btn-main" type="button" disabled={oauthLoading} onClick={startRobloxOAuth}>
+                  {oauthLoading ? 'Redirecting...' : 'Continue with Roblox'}
+                </button>
+                <button className="backlink" type="button" disabled={copyAuthUrlLoading} onClick={copyRobloxAuthorizationUrl}>
+                  {copyAuthUrlLoading ? 'Generating authorization URL...' : 'Copy authorization URL'}
+                </button>
+                <div className="oauth-divider">Legacy verification</div>
+              </div>
+
               <label htmlFor="username">Roblox Username</label>
               <input
                 type="text"

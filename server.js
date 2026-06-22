@@ -45,6 +45,10 @@ const CLIENT_DIR = fs.existsSync(DIST_DIR) ? DIST_DIR : PUBLIC_DIR;
 // Secret for signing our own auth tokens. Set OFL_TOKEN_SECRET in env for production;
 // falls back to the Supabase key so it's always defined.
 const TOKEN_SECRET = process.env.OFL_TOKEN_SECRET || process.env.SUPABASE_KEY || 'ofl-dev-secret';
+const OAUTH_TOKEN_ENCRYPTION_KEY = crypto
+  .createHash('sha256')
+  .update(process.env.ROBLOX_OAUTH_TOKEN_SECRET || TOKEN_SECRET)
+  .digest();
 
 // Create a signed, long-lived token tying a session to a Roblox user id.
 function signToken(robloxUserId) {
@@ -68,6 +72,20 @@ function verifyToken(token) {
     const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
     return data.rid || null;
   } catch { return null; }
+}
+
+function encryptOauthToken(value) {
+  if (!value) return null;
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', OAUTH_TOKEN_ENCRYPTION_KEY, iv);
+  const encrypted = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return [
+    'v1',
+    iv.toString('base64url'),
+    tag.toString('base64url'),
+    encrypted.toString('base64url')
+  ].join(':');
 }
 
 // Permanent superuser — always has admin access
@@ -475,6 +493,12 @@ async function getRobloxUser(username) {
   return j.data[0];
 }
 
+async function getRobloxUserById(userId) {
+  const r = await fetch(`https://users.roblox.com/v1/users/${userId}`);
+  if (!r.ok) return null;
+  return r.json().catch(() => null);
+}
+
 async function getRobloxDescription(userId) {
   const r = await fetch(`https://users.roblox.com/v1/users/${userId}`);
   if (!r.ok) return null;
@@ -548,6 +572,221 @@ async function requireSuperuser(req, res) {
 // ─────────────────────────────────────────────
 //  ACCOUNT CONNECTION
 // ─────────────────────────────────────────────
+
+const ROBLOX_TOKEN_URL = process.env.ROBLOX_TOKEN_URL || 'https://apis.roblox.com/oauth/v1/token';
+const ROBLOX_USERINFO_URL = process.env.ROBLOX_USERINFO_URL || 'https://apis.roblox.com/oauth/v1/userinfo';
+
+function decodeJwtPayload(token) {
+  if (!token || typeof token !== 'string' || token.split('.').length < 2) return null;
+  try {
+    return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function robloxIdFromClaims(claims) {
+  const values = [
+    claims && claims.sub,
+    claims && claims.user_id,
+    claims && claims.userId,
+    claims && claims.id
+  ].filter(Boolean).map(String);
+  for (const value of values) {
+    if (/^\d+$/.test(value)) return value;
+    const match = value.match(/(\d+)$/);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+function robloxUsernameFromClaims(claims) {
+  return String(
+    (claims && (claims.preferred_username || claims.nickname || claims.name || claims.username || claims.display_name))
+    || ''
+  ).trim();
+}
+
+async function exchangeRobloxAuthorizationCode({ code, codeVerifier, redirectUri }) {
+  const clientId = process.env.ROBLOX_CLIENT_ID || process.env.VITE_ROBLOX_CLIENT_ID;
+  const clientSecret = process.env.ROBLOX_CLIENT_SECRET || '';
+  if (!clientId) {
+    const error = new Error('Set ROBLOX_CLIENT_ID before exchanging Roblox OAuth codes.');
+    error.statusCode = 500;
+    error.code = 'ROBLOX_CLIENT_ID_MISSING';
+    throw error;
+  }
+
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri,
+    client_id: clientId,
+    code_verifier: codeVerifier
+  });
+  if (clientSecret) body.set('client_secret', clientSecret);
+
+  const response = await fetch(ROBLOX_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body
+  });
+  const text = await response.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : {}; } catch {}
+  if (!response.ok) {
+    const error = new Error((data && (data.error_description || data.error)) || text || 'Roblox token exchange failed');
+    error.statusCode = response.status;
+    error.code = data && data.error ? String(data.error).toUpperCase() : 'ROBLOX_TOKEN_EXCHANGE_FAILED';
+    throw error;
+  }
+  if (!data) {
+    const error = new Error('Roblox token endpoint did not return JSON.');
+    error.statusCode = 502;
+    error.code = 'ROBLOX_TOKEN_INVALID_JSON';
+    throw error;
+  }
+  return data;
+}
+
+async function getRobloxOAuthClaims(tokenData) {
+  const idClaims = decodeJwtPayload(tokenData && tokenData.id_token);
+  if (idClaims) return idClaims;
+  if (!tokenData || !tokenData.access_token) return null;
+
+  const response = await fetch(ROBLOX_USERINFO_URL, {
+    headers: { Authorization: `Bearer ${tokenData.access_token}` }
+  });
+  if (!response.ok) return null;
+  return response.json().catch(() => null);
+}
+
+async function upsertRobloxOAuthProfile(claims) {
+  const robloxUserId = robloxIdFromClaims(claims);
+  if (!robloxUserId) {
+    const error = new Error('Roblox OAuth response did not include a usable user id.');
+    error.statusCode = 502;
+    error.code = 'ROBLOX_USER_ID_MISSING';
+    throw error;
+  }
+
+  let robloxUsername = robloxUsernameFromClaims(claims);
+  let avatar = String((claims && (claims.picture || claims.avatar_url || claims.avatarUrl)) || '').trim() || null;
+  if (!robloxUsername) {
+    const user = await getRobloxUserById(robloxUserId);
+    robloxUsername = user?.name || `Roblox ${robloxUserId}`;
+  }
+  if (!avatar) avatar = await getRobloxAvatar(robloxUserId);
+
+  const { data: existing, error: profileErr } = await supabase
+    .from('user_profiles').select('*')
+    .eq('roblox_user_id', String(robloxUserId)).maybeSingle();
+  if (profileErr) {
+    console.error('oauth profile lookup error:', profileErr.message);
+    const error = new Error('Database error looking up profile');
+    error.statusCode = 500;
+    error.code = 'PROFILE_LOOKUP_FAILED';
+    throw error;
+  }
+
+  if (existing) {
+    const { data, error: upErr } = await supabase.from('user_profiles')
+      .update({ roblox_username: robloxUsername, avatar_url: avatar, is_verified: true })
+      .eq('roblox_user_id', String(robloxUserId)).select().single();
+    if (upErr) {
+      console.error('oauth profile update error:', upErr.message);
+      const error = new Error('Failed to update profile');
+      error.statusCode = 500;
+      error.code = 'PROFILE_UPDATE_FAILED';
+      throw error;
+    }
+    return { profile: data, robloxUserId };
+  }
+
+  const { data, error: insErr } = await supabase.from('user_profiles')
+    .insert({
+      roblox_username: robloxUsername,
+      roblox_user_id: String(robloxUserId),
+      supabase_user_id: crypto.randomUUID(),
+      avatar_url: avatar,
+      is_verified: true
+    }).select().single();
+  if (insErr) {
+    console.error('oauth profile insert error:', insErr.message);
+    const error = new Error('Failed to create profile: ' + insErr.message);
+    error.statusCode = 500;
+    error.code = 'PROFILE_CREATE_FAILED';
+    throw error;
+  }
+  return { profile: data, robloxUserId };
+}
+
+async function storeRobloxOAuthTokens(profile, robloxUserId, tokenData) {
+  if (!profile || !profile.id || !tokenData) return;
+  const expiresIn = Number(tokenData.expires_in || 0);
+  const expiresAt = expiresIn > 0 ? new Date(Date.now() + expiresIn * 1000).toISOString() : null;
+  const scope = Array.isArray(tokenData.scope) ? tokenData.scope.join(' ') : (tokenData.scope ? String(tokenData.scope) : null);
+  const row = {
+    profile_id: profile.id,
+    roblox_user_id: String(robloxUserId),
+    access_token_ciphertext: encryptOauthToken(tokenData.access_token),
+    refresh_token_ciphertext: encryptOauthToken(tokenData.refresh_token),
+    token_type: tokenData.token_type ? String(tokenData.token_type) : null,
+    scope,
+    expires_at: expiresAt,
+    updated_at: new Date().toISOString()
+  };
+
+  const { error } = await supabase
+    .from('roblox_oauth_tokens')
+    .upsert(row, { onConflict: 'profile_id' });
+  if (error) {
+    console.error('roblox oauth token store error:', error.message);
+    const err = new Error('Could not securely store Roblox OAuth tokens. Run supabase/2026-06-22_roblox_oauth_tokens.sql.');
+    err.statusCode = 500;
+    err.code = 'ROBLOX_TOKEN_STORE_FAILED';
+    throw err;
+  }
+}
+
+app.post('/api/auth/roblox/exchange', async (req, res) => {
+  try {
+    const code = String(req.body.code || '').trim();
+    const state = String(req.body.state || '').trim();
+    const codeVerifier = String(req.body.code_verifier || '').trim();
+    const redirectUri = String(req.body.redirect_uri || '').trim();
+    if (!code) return apiError(res, 400, 'CODE_REQUIRED', 'Authorization code required');
+    if (!state) return apiError(res, 400, 'STATE_REQUIRED', 'OAuth state required');
+    if (!codeVerifier) return apiError(res, 400, 'CODE_VERIFIER_REQUIRED', 'PKCE code verifier required');
+    if (!redirectUri) return apiError(res, 400, 'REDIRECT_URI_REQUIRED', 'Redirect URI required');
+
+    const tokenData = await exchangeRobloxAuthorizationCode({ code, codeVerifier, redirectUri });
+    const claims = await getRobloxOAuthClaims(tokenData);
+    if (!claims) return apiError(res, 502, 'ROBLOX_PROFILE_MISSING', 'Roblox did not return profile claims');
+    const { profile, robloxUserId } = await upsertRobloxOAuthProfile(claims);
+    await storeRobloxOAuthTokens(profile, robloxUserId, tokenData);
+    const token = signToken(robloxUserId);
+    const { tabs, isAdmin, isSuper } = effectiveTabs(profile);
+    res.cookie('ofl_token', token, {
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      sameSite: 'lax',
+      httpOnly: false
+    });
+    res.json({
+      success: true,
+      token,
+      profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper }
+    });
+  } catch (err) {
+    console.error('roblox oauth exchange error:', err);
+    return apiError(
+      res,
+      err.statusCode || 500,
+      err.code || 'ROBLOX_OAUTH_EXCHANGE_FAILED',
+      err.message || 'Roblox OAuth exchange failed'
+    );
+  }
+});
 
 app.post('/api/connect/start', async (req, res) => {
   try {
@@ -1684,6 +1923,32 @@ async function adjustPlayerTotalsForRows(rows, direction = 1, { updateTeam = fal
   return adjusted;
 }
 
+async function validateStatRowsHaveValidPlayers(rows) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  if (!sourceRows.length) return;
+  const [playersResult, aliases] = await Promise.all([
+    supabase.from('players').select('roblox_username'),
+    fetchPlayerAliases()
+  ]);
+  const { data: players, error: playersError } = playersResult;
+  if (playersError) throw playersError;
+  const { aliasToCanonical } = buildAliasMaps(aliases);
+  const playerKeys = new Set((players || []).map(player => canonicalUsernameKey(player.roblox_username, aliasToCanonical)).filter(Boolean));
+  const missing = sourceRows
+    .map(row => displayUsername(row.username || row.roblox_username))
+    .filter(username => username && !playerKeys.has(canonicalUsernameKey(username, aliasToCanonical)));
+  if (!missing.length) return;
+  const uniqueMissing = [...new Set(missing)];
+  throw httpError(
+    400,
+    'Stats include players that are not valid roster users.',
+    [
+      'Fix unmatched players in Edit Stats before finalizing.',
+      `Unmatched player${uniqueMissing.length === 1 ? '' : 's'}: ${uniqueMissing.join(', ')}`
+    ]
+  );
+}
+
 async function adjustPlayerTotalsForBox(box, direction = 1) {
   const meta = asBoxData(box?.data)?.meta || {};
   if (meta.updates_player_totals === false) return 0;
@@ -1706,34 +1971,25 @@ async function resolveExistingStatRows(rows) {
     if (key && !playersByKey[key]) playersByKey[key] = player;
   });
 
-  const missing = [];
   const resolvedRows = sourceRows.map(row => {
     const username = displayUsername(row.username || row.roblox_username);
     const key = canonicalUsernameKey(username, aliasToCanonical);
     const player = playersByKey[key];
     if (!player) {
-      if (username) missing.push(username);
-      return { ...row, username };
+      return {
+        ...row,
+        username,
+        player_id: null,
+        unresolved: Boolean(username)
+      };
     }
     return {
       ...row,
       username: displayUsername(player.roblox_username),
-      player_id: player.id
+      player_id: player.id,
+      unresolved: false
     };
   });
-
-  if (missing.length) {
-    const uniqueMissing = [...new Set(missing)];
-    throw httpError(
-      400,
-      'Stats include players that are not valid roster users.',
-      [
-        'Stat imports no longer create players automatically.',
-        'Create or connect these players first, then import again.',
-        `Unmatched player${uniqueMissing.length === 1 ? '' : 's'}: ${uniqueMissing.join(', ')}`
-      ]
-    );
-  }
 
   return resolvedRows;
 }
@@ -2702,6 +2958,10 @@ app.put('/api/admin/games/:id/stats-review', async (req, res) => {
     })).filter(row => row.username);
     if (!rows.length) return res.status(400).json({ error: 'At least one player stat row is required' });
     const resolvedRows = await resolveExistingStatRows(rows);
+    if (oldMeta.finalized === true) {
+      validateStatRowsHavePositions(resolvedRows);
+      await validateStatRowsHaveValidPlayers(resolvedRows);
+    }
 
     const meta = {
       ...oldMeta,
@@ -2739,6 +2999,7 @@ app.post('/api/admin/games/:id/stats-review/finalize', async (req, res) => {
     if (oldMeta.finalized === true) return res.json({ success: true, box_score: box, rows: boxScoreRows(box), finalized: true, applied: 0 });
     const rows = boxScoreRows(box);
     validateStatRowsHavePositions(rows);
+    await validateStatRowsHaveValidPlayers(rows);
 
     const meta = {
       ...oldMeta,

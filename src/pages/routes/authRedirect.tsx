@@ -1,11 +1,19 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getStoredPkceSession, ROBLOX_PKCE_STORAGE_KEY } from '../../lib/pkce';
 
 type OAuthStatus =
-  | { kind: 'success'; code: string; state: string | null }
+  | { kind: 'success'; code: string; state: string; codeVerifier: string; redirectUri: string }
   | { kind: 'error'; error: string; description: string | null }
   | { kind: 'waiting' };
 
+type ExchangeStatus =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'success'; username: string }
+  | { kind: 'error'; message: string };
+
 export default function AuthRedirectPage() {
+  const [exchangeStatus, setExchangeStatus] = useState<ExchangeStatus>({ kind: 'idle' });
   const status = useMemo<OAuthStatus>(() => {
     const params = new URLSearchParams(window.location.search);
     const error = params.get('error');
@@ -19,10 +27,22 @@ export default function AuthRedirectPage() {
 
     const code = params.get('code');
     if (code) {
+      const state = params.get('state');
+      const pkce = getStoredPkceSession();
+      if (!pkce || !state || pkce.state !== state) {
+        return {
+          kind: 'error',
+          error: 'invalid_state',
+          description: 'The OAuth state did not match the saved PKCE session. Please start the Roblox login again.'
+        };
+      }
+
       return {
         kind: 'success',
         code,
-        state: params.get('state')
+        state,
+        codeVerifier: pkce.codeVerifier,
+        redirectUri: pkce.redirectUri
       };
     }
 
@@ -32,6 +52,49 @@ export default function AuthRedirectPage() {
   useEffect(() => {
     document.title = 'OAuth Redirect - OFL Network';
   }, []);
+
+  useEffect(() => {
+    if (status.kind !== 'success') return;
+
+    let cancelled = false;
+    async function exchangeCode() {
+      setExchangeStatus({ kind: 'loading' });
+      try {
+        const response = await fetch('/api/auth/roblox/exchange', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: status.code,
+            state: status.state,
+            code_verifier: status.codeVerifier,
+            redirect_uri: status.redirectUri
+          })
+        });
+        const text = await response.text();
+        let data: { token?: string; profile?: { roblox_username?: string }; error?: string; code?: string } | null = null;
+        try { data = text ? JSON.parse(text) : {}; } catch {}
+        if (!response.ok || !data) {
+          throw new Error((data && data.error) || text || 'Could not exchange Roblox authorization code.');
+        }
+        if (data.token) localStorage.setItem('ofl_token', data.token);
+        if (data.profile) localStorage.setItem('ofl_profile', JSON.stringify(data.profile));
+        sessionStorage.removeItem(ROBLOX_PKCE_STORAGE_KEY);
+        if (cancelled) return;
+        setExchangeStatus({ kind: 'success', username: data.profile?.roblox_username || 'Roblox user' });
+        window.setTimeout(() => {
+          location.href = '/';
+        }, 900);
+      } catch (error) {
+        if (cancelled) return;
+        setExchangeStatus({ kind: 'error', message: error instanceof Error ? error.message : 'OAuth exchange failed.' });
+      }
+    }
+
+    exchangeCode();
+    return () => {
+      cancelled = true;
+    };
+  }, [status]);
 
   return (
     <>
@@ -59,11 +122,17 @@ export default function AuthRedirectPage() {
 
           {status.kind === 'success' && (
             <>
-              <p>Roblox returned an authorization code to OFL Network. The redirect URL is ready to receive OAuth 2.0 responses.</p>
+              <p>Roblox returned an authorization code. OFL Network is exchanging it for a session now.</p>
               <div className="auth-status success">
-                <strong>Code received</strong>
+                <strong>
+                  {exchangeStatus.kind === 'success' ? 'Connected' : exchangeStatus.kind === 'error' ? 'Exchange failed' : 'Exchanging code'}
+                </strong>
                 <br />
                 State: {status.state || 'none'}
+                <br />
+                {exchangeStatus.kind === 'success' && <>Signed in as {exchangeStatus.username}. Redirecting...</>}
+                {exchangeStatus.kind === 'error' && exchangeStatus.message}
+                {(exchangeStatus.kind === 'idle' || exchangeStatus.kind === 'loading') && 'PKCE verifier ready. Contacting Roblox...'}
               </div>
             </>
           )}
