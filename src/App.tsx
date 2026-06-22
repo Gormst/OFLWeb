@@ -2,6 +2,8 @@ import { Component, lazy, Suspense, type ReactNode } from 'react';
 import type { ComponentType, LazyExoticComponent } from 'react';
 import { LegacyPage } from './LegacyPage';
 import { pageLoaders, type PageKey } from './pages/manifest';
+import { isLegacyPageData } from './pages/types';
+import { SharedHeader } from './SharedHeader';
 
 class RouteErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null };
@@ -30,8 +32,11 @@ const lazyPages = {} as Record<PageKey, LazyExoticComponent<ComponentType>>;
 for (const key of Object.keys(pageLoaders) as PageKey[]) {
   lazyPages[key] = lazy(async () => {
       const module = await pageLoaders[key]();
+      const PageModule = module.default;
       return {
-        default: () => <LegacyPage page={module.default} />
+        default: isLegacyPageData(PageModule)
+          ? () => <LegacyPage page={PageModule} />
+          : PageModule
       };
     });
 }
@@ -41,7 +46,6 @@ function routeToPage(pathname: string): PageKey | null {
 
   if (path === '/' || path === '/index') return 'home';
   if (path.startsWith('/teams/')) return 'teams';
-  if (path.startsWith('/coaches/')) return 'coaches';
   if (path.startsWith('/media/article/')) return 'article';
   if (path === '/media/editor') return 'mediaEditor';
 
@@ -68,6 +72,7 @@ export function App() {
   return (
     <RouteErrorBoundary>
       <Suspense fallback={null}>
+        <SharedHeader />
         <Page key={pageKey} />
       </Suspense>
     </RouteErrorBoundary>

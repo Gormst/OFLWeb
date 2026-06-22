@@ -124,17 +124,6 @@ function bindSharedHeader() {
     })
     .catch(() => undefined);
 
-  fetch(apiUrl('/api/coach/me'), { headers, credentials: 'include' })
-    .then((response) => response.ok ? response.json() : null)
-    .then((data) => {
-      if (!data?.coach || !data?.team?.slug) return;
-      const coachesLink = document.getElementById('coachesLink') as HTMLAnchorElement | null;
-      if (coachesLink) {
-        coachesLink.href = `/coaches/${data.team.slug}`;
-        coachesLink.style.display = 'block';
-      }
-    })
-    .catch(() => undefined);
 }
 
 function escapeHtml(value: unknown) {
@@ -314,6 +303,26 @@ function bootstrapPlayersPage() {
   }, 50);
 }
 
+function stripLegacyHeader(html: string) {
+  return html
+    .replace(/^\s*<!--\s*HEADER\s*-->\s*/i, '')
+    .replace(/^\s*<header\b[\s\S]*?<\/header>\s*/i, '');
+}
+
+function bindSharedMobileMenu() {
+  const toggle = document.querySelector('.ofl-shared-header .menu-toggle') as HTMLButtonElement | null;
+  const links = document.querySelector('.ofl-shared-header nav.links') as HTMLElement | null;
+  if (!toggle || !links || toggle.dataset.sharedMenuBound) return;
+  toggle.dataset.sharedMenuBound = '1';
+  toggle.addEventListener('click', () => {
+    const open = links.dataset.mobileOpen === '1';
+    links.dataset.mobileOpen = open ? '0' : '1';
+    links.style.cssText = open
+      ? ''
+      : 'display:flex;position:absolute;top:78px;left:0;right:0;background:var(--paper,#ECE4CF);flex-direction:column;padding:20px 22px;gap:18px;border-bottom:1px solid var(--navy,#15233E);';
+  });
+}
+
 export function LegacyPage({ page }: LegacyPageProps) {
   useEffect(() => {
     let cancelled = false;
@@ -321,6 +330,7 @@ export function LegacyPage({ page }: LegacyPageProps) {
 
     document.title = page.title;
     bindSharedHeader();
+    bindSharedMobileMenu();
     bootstrapPlayersPage();
 
     async function runScripts() {
@@ -329,7 +339,10 @@ export function LegacyPage({ page }: LegacyPageProps) {
         const mounted = await runScript(script);
         mountedScripts.push(mounted);
       }
-      if (!cancelled) bindSharedHeader();
+      if (!cancelled) {
+        bindSharedHeader();
+        bindSharedMobileMenu();
+      }
     }
 
     runScripts().catch((error) => {
@@ -348,7 +361,7 @@ export function LegacyPage({ page }: LegacyPageProps) {
   return (
     <>
       <style>{page.styles}</style>
-      <div dangerouslySetInnerHTML={{ __html: page.body }} />
+      <div dangerouslySetInnerHTML={{ __html: stripLegacyHeader(page.body) }} />
     </>
   );
 }

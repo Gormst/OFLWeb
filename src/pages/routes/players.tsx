@@ -8,22 +8,22 @@ const page = {
     --paper:#ECE4CF;--paper-2:#E4DAC0;--navy:#15233E;--red:#9F3622;--muted:#6B6253;--green:#3c7a4e;
     --line:rgba(21,35,62,.16);--line-strong:rgba(21,35,62,.32);
   }
-  *{margin:0;padding:0;box-sizing:border-box;}
+  *{margin:0;padding:0;box-sizing:border-box;}html,body{max-width:100%;overflow-x:hidden;}img,svg,video,canvas{max-width:100%;}
   body{background:var(--paper);color:var(--navy);font-family:'Spectral',Georgia,serif;min-height:100vh;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E");}
   a{color:inherit;text-decoration:none;}
-  .wrap{width:min(1800px,calc(100% - 80px));min-width:min(1240px,calc(100% - 28px));margin:0 auto;padding:0;}
+  .wrap{width:min(1800px,calc(100% - clamp(28px,4vw,80px)));max-width:1800px;min-width:0;margin:0 auto;padding:0;}
   header{position:sticky;top:0;z-index:50;background:var(--paper);border-bottom:1px solid var(--navy);}
   .nav{height:78px;display:flex;align-items:center;justify-content:flex-start;gap:28px;width:100%;min-width:0;margin:0;padding:0;}
   .brand{display:flex;align-items:center;gap:0;flex:0 0 auto;margin-left:18px;}
   .brand img{height:44px;width:44px;object-fit:contain;}
   .logo-fallback{height:44px;width:44px;border:2px solid var(--navy);display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:15px;}
-  nav.links{display:flex;gap:34px;margin-right:auto;}
+  nav.links{display:flex;gap:clamp(16px,2vw,34px);margin-right:auto;}
   nav.links a{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1.5px;padding:4px 0;position:relative;}
   nav.links a.active{color:var(--red);}
   nav.links a::after{content:'';position:absolute;left:0;bottom:-2px;height:2px;width:0;background:var(--red);transition:width .25s;}
   nav.links a:hover::after,nav.links a.active::after{width:100%;}
   .connect-btn{background:var(--navy);color:var(--paper);font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:2px;padding:14px 26px;}
-  .account-wrap{position:relative;margin-right:28px;}
+  .account-wrap{position:relative;margin-right:clamp(16px,2vw,28px);}
   .account{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;}
   .account img{width:38px;height:38px;border-radius:50%;border:2px solid var(--navy);object-fit:cover;}
   .account .uname{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1px;}
@@ -110,7 +110,7 @@ const page = {
     <div class="account-wrap" id="accountWrap" style="display:none;">
       <div class="account" id="accountPill"><img id="accountAvatar" src="" alt=""><span class="uname" id="accountName"></span><span class="chev"></span></div>
       <div class="dropdown">
-        <a href="/profile">Profile</a><a href="/profile?tab=settings">Settings</a><a href="/coaches" class="coaches" id="coachesLink" style="display:none;">Coaches Suite</a><a href="/media/editor" class="coaches" id="mediaEditorLink" style="display:none;">Media Editor</a><a href="/admin" class="admin" id="adminLink" style="display:none;">Admin</a><a href="#" class="logout" id="logoutBtn">Log Out</a>
+        <a href="/profile">Profile</a><a href="/profile?tab=settings">Settings</a><a href="/media/editor" class="coaches" id="mediaEditorLink" style="display:none;">Media Editor</a><a href="/admin" class="admin" id="adminLink" style="display:none;">Admin</a><a href="#" class="logout" id="logoutBtn">Log Out</a>
       </div>
     </div>
     <button class="menu-toggle" aria-label="Menu"><span></span><span></span><span></span></button>
@@ -209,7 +209,6 @@ async function readJson(url,opts){
         if((j.profile.admin_tabs||[]).includes('media')) $('mediaEditorLink').style.display='block';
       }
     }catch(e){}
-    try{const j=await readJson('/api/coach/me',{headers:authHeaders()}); if(j.coach){const cl=$('coachesLink'); cl.href='/coaches/'+j.team.slug; cl.style.display='block';}}catch(e){}
   }
   const wrap=$('accountWrap'), pill=$('accountPill');
   if(pill){pill.addEventListener('click',e=>{e.stopPropagation();wrap.classList.toggle('open');}); document.addEventListener('click',()=>wrap.classList.remove('open'));}

@@ -432,11 +432,13 @@ async function getRequester(req) {
   return profile || null;
 }
 
-// Compute a profile's effective admin tabs (superuser always gets ALL tabs)
+// Compute a profile's effective admin tabs.
+// Superusers are permanent, but a saved non-empty admin_tabs list can narrow the
+// admin panel tabs they see. Empty tabs falls back to full access for legacy rows.
 function effectiveTabs(profile) {
   const isSuper = SUPERUSERS.has((profile.roblox_username || '').trim().toLowerCase());
   let tabs = Array.isArray(profile.admin_tabs) ? profile.admin_tabs.slice() : [];
-  if (isSuper) tabs = ALL_ADMIN_TABS.slice(); // superuser always has everything
+  if (isSuper && tabs.length === 0) tabs = ALL_ADMIN_TABS.slice();
   return { tabs, isSuper, isAdmin: isSuper || tabs.length > 0 };
 }
 
@@ -931,13 +933,6 @@ app.post('/api/admin/revoke', async (req, res) => {
   try {
     const { profileId } = req.body;
     if (!profileId) return res.status(400).json({ error: 'profileId required' });
-
-    // don't allow revoking the superuser
-    const { data: target } = await supabase
-      .from('user_profiles').select('roblox_username').eq('id', profileId).single();
-    if (target && SUPERUSERS.has((target.roblox_username || '').trim().toLowerCase())) {
-      return res.status(400).json({ error: 'Cannot revoke the superuser' });
-    }
 
     await supabase.from('user_profiles').update({ admin_tabs: [] }).eq('id', profileId);
     res.json({ success: true });
@@ -2526,6 +2521,10 @@ app.delete('/api/admin/registry/:id', async (req, res) => {
 // ─────────────────────────────────────────────
 
 // Resolve the coach identity — returns { profile, team, role } or null
+app.use('/api/coach', (_req, res) => {
+  res.status(410).json({ error: 'Coaches Suite has been removed' });
+});
+
 async function getCoach(req) {
   const profile = await getRequester(req);
   if (!profile) return null;
