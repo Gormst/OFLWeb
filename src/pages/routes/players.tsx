@@ -51,6 +51,10 @@ const page = {
   .tier-count,.result-count{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
   .table-wrap{overflow-x:auto;border:1px solid var(--line-strong);background:var(--paper-2);}
   table{width:100%;border-collapse:collapse;}
+  .tier-group table{table-layout:fixed;min-width:900px;}
+  .tier-group th:nth-child(1),.tier-group td:nth-child(1){width:32%;}
+  .tier-group th:nth-child(2),.tier-group td:nth-child(2){width:42%;}
+  .tier-group th:nth-child(3),.tier-group td:nth-child(3){width:26%;}
   th{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);text-align:left;padding:12px 14px;border-bottom:2px solid var(--navy);white-space:nowrap;}
   td{padding:12px 14px;font-family:'Oswald';font-weight:600;font-size:15px;border-bottom:1px solid var(--line);vertical-align:middle;}
   tr:hover{background:rgba(21,35,62,.04);}
