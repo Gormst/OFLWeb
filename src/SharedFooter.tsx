@@ -8,6 +8,11 @@ const navItems = [
   ['/media', 'Media']
 ] as const;
 
+const legalItems = [
+  ['/privacy-policy', 'Privacy Policy'],
+  ['/terms-of-service', 'Terms of Service']
+] as const;
+
 function DiscordIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -66,6 +71,9 @@ export function SharedFooter() {
           </div>
           <div className="footer-links">
             {navItems.map(([href, label]) => (
+              <a key={href} href={href}>{label}</a>
+            ))}
+            {legalItems.map(([href, label]) => (
               <a key={href} href={href}>{label}</a>
             ))}
           </div>
