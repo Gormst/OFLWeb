@@ -73,9 +73,13 @@ export function App() {
   return (
     <RouteErrorBoundary>
       <Suspense fallback={null}>
-        <SharedHeader />
-        <Page key={pageKey} />
-        <SharedFooter />
+        <div className="ofl-app-shell">
+          <SharedHeader />
+          <div className="ofl-page-shell">
+            <Page key={pageKey} />
+          </div>
+          <SharedFooter />
+        </div>
       </Suspense>
     </RouteErrorBoundary>
   );

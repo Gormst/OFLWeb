@@ -1102,6 +1102,62 @@ function removeUploadedLogo(url) {
   }
 }
 
+function writeUploadedImage({ folder, filename, dataUrl, fallbackName, maxBytes = 5 * 1024 * 1024 }) {
+  const match = String(dataUrl || '').match(/^data:(image\/(?:png|jpeg|webp|svg\+xml));base64,([a-zA-Z0-9+/=]+)$/);
+  if (!match) {
+    const error = new Error('Upload must be a PNG, JPG, WEBP, or SVG image data URL');
+    error.code = 'IMAGE_UPLOAD_INVALID_DATA_URL';
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const mime = match[1];
+  const ext = imageExtForMime(mime);
+  if (!ext) {
+    const error = new Error('Image must be PNG, JPG, WEBP, or SVG');
+    error.code = 'IMAGE_UPLOAD_UNSUPPORTED_TYPE';
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const buffer = Buffer.from(match[2], 'base64');
+  if (!buffer.length) {
+    const error = new Error('Image file is empty');
+    error.code = 'IMAGE_UPLOAD_EMPTY_FILE';
+    error.statusCode = 400;
+    throw error;
+  }
+  if (buffer.length > maxBytes) {
+    const error = new Error(`Image file must be ${Math.round(maxBytes / 1024 / 1024)}MB or smaller`);
+    error.code = 'IMAGE_UPLOAD_TOO_LARGE';
+    error.statusCode = 413;
+    throw error;
+  }
+
+  const safeFolder = String(folder || '').replace(/[^a-z0-9/_-]/gi, '').replace(/^\/+|\/+$/g, '');
+  if (!safeFolder) {
+    const error = new Error('Upload folder is required');
+    error.code = 'IMAGE_UPLOAD_INVALID_FOLDER';
+    error.statusCode = 500;
+    throw error;
+  }
+
+  const base = safeAssetName(fallbackName || filename || 'image');
+  const name = `${base}-${Date.now().toString(36)}.${ext}`;
+  const relative = path.join(safeFolder, name);
+  const publicTarget = path.join(PUBLIC_DIR, relative);
+  fs.mkdirSync(path.dirname(publicTarget), { recursive: true });
+  fs.writeFileSync(publicTarget, buffer);
+
+  if (fs.existsSync(DIST_DIR)) {
+    const distTarget = path.join(DIST_DIR, relative);
+    fs.mkdirSync(path.dirname(distTarget), { recursive: true });
+    fs.writeFileSync(distTarget, buffer);
+  }
+
+  return { url: `/${safeFolder.replace(/\\/g, '/')}/${name}`, filename: name, mime, size: buffer.length };
+}
+
 // admin - upload a team logo into local logo assets
 app.post('/api/admin/teams/logo-upload', async (req, res) => {
   const me = await requireSuperuser(req, res);
@@ -3104,6 +3160,25 @@ app.get('/api/media/articles', async (req, res) => {
     const { data } = await supabase.from('media_articles').select('*').order('published_at', { ascending: false });
     res.json({ articles: data || [] });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// admin/media — upload an article thumbnail into local media assets
+app.post('/api/media/articles/thumbnail-upload', async (req, res) => {
+  const me = await requireAdmin(req, res, 'media');
+  if (!me) return;
+  try {
+    const { filename, data_url, title } = req.body || {};
+    const uploaded = writeUploadedImage({
+      folder: 'media/uploads',
+      filename,
+      dataUrl: data_url,
+      fallbackName: title || filename || 'article-thumbnail',
+      maxBytes: 5 * 1024 * 1024
+    });
+    res.json({ success: true, ...uploaded });
+  } catch (err) {
+    apiError(res, err.statusCode || 500, err.code || 'MEDIA_THUMBNAIL_UPLOAD_FAILED', err.message || String(err));
+  }
 });
 
 // public — single article by id

@@ -32,7 +32,7 @@ export function SharedFooter() {
   return (
     <>
       <style>{`
-        .ofl-shared-footer{background:#05070b;color:#fff;border-top:1px solid rgba(255,255,255,.12);padding:46px 0 34px;margin-top:34px;}
+        .ofl-shared-footer{flex:0 0 auto;background:#05070b;color:#fff;border-top:1px solid rgba(255,255,255,.12);padding:46px 0 34px;margin-top:34px;}
         .ofl-shared-footer .wrap.footer-inner{width:min(1800px,calc(100% - clamp(28px,4vw,80px)));max-width:1800px;min-width:0;margin:0 auto;padding:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:28px;align-items:center;}
         .ofl-shared-footer .footer-brand{display:flex;align-items:center;gap:16px;min-width:0;}
         .ofl-shared-footer .footer-brand img{width:44px;height:44px;object-fit:contain;flex:0 0 auto;}

@@ -3,6 +3,29 @@ import { App } from './App';
 
 const themeStyle = document.createElement('style');
 themeStyle.textContent = `
+  html,
+  body,
+  #root{
+    min-height:100%;
+  }
+  body{
+    min-height:100vh;
+  }
+  #root{
+    display:flex;
+    flex-direction:column;
+    min-height:100vh;
+  }
+  .ofl-app-shell{
+    display:flex;
+    flex-direction:column;
+    min-height:100vh;
+    min-width:0;
+  }
+  .ofl-page-shell{
+    flex:1 0 auto;
+    min-width:0;
+  }
   body[data-theme="dark"]{
     --paper:#111827;
     --paper-2:#182235;
