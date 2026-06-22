@@ -47,6 +47,7 @@ function routeToPage(pathname: string): PageKey | null {
 
   if (path === '/' || path === '/index') return 'home';
   if (path.startsWith('/teams/')) return 'teams';
+  if (path.startsWith('/box-score/')) return 'boxScore';
   if (path.startsWith('/media/article/')) return 'article';
   if (path === '/media/editor') return 'mediaEditor';
 

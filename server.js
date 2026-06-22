@@ -88,6 +88,64 @@ const STAT_KEYS = [
 function normInt(v){ const n=parseInt(v,10); return isNaN(n)?0:(n<0?0:n); }
 function pickStats(body){ const o={}; STAT_KEYS.forEach(k=>{ o[k]=normInt(body[k]); }); return o; }
 
+const BOX_SCORE_COMPARISON_STATS = [
+  { key: 'pass_yards', label: 'Pass Yards' },
+  { key: 'rush_yards', label: 'Rush Yards' },
+  { key: 'rec_yards', label: 'Receiving Yards' },
+  { key: 'pass_td', label: 'Pass TD' },
+  { key: 'rush_td', label: 'Rush TD' },
+  { key: 'rec_td', label: 'Rec TD' },
+  { key: 'pr_sacks', label: 'Sacks' },
+  { key: 'cov_int', label: 'Interceptions' }
+];
+
+function asBoxData(data) {
+  if (!data) return {};
+  if (typeof data === 'string') {
+    try { return JSON.parse(data) || {}; } catch { return {}; }
+  }
+  return data;
+}
+
+function addBoxSlotTotals(target, slot) {
+  Object.values(slot?.players || {}).forEach(stats => {
+    BOX_SCORE_COMPARISON_STATS.forEach(def => {
+      target[def.key] = (target[def.key] || 0) + Number(stats?.[def.key] || 0);
+    });
+  });
+}
+
+function buildBoxScoreComparison(boxes, awayTeamId, homeTeamId) {
+  const totalsByTeam = {};
+  (boxes || []).forEach(row => {
+    const data = asBoxData(row.data);
+    [
+      { teamId: row.team1_id, slot: data.team1 },
+      { teamId: row.team2_id, slot: data.team2 }
+    ].forEach(({ teamId, slot }) => {
+      if (!teamId) return;
+      if (!totalsByTeam[teamId]) totalsByTeam[teamId] = {};
+      addBoxSlotTotals(totalsByTeam[teamId], slot);
+    });
+  });
+
+  const teamTotals = Object.values(totalsByTeam);
+  return {
+    stats: BOX_SCORE_COMPARISON_STATS.map(def => {
+      const awayValue = Number(totalsByTeam[awayTeamId]?.[def.key] || 0);
+      const homeValue = Number(totalsByTeam[homeTeamId]?.[def.key] || 0);
+      const awayRank = teamTotals.filter(row => Number(row[def.key] || 0) > awayValue).length + 1;
+      const homeRank = teamTotals.filter(row => Number(row[def.key] || 0) > homeValue).length + 1;
+      return {
+        key: def.key,
+        label: def.label,
+        away: { value: awayValue, rank: awayRank },
+        home: { value: homeValue, rank: homeRank }
+      };
+    })
+  };
+}
+
 // ─────────────────────────────────────────────
 //  BOX SCORE CSV PARSING
 // ─────────────────────────────────────────────
@@ -433,11 +491,14 @@ async function getRequester(req) {
 }
 
 // Compute a profile's effective admin tabs.
-// Superusers are permanent, but a saved non-empty admin_tabs list can narrow the
-// admin panel tabs they see. Empty tabs falls back to full access for legacy rows.
+// Superusers can be permanent by username or stored in admin_tabs. Saved non-empty
+// admin_tabs can narrow the admin panel tabs they see. Empty tabs falls back to
+// full access for legacy superuser rows.
 function effectiveTabs(profile) {
-  const isSuper = SUPERUSERS.has((profile.roblox_username || '').trim().toLowerCase());
-  let tabs = Array.isArray(profile.admin_tabs) ? profile.admin_tabs.slice() : [];
+  const savedTabs = Array.isArray(profile.admin_tabs) ? profile.admin_tabs.slice() : [];
+  const isStoredSuper = savedTabs.includes('superuser');
+  const isSuper = SUPERUSERS.has((profile.roblox_username || '').trim().toLowerCase()) || isStoredSuper;
+  let tabs = savedTabs.filter(t => ALL_ADMIN_TABS.includes(t));
   if (isSuper && tabs.length === 0) tabs = ALL_ADMIN_TABS.slice();
   return { tabs, isSuper, isAdmin: isSuper || tabs.length > 0 };
 }
@@ -914,10 +975,23 @@ app.post('/api/admin/grant', async (req, res) => {
   try {
     const { profileId, tabs } = req.body;
     if (!profileId) return res.status(400).json({ error: 'profileId required' });
-    const clean = Array.isArray(tabs) ? tabs.filter(t => ALL_ADMIN_TABS.includes(t)) : [];
+    const incoming = Array.isArray(tabs) ? tabs : [];
+    const wantsSuperuser = incoming.includes('superuser');
+    const clean = incoming.filter(t => ALL_ADMIN_TABS.includes(t));
+    const { data: existing, error: existingError } = await supabase
+      .from('user_profiles')
+      .select('id, roblox_username, admin_tabs')
+      .eq('id', profileId)
+      .single();
+    if (existingError) throw existingError;
+    const existingAccess = effectiveTabs(existing);
+    if (existingAccess.isSuper) {
+      return apiError(res, 403, 'SUPERUSER_PERMISSION_LOCKED', 'Superuser permissions cannot be edited from this panel');
+    }
+    const nextTabs = wantsSuperuser ? ['superuser', ...clean] : clean;
     const { data, error } = await supabase
       .from('user_profiles')
-      .update({ admin_tabs: clean })
+      .update({ admin_tabs: nextTabs })
       .eq('id', profileId).select().single();
     if (error) throw error;
     res.json({ success: true, profile: data });
@@ -933,6 +1007,15 @@ app.post('/api/admin/revoke', async (req, res) => {
   try {
     const { profileId } = req.body;
     if (!profileId) return res.status(400).json({ error: 'profileId required' });
+    const { data: existing, error: existingError } = await supabase
+      .from('user_profiles')
+      .select('id, roblox_username, admin_tabs')
+      .eq('id', profileId)
+      .single();
+    if (existingError) throw existingError;
+    if (effectiveTabs(existing).isSuper) {
+      return apiError(res, 403, 'SUPERUSER_DEMOTION_BLOCKED', 'Superuser access cannot be removed from this panel');
+    }
 
     await supabase.from('user_profiles').update({ admin_tabs: [] }).eq('id', profileId);
     res.json({ success: true });
@@ -983,7 +1066,7 @@ app.get('/api/teams/:slug', async (req, res) => {
       });
     }
     const TEAM_CAP = 100_000_000;
-    const DPP_MIN = 15, NON_DPP_MIN = 12, ROSTER_MAX = 40, DPP_ESTABLISHED_MAX = 3;
+    const DPP_MIN = 17, NON_DPP_MIN = 14, ROSTER_MAX = 40, DPP_ESTABLISHED_MAX = 3;
 
     // join with registry for eligibility
     const regPlayers = await fetchAll(
@@ -1253,6 +1336,99 @@ async function ensureBoxScoresTable() {
   const { error } = await supabase.from('box_scores').select('id').limit(1);
   if (isMissingSupabaseTable(error, 'box_scores')) throw missingBoxScoresError();
   if (error) throw error;
+}
+
+async function ensureBoxScoreForCompletedGame(gameId) {
+  await ensureBoxScoresTable();
+  const { data: existingBox, error: existingBoxError } = await supabase
+    .from('box_scores')
+    .select('*')
+    .eq('game_id', gameId)
+    .maybeSingle();
+  if (existingBoxError) throw existingBoxError;
+  if (existingBox) return existingBox;
+
+  const { data: game, error: gameError } = await supabase
+    .from('games')
+    .select('*')
+    .eq('id', gameId)
+    .single();
+  if (gameError || !game) {
+    const error = new Error('Game not found');
+    error.statusCode = 404;
+    error.code = 'GAME_NOT_FOUND';
+    throw error;
+  }
+  if (game.home_score == null || game.away_score == null) {
+    const error = new Error('Only completed games can be connected to highlights');
+    error.statusCode = 400;
+    error.code = 'HIGHLIGHT_GAME_NOT_COMPLETED';
+    throw error;
+  }
+
+  const teamIds = [game.away_team_id, game.home_team_id].filter(Boolean);
+  const { data: teams, error: teamsError } = await supabase
+    .from('teams')
+    .select('id,name')
+    .in('id', teamIds);
+  if (teamsError) throw teamsError;
+  const teamById = {};
+  (teams || []).forEach(team => { teamById[team.id] = team; });
+
+  const { data: box, error: insertError } = await supabase.from('box_scores').insert({
+    game_id: game.id,
+    team1_id: game.away_team_id || null,
+    team2_id: game.home_team_id || null,
+    team1_name: teamById[game.away_team_id]?.name || null,
+    team2_name: teamById[game.home_team_id]?.name || null,
+    data: {
+      team1: { teamName: teamById[game.away_team_id]?.name || null, players: {} },
+      team2: { teamName: teamById[game.home_team_id]?.name || null, players: {} },
+      meta: { highlight_only: true, updates_player_totals: false }
+    }
+  }).select().single();
+  if (insertError) throw insertError;
+  return box;
+}
+
+async function assertHighlightGameAvailable(gameId, currentVideoId = null) {
+  if (!gameId) return null;
+  const { data: game, error: gameError } = await supabase
+    .from('games')
+    .select('*')
+    .eq('id', gameId)
+    .single();
+  if (gameError || !game) {
+    const error = new Error('Game not found');
+    error.statusCode = 404;
+    error.code = 'GAME_NOT_FOUND';
+    throw error;
+  }
+  if (game.home_score == null || game.away_score == null) {
+    const error = new Error('Only completed games can be connected to highlights');
+    error.statusCode = 400;
+    error.code = 'HIGHLIGHT_GAME_NOT_COMPLETED';
+    throw error;
+  }
+  const { data: linked, error: linkedError } = await supabase
+    .from('media_videos')
+    .select('id')
+    .eq('game_id', gameId);
+  if (isMissingSupabaseColumn(linkedError, 'game_id')) {
+    const error = new Error('Database setup needed: add game_id to public.media_videos. Run the media game highlights SQL migration.');
+    error.statusCode = 500;
+    error.code = 'MEDIA_VIDEO_GAME_ID_MISSING';
+    throw error;
+  }
+  if (linkedError) throw linkedError;
+  const other = (linked || []).find(video => String(video.id) !== String(currentVideoId || ''));
+  if (other) {
+    const error = new Error('That game already has a connected highlight');
+    error.statusCode = 409;
+    error.code = 'HIGHLIGHT_GAME_ALREADY_CONNECTED';
+    throw error;
+  }
+  return game;
 }
 
 async function removeImportedStatsForGame(gameId, { requireBoxScores = false } = {}) {
@@ -1748,7 +1924,7 @@ app.post('/api/admin/games', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
   try {
-    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score, point_value } = req.body;
+    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score, point_value, twitch_url } = req.body;
     if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
     if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
     const hs = normScore(home_score), as = normScore(away_score);
@@ -1759,7 +1935,8 @@ app.post('/api/admin/games', async (req, res) => {
       game_time: (game_time || '').trim() || null,
       home_team_id, away_team_id,
       home_score: hs, away_score: as,
-      point_value: pv
+      point_value: pv,
+      twitch_url: (twitch_url || '').trim() || null
     }).select().single();
     if (error) throw error;
     res.json({ success: true, game: data });
@@ -1773,7 +1950,7 @@ app.put('/api/admin/games/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
   try {
-    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score, point_value } = req.body;
+    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score, point_value, twitch_url } = req.body;
     if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
     if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
     const hs = normScore(home_score), as = normScore(away_score);
@@ -1784,7 +1961,8 @@ app.put('/api/admin/games/:id', async (req, res) => {
       game_time: (game_time || '').trim() || null,
       home_team_id, away_team_id,
       home_score: hs, away_score: as,
-      point_value: pv
+      point_value: pv,
+      twitch_url: (twitch_url || '').trim() || null
     }).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json({ success: true, game: data });
@@ -1981,14 +2159,19 @@ async function importParsedGameStats({ players, game_id, team1_id, team2_id, tea
 
   await ensureBoxScoresTable();
 
+  let existingHighlightOnlyBox = null;
   if (game_id) {
-    const { data: existingBox, error: existingBoxError } = await supabase.from('box_scores').select('id').eq('game_id', game_id).maybeSingle();
+    const { data: existingBox, error: existingBoxError } = await supabase.from('box_scores').select('*').eq('game_id', game_id).maybeSingle();
     if (existingBoxError) throw existingBoxError;
     if (existingBox) {
-      const error = new Error('Stats have already been imported for this game. Remove them before importing again.');
-      error.statusCode = 409;
-      error.details = ['This game already has a stored box score. Use Remove Stats on the game card before importing a replacement CSV.'];
-      throw error;
+      if (existingBox.data?.meta?.highlight_only === true) {
+        existingHighlightOnlyBox = existingBox;
+      } else {
+        const error = new Error('Stats have already been imported for this game. Remove them before importing again.');
+        error.statusCode = 409;
+        error.details = ['This game already has a stored box score. Use Remove Stats on the game card before importing a replacement CSV.'];
+        throw error;
+      }
     }
   }
 
@@ -2039,14 +2222,18 @@ async function importParsedGameStats({ players, game_id, team1_id, team2_id, tea
     boxData[slot].players[username] = deltas;
   }
 
-  const { data: box, error } = await supabase.from('box_scores').insert({
+  const boxRow = {
     game_id: game_id || null,
     team1_name: team1_name || null,
     team2_name: team2_name || null,
     team1_id: team1_id || null,
     team2_id: team2_id || null,
     data: { ...boxData, meta: { phase: statPhase, updates_player_totals: updatesPlayerTotals } }
-  }).select().single();
+  };
+  const query = existingHighlightOnlyBox
+    ? supabase.from('box_scores').update(boxRow).eq('id', existingHighlightOnlyBox.id)
+    : supabase.from('box_scores').insert(boxRow);
+  const { data: box, error } = await query.select().single();
   if (error) throw error;
   return box;
 }
@@ -2181,6 +2368,64 @@ app.get('/api/box-scores/:id', async (req, res) => {
   }
 });
 
+// public — fetch the stored box score for a game, with teams and player avatars
+app.get('/api/games/:id/box-score', async (req, res) => {
+  try {
+    const { data: game, error: gameError } = await supabase.from('games').select('*').eq('id', req.params.id).single();
+    if (gameError || !game) return apiError(res, 404, 'GAME_NOT_FOUND', 'Game not found');
+
+    const { data: box, error: boxError } = await supabase.from('box_scores').select('*').eq('game_id', req.params.id).maybeSingle();
+    if (isMissingSupabaseTable(boxError, 'box_scores')) return apiError(res, 404, 'BOX_SCORE_STORAGE_MISSING', 'Box score storage is not set up yet');
+    if (boxError) throw boxError;
+    if (!box) return apiError(res, 404, 'BOX_SCORE_NOT_FOUND', 'No box score has been imported for this game yet');
+
+    const { data: teams, error: teamsError } = await supabase.from('teams').select('*');
+    if (teamsError) throw teamsError;
+    const [gameWithTeams] = attachTeams([game], teams || []);
+
+    const usernameSet = new Set();
+    ['team1', 'team2'].forEach(slot => {
+      Object.keys(box.data?.[slot]?.players || {}).forEach(username => usernameSet.add(String(username).toLowerCase()));
+    });
+    const { data: players, error: playersError } = await supabase
+      .from('players')
+      .select('id, roblox_username, avatar_url, team_id, offensive_position, defensive_position, jersey_number');
+    if (playersError) throw playersError;
+
+    const playerMap = {};
+    (players || []).forEach(player => {
+      const key = String(player.roblox_username || '').toLowerCase();
+      if (usernameSet.has(key)) playerMap[key] = player;
+    });
+
+    let highlight = null;
+    const { data: linkedHighlight, error: highlightError } = await supabase
+      .from('media_videos')
+      .select('*')
+      .eq('game_id', req.params.id)
+      .order('published_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (highlightError && !isMissingSupabaseColumn(highlightError, 'game_id')) throw highlightError;
+    if (linkedHighlight) highlight = { ...linkedHighlight, youtube_id: extractYouTubeId(linkedHighlight.youtube_url) };
+
+    const { data: allBoxes, error: allBoxesError } = await supabase
+      .from('box_scores')
+      .select('team1_id, team2_id, data');
+    if (allBoxesError) throw allBoxesError;
+
+    res.json({
+      game: gameWithTeams,
+      box_score: box,
+      players: playerMap,
+      highlight,
+      comparison: buildBoxScoreComparison(allBoxes || [], game.away_team_id, game.home_team_id)
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // public — list box scores (most recent first)
 app.get('/api/box-scores', async (req, res) => {
   try {
@@ -2223,11 +2468,78 @@ app.get('/api/seasons/:season', async (req, res) => {
 app.get('/api/players', async (req, res) => {
   try {
     const q = String(req.query.q || '').trim();
+    const includeRegistry = String(req.query.include_registry || '').trim() === '1';
     const rawLimit = Number.parseInt(String(req.query.limit || '0'), 10);
     const rawOffset = Number.parseInt(String(req.query.offset || '0'), 10);
     const usePaging = Number.isFinite(rawLimit) && rawLimit > 0;
     const limit = usePaging ? Math.min(Math.max(rawLimit, 1), 100) : null;
     const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? rawOffset : 0;
+
+    if (includeRegistry) {
+      const registryRows = await fetchAll(
+        supabase.from('league_players').select('*').order('cap_value', { ascending: false }).order('roblox_username')
+      );
+      const rosterRows = await fetchAll(
+        supabase.from('players').select('*').order('roblox_username')
+      );
+      const teamsResult = await withTimeout(
+        supabase.from('teams').select('*'),
+        8000,
+        'TEAMS_LOAD_TIMEOUT',
+        'Timed out while loading teams from Supabase'
+      );
+      if (teamsResult.error) {
+        return apiError(res, 500, 'TEAMS_LOAD_FAILED', teamsResult.error.message, teamsResult.error.details);
+      }
+
+      const teamMap = {};
+      (teamsResult.data || []).forEach(t => {
+        teamMap[t.id] = { id: t.id, name: t.name, abbreviation: t.abbreviation, logo_url: t.logo_url, primary_color: t.primary_color, secondary_color: t.secondary_color };
+      });
+      const rosterMap = {};
+      (rosterRows || []).forEach(p => { rosterMap[String(p.roblox_username || '').toLowerCase()] = p; });
+      const registryMap = {};
+      const combined = [];
+      (registryRows || []).forEach(row => {
+        const key = String(row.roblox_username || '').toLowerCase();
+        registryMap[key] = row;
+        const roster = rosterMap[key] || {};
+        combined.push({
+          ...roster,
+          ...row,
+          id: roster.id || row.id,
+          roblox_username: row.roblox_username || roster.roblox_username,
+          avatar_url: roster.avatar_url || row.avatar_url || null,
+          roblox_user_id: roster.roblox_user_id || row.roblox_user_id || null,
+          eligibility: row.eligibility || roster.eligibility || null,
+          position_tag: row.position_tag || roster.position || null,
+          cap_value: Number(row.cap_value || roster.cap_value || 0),
+          team_id: roster.team_id || null,
+          team: roster.team_id ? (teamMap[roster.team_id] || null) : null
+        });
+      });
+      (rosterRows || []).forEach(roster => {
+        const key = String(roster.roblox_username || '').toLowerCase();
+        if (registryMap[key]) return;
+        combined.push({
+          ...roster,
+          eligibility: roster.eligibility || null,
+          position_tag: roster.position_tag || roster.position || null,
+          cap_value: Number(roster.cap_value || 0),
+          team: roster.team_id ? (teamMap[roster.team_id] || null) : null
+        });
+      });
+
+      const filtered = q ? combined.filter(p => String(p.roblox_username || '').toLowerCase().includes(q.toLowerCase())) : combined;
+      return res.json({
+        players: filtered,
+        total: filtered.length,
+        limit: null,
+        offset: 0,
+        has_more: false
+      });
+    }
+
     let playersQuery = supabase.from('players').select('*', { count: 'exact' }).order('roblox_username');
     if (q) playersQuery = playersQuery.ilike('roblox_username', `%${q}%`);
     if (limit) playersQuery = playersQuery.range(offset, offset + limit - 1);
@@ -3150,8 +3462,63 @@ function extractYouTubeId(url) {
 app.get('/api/media/videos', async (req, res) => {
   try {
     const { data } = await supabase.from('media_videos').select('*').order('published_at', { ascending: false });
-    res.json({ videos: (data || []).map(v => ({ ...v, youtube_id: extractYouTubeId(v.youtube_url) })) });
+    const gameIds = [...new Set((data || []).map(video => video.game_id).filter(Boolean))];
+    let gameMap = {};
+    if (gameIds.length) {
+      const { data: games } = await supabase.from('games').select('*').in('id', gameIds);
+      const { data: teams } = await supabase.from('teams').select('*');
+      attachTeams(games || [], teams || []).forEach(game => { gameMap[game.id] = game; });
+    }
+    res.json({ videos: (data || []).map(v => ({ ...v, youtube_id: extractYouTubeId(v.youtube_url), game: v.game_id ? (gameMap[v.game_id] || null) : null })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// admin/media — completed games that can have one highlight connected
+app.get('/api/media/highlight-games', async (req, res) => {
+  const me = await requireAdmin(req, res, 'media');
+  if (!me) return;
+  try {
+    const includeVideoId = String(req.query.include_video_id || '').trim();
+    const { data: videos, error: videosError } = await supabase
+      .from('media_videos')
+      .select('id, game_id')
+      .not('game_id', 'is', null);
+    if (isMissingSupabaseColumn(videosError, 'game_id')) {
+      return apiError(res, 500, 'MEDIA_VIDEO_GAME_ID_MISSING', 'Run the media game highlights SQL migration before connecting highlights to games.');
+    }
+    if (videosError) throw videosError;
+
+    const unavailable = new Set();
+    (videos || []).forEach(video => {
+      if (video.game_id && String(video.id) !== includeVideoId) unavailable.add(String(video.game_id));
+    });
+
+    const { data: games, error: gamesError } = await supabase
+      .from('games')
+      .select('*')
+      .not('home_score', 'is', null)
+      .not('away_score', 'is', null)
+      .order('game_date', { ascending: false });
+    if (gamesError) throw gamesError;
+    const { data: teams, error: teamsError } = await supabase.from('teams').select('*');
+    if (teamsError) throw teamsError;
+
+    const rows = attachTeams(games || [], teams || [])
+      .filter(game => !unavailable.has(String(game.id)))
+      .map(game => ({
+        id: game.id,
+        week: game.week,
+        game_date: game.game_date,
+        game_time: game.game_time,
+        home_score: game.home_score,
+        away_score: game.away_score,
+        home_team: game.home_team,
+        away_team: game.away_team
+      }));
+    res.json({ games: rows });
+  } catch (err) {
+    apiError(res, err.statusCode || 500, err.code || 'HIGHLIGHT_GAMES_LOAD_FAILED', err.message || String(err));
+  }
 });
 
 // public — all articles (newest first)
@@ -3195,20 +3562,76 @@ app.post('/api/media/videos', async (req, res) => {
   const me = await requireAdmin(req, res, 'media');
   if (!me) return;
   try {
-    const { title, youtube_url, description, team_tag, week_tag } = req.body;
+    const { title, youtube_url, description, week_tag, game_id } = req.body;
     if (!title || !youtube_url) return res.status(400).json({ error: 'Title and YouTube URL required' });
     const youtube_id = extractYouTubeId(youtube_url);
     if (!youtube_id) return res.status(400).json({ error: 'Invalid YouTube URL' });
-    const { data, error } = await supabase.from('media_videos').insert({
+    const linkedGameId = (game_id || '').trim() || null;
+    if (linkedGameId) {
+      await assertHighlightGameAvailable(linkedGameId);
+      await ensureBoxScoreForCompletedGame(linkedGameId);
+    }
+    const insertRow = {
       title: title.trim(), youtube_url: youtube_url.trim(),
       description: description?.trim() || null,
-      team_tag: team_tag?.trim() || null,
       week_tag: week_tag?.trim() || null,
       posted_by: me.roblox_username || null
-    }).select().single();
+    };
+    if (linkedGameId) insertRow.game_id = linkedGameId;
+    const { data, error } = await supabase.from('media_videos').insert(insertRow).select().single();
+    if (isMissingSupabaseColumn(error, 'posted_by')) {
+      return apiError(res, 500, 'MEDIA_POSTED_BY_MISSING', 'Run supabase/2026-06-20_media_game_highlights.sql to add media ownership columns, then retry.');
+    }
+    if (isMissingSupabaseColumn(error, 'game_id')) {
+      return apiError(res, 500, 'MEDIA_VIDEO_GAME_ID_MISSING', 'Run supabase/2026-06-20_media_game_highlights.sql before connecting highlights to games.');
+    }
     if (error) throw error;
     res.json({ success: true, video: { ...data, youtube_id } });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { apiError(res, err.statusCode || 500, err.code || 'MEDIA_VIDEO_CREATE_FAILED', err.message || String(err)); }
+});
+
+// admin/media — update a highlight's game connection
+app.put('/api/media/videos/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'media');
+  if (!me) return;
+  try {
+    const { game_id } = req.body || {};
+    const { data: video, error: videoError } = await supabase
+      .from('media_videos')
+      .select('id, posted_by')
+      .eq('id', req.params.id)
+      .maybeSingle();
+    if (isMissingSupabaseColumn(videoError, 'posted_by')) {
+      return apiError(res, 500, 'MEDIA_POSTED_BY_MISSING', 'Run supabase/2026-06-20_media_game_highlights.sql to add media ownership columns, then retry.');
+    }
+    if (videoError) throw videoError;
+    if (!video) return apiError(res, 404, 'MEDIA_VIDEO_NOT_FOUND', 'Highlight not found');
+
+    const { tabs, isSuper } = effectiveTabs(me);
+    const isFullAdmin = isSuper || tabs.includes('access') || tabs.includes('teams');
+    const isOwner = video.posted_by && video.posted_by.toLowerCase() === (me.roblox_username || '').toLowerCase();
+    if (!isOwner && !isFullAdmin) return apiError(res, 403, 'MEDIA_VIDEO_UPDATE_FORBIDDEN', 'You can only edit your own highlights');
+
+    const linkedGameId = (game_id || '').trim() || null;
+    if (linkedGameId) {
+      await assertHighlightGameAvailable(linkedGameId, req.params.id);
+      await ensureBoxScoreForCompletedGame(linkedGameId);
+    }
+
+    const { data, error } = await supabase
+      .from('media_videos')
+      .update({ game_id: linkedGameId })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+    if (isMissingSupabaseColumn(error, 'game_id')) {
+      return apiError(res, 500, 'MEDIA_VIDEO_GAME_ID_MISSING', 'Run the media game highlights SQL migration before connecting highlights to games.');
+    }
+    if (error) throw error;
+    res.json({ success: true, video: { ...data, youtube_id: extractYouTubeId(data.youtube_url) } });
+  } catch (err) {
+    apiError(res, err.statusCode || 500, err.code || 'MEDIA_VIDEO_UPDATE_FAILED', err.message || String(err));
+  }
 });
 
 // admin/media — delete a video (own posts or full admin)
@@ -3216,7 +3639,11 @@ app.delete('/api/media/videos/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'media');
   if (!me) return;
   try {
-    const { data: video } = await supabase.from('media_videos').select('posted_by').eq('id', req.params.id).maybeSingle();
+    const { data: video, error: videoError } = await supabase.from('media_videos').select('posted_by').eq('id', req.params.id).maybeSingle();
+    if (isMissingSupabaseColumn(videoError, 'posted_by')) {
+      return apiError(res, 500, 'MEDIA_POSTED_BY_MISSING', 'Run supabase/2026-06-20_media_game_highlights.sql to add media ownership columns, then retry.');
+    }
+    if (videoError) throw videoError;
     if (!video) return res.status(404).json({ error: 'Not found' });
     const { tabs, isSuper } = effectiveTabs(me);
     const isFullAdmin = isSuper || tabs.includes('access') || tabs.includes('teams');
@@ -3241,6 +3668,9 @@ app.post('/api/media/articles', async (req, res) => {
       thumbnail_url: thumbnail_url?.trim() || null,
       posted_by: me.roblox_username || null
     }).select().single();
+    if (isMissingSupabaseColumn(error, 'posted_by')) {
+      return apiError(res, 500, 'MEDIA_POSTED_BY_MISSING', 'Run supabase/2026-06-20_media_game_highlights.sql to add media ownership columns, then retry.');
+    }
     if (error) throw error;
     res.json({ success: true, article: data });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -3251,7 +3681,11 @@ app.delete('/api/media/articles/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'media');
   if (!me) return;
   try {
-    const { data: article } = await supabase.from('media_articles').select('posted_by').eq('id', req.params.id).maybeSingle();
+    const { data: article, error: articleError } = await supabase.from('media_articles').select('posted_by').eq('id', req.params.id).maybeSingle();
+    if (isMissingSupabaseColumn(articleError, 'posted_by')) {
+      return apiError(res, 500, 'MEDIA_POSTED_BY_MISSING', 'Run supabase/2026-06-20_media_game_highlights.sql to add media ownership columns, then retry.');
+    }
+    if (articleError) throw articleError;
     if (!article) return res.status(404).json({ error: 'Not found' });
     const { tabs, isSuper } = effectiveTabs(me);
     const isFullAdmin = isSuper || tabs.includes('access') || tabs.includes('teams');
