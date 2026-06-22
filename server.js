@@ -2046,9 +2046,39 @@ async function removeImportedStatsForGame(gameId, { requireBoxScores = false } =
   const usernames = boxScoreRows(box).map(row => row.username).filter(Boolean);
   await adjustPlayerTotalsForBox(box, -1);
 
+  const { data: linkedHighlights, error: linkedHighlightsError } = await supabase
+    .from('media_videos')
+    .select('id')
+    .eq('game_id', gameId)
+    .limit(1);
+  if (linkedHighlightsError && !isMissingSupabaseColumn(linkedHighlightsError, 'game_id')) throw linkedHighlightsError;
+  const hasLinkedHighlight = !linkedHighlightsError && (linkedHighlights || []).length > 0;
+
+  if (hasLinkedHighlight) {
+    const current = asBoxData(box.data);
+    const resetData = {
+      team1: { teamName: box.team1_name || current.team1?.teamName || null, players: {} },
+      team2: { teamName: box.team2_name || current.team2?.teamName || null, players: {} },
+      meta: {
+        ...(current.meta || {}),
+        highlight_only: true,
+        finalized: false,
+        draft: false,
+        updates_player_totals: false,
+        stats_reset_at: new Date().toISOString()
+      }
+    };
+    const { error: updateError } = await supabase
+      .from('box_scores')
+      .update({ data: resetData })
+      .eq('id', box.id);
+    if (updateError) throw updateError;
+    return { hadStats: true, removed: usernames.length, preservedHighlightPage: true };
+  }
+
   const { error: deleteError } = await supabase.from('box_scores').delete().eq('id', box.id);
   if (deleteError) throw deleteError;
-  return { hadStats: true, removed: usernames.length };
+  return { hadStats: true, removed: usernames.length, preservedHighlightPage: false };
 }
 
 function missingDiscordTransactionsError() {
@@ -2181,14 +2211,19 @@ app.get('/api/games', async (req, res) => {
     (boxes || []).forEach(box => {
       if (box.game_id && !boxByGame[box.game_id]) boxByGame[box.game_id] = box;
     });
-    const rows = attachTeams(games || [], teams || []).map(game => ({
-      ...game,
-      stats_imported: Boolean(boxByGame[game.id]),
-      box_score_id: boxByGame[game.id]?.id || null,
-      stats_imported_at: boxByGame[game.id]?.created_at || null,
-      stats_finalized: asBoxData(boxByGame[game.id]?.data)?.meta?.finalized === true,
-      stats_draft: Boolean(boxByGame[game.id]) && asBoxData(boxByGame[game.id]?.data)?.meta?.finalized !== true
-    }));
+    const rows = attachTeams(games || [], teams || []).map(game => {
+      const box = boxByGame[game.id] || null;
+      const boxMeta = asBoxData(box?.data)?.meta || {};
+      const hasImportedStats = Boolean(box) && boxMeta.highlight_only !== true;
+      return {
+        ...game,
+        stats_imported: hasImportedStats,
+        box_score_id: box?.id || null,
+        stats_imported_at: hasImportedStats ? box?.created_at || null : null,
+        stats_finalized: hasImportedStats && boxMeta.finalized === true,
+        stats_draft: hasImportedStats && boxMeta.finalized !== true
+      };
+    });
     const weeks = await listLeagueWeeksWithFallback(rows);
     const activeWeek = await getLeagueSetting('active_week');
     res.json({ games: rows, weeks, settings: { active_week: activeWeek } });
