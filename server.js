@@ -247,6 +247,45 @@ function normalizeImportedPosition(value) {
 
 const OFFENSIVE_POSITIONS = ['QB', 'RB', 'FB', 'WR', 'TE', 'OL', 'C', 'G', 'OG', 'T', 'OT', 'LT', 'RT', 'LG', 'RG', 'K', 'P', 'ATH', ''];
 const DEFENSIVE_POSITIONS = ['DL', 'DE', 'DT', 'NT', 'EDGE', 'LB', 'OLB', 'MLB', 'ILB', 'CB', 'DB', 'DCB', 'S', 'FS', 'SS', 'SAF', 'ATH', ''];
+const DB_OFFENSIVE_POSITION_MAP = {
+  QB: 'QB',
+  RB: 'RB',
+  FB: 'RB',
+  WR: 'WR',
+  TE: 'TE',
+  OL: 'OL',
+  C: 'OL',
+  G: 'OL',
+  OG: 'OL',
+  T: 'OL',
+  OT: 'OL',
+  LT: 'OL',
+  RT: 'OL',
+  LG: 'OL',
+  RG: 'OL',
+  K: 'K',
+  P: 'P',
+  ATH: 'ATH'
+};
+const DB_DEFENSIVE_POSITION_MAP = {
+  DL: 'DL',
+  DE: 'DL',
+  DT: 'DL',
+  NT: 'DL',
+  EDGE: 'DL',
+  LB: 'LB',
+  OLB: 'LB',
+  MLB: 'LB',
+  ILB: 'LB',
+  CB: 'CB',
+  DB: 'CB',
+  DCB: 'CB',
+  S: 'S',
+  FS: 'S',
+  SS: 'S',
+  SAF: 'S',
+  ATH: 'ATH'
+};
 
 function isOffensivePosition(value) {
   const position = normalizeImportedPosition(value);
@@ -256,6 +295,16 @@ function isOffensivePosition(value) {
 function isDefensivePosition(value) {
   const position = normalizeImportedPosition(value);
   return DEFENSIVE_POSITIONS.includes(position);
+}
+
+function dbOffensivePosition(value) {
+  const position = normalizeImportedPosition(value);
+  return DB_OFFENSIVE_POSITION_MAP[position] || '';
+}
+
+function dbDefensivePosition(value) {
+  const position = normalizeImportedPosition(value);
+  return DB_DEFENSIVE_POSITION_MAP[position] || '';
 }
 
 function hasAnyStats(stats, keys) {
@@ -1057,8 +1106,9 @@ app.patch('/api/me/settings', async (req, res) => {
       if (!isOffensivePosition(offensivePosition)) {
         return apiError(res, 400, 'PROFILE_INVALID_OFFENSIVE_POSITION', 'offensive_position must be a valid offensive position or blank');
       }
-      playerUpdates.offensive_position = offensivePosition || null;
-      playerUpdates.position = offensivePosition || null;
+      const dbPosition = dbOffensivePosition(offensivePosition);
+      playerUpdates.offensive_position = dbPosition || null;
+      playerUpdates.position = dbPosition || null;
     }
 
     if (req.body.defensive_position !== undefined) {
@@ -1066,7 +1116,7 @@ app.patch('/api/me/settings', async (req, res) => {
       if (!isDefensivePosition(defensivePosition)) {
         return apiError(res, 400, 'PROFILE_INVALID_DEFENSIVE_POSITION', 'defensive_position must be a valid defensive position or blank');
       }
-      playerUpdates.defensive_position = defensivePosition || null;
+      playerUpdates.defensive_position = dbDefensivePosition(defensivePosition) || null;
     }
 
     if (req.body.jersey_number !== undefined) {
@@ -2163,11 +2213,15 @@ async function adjustPlayerTotalsForRows(rows, direction = 1, { updateTeam = fal
       const rowHasDefense = hasDefensiveStats(deltas);
       const rowHasOffense = hasOffensiveStats(deltas);
       if ((rowHasDefense || (isDefensivePosition(positions.position) && !rowHasOffense)) && (positions.defensive_position || isDefensivePosition(positions.position))) {
-        update.defensive_position = positions.defensive_position || positions.position;
+        const defensiveProfilePosition = dbDefensivePosition(positions.defensive_position || positions.position);
+        if (defensiveProfilePosition) update.defensive_position = defensiveProfilePosition;
       }
       if ((rowHasOffense || (isOffensivePosition(positions.position) && !rowHasDefense)) && (positions.offensive_position || isOffensivePosition(positions.position))) {
-        update.offensive_position = positions.offensive_position || positions.position;
-        update.position = positions.offensive_position || positions.position;
+        const offensiveProfilePosition = dbOffensivePosition(positions.offensive_position || positions.position);
+        if (offensiveProfilePosition) {
+          update.offensive_position = offensiveProfilePosition;
+          update.position = offensiveProfilePosition;
+        }
       }
     }
     if (direction > 0 && updateTeam && row.team_id && row.team_id !== player.team_id) {
