@@ -275,6 +275,20 @@ function hasOffensiveStats(stats) {
   ]);
 }
 
+function statRowPositions(row = {}) {
+  const stats = row.stats || row || {};
+  const offensivePosition = normalizeImportedPosition(row.offensive_position || row.offense_position || stats.offensive_position || stats.offense_position);
+  const defensivePosition = normalizeImportedPosition(row.defensive_position || row.defense_position || stats.defensive_position || stats.defense_position);
+  const genericPosition = normalizeImportedPosition(row.position || row.pos || stats.position || stats.pos);
+  const rowHasDefense = hasDefensiveStats(stats);
+  const rowHasOffense = hasOffensiveStats(stats);
+  return {
+    offensive_position: offensivePosition || (rowHasOffense && isOffensivePosition(genericPosition) ? genericPosition : ''),
+    defensive_position: defensivePosition || (rowHasDefense && isDefensivePosition(genericPosition) ? genericPosition : ''),
+    position: genericPosition || offensivePosition || defensivePosition
+  };
+}
+
 // Parse a single-category CSV paste into rows of { username, stats: {key: value} }.
 // Tolerant of stray section/team-name rows above the header.
 function parseCategoryCSV(text, category) {
@@ -357,10 +371,15 @@ function parseTeamBlock(rows, c0, c1, r0) {
     if (!players[username]) players[username] = {};
     players[username][key] = (players[username][key] || 0) + (normFloat(value) || 0);
   }
-  function addPosition(username, value) {
+  function addPosition(username, value, section) {
     const position = normalizeImportedPosition(value);
     if (!username || !position) return;
     if (!players[username]) players[username] = {};
+    if (section === 'DEFENSE') {
+      if (!players[username].defensive_position) players[username].defensive_position = position;
+    } else {
+      if (!players[username].offensive_position) players[username].offensive_position = position;
+    }
     if (!players[username].position) players[username].position = position;
   }
   function normFloat(v) {
@@ -401,7 +420,7 @@ function parseTeamBlock(rows, c0, c1, r0) {
         if (KNOWN_SECTIONS.includes(nextLabel) || nextLabel === 'QB THROWAWAYS') break;
         const username = (pr[usernameCol] || '').trim();
         if (username) {
-          if (posCol != null) addPosition(username, pr[posCol]);
+          if (posCol != null) addPosition(username, pr[posCol], section);
           for (const [colIdx, key] of Object.entries(idxToKey)) {
             addStat(username, key, pr[colIdx]);
           }
@@ -1968,34 +1987,47 @@ function boxScoreRows(box) {
   if (rowLike) {
     return rowLike.map(row => {
       const side = Number(row?.side || row?.team_side) === 2 ? 2 : 1;
+      const positions = statRowPositions(row);
       return {
         username: displayUsername(row?.username || row?.roblox_username || row?.player_username || row?.name),
         team_id: row?.team_id || (side === 2 ? box?.team2_id : box?.team1_id) || null,
         side,
-        position: row?.position || row?.pos || row?.stats?.position || null,
+        position: positions.position || null,
+        offensive_position: positions.offensive_position || null,
+        defensive_position: positions.defensive_position || null,
         stats: pickStats(row?.stats || row || {})
       };
     }).filter(row => row.username);
   }
   if (data?.players && typeof data.players === 'object') {
-    return Object.entries(data.players).map(([username, stats]) => ({
-      username: displayUsername(username),
-      team_id: stats?.team_id || null,
-      side: Number(stats?.side) === 2 ? 2 : 1,
-      position: stats?.position || stats?.pos || null,
-      stats: pickStats(stats || {})
-    })).filter(row => row.username);
+    return Object.entries(data.players).map(([username, stats]) => {
+      const positions = statRowPositions(stats || {});
+      return {
+        username: displayUsername(username),
+        team_id: stats?.team_id || null,
+        side: Number(stats?.side) === 2 ? 2 : 1,
+        position: positions.position || null,
+        offensive_position: positions.offensive_position || null,
+        defensive_position: positions.defensive_position || null,
+        stats: pickStats(stats || {})
+      };
+    }).filter(row => row.username);
   }
   return ['team1', 'team2'].flatMap((slot, index) => {
     const players = data?.[slot]?.players || {};
     const teamId = slot === 'team1' ? box?.team1_id : box?.team2_id;
-    return Object.entries(players).map(([username, stats]) => ({
-      username,
-      team_id: teamId || null,
-      side: index + 1,
-      position: stats?.position || stats?.pos || null,
-      stats: pickStats(stats || {})
-    }));
+    return Object.entries(players).map(([username, stats]) => {
+      const positions = statRowPositions(stats || {});
+      return {
+        username,
+        team_id: teamId || null,
+        side: index + 1,
+        position: positions.position || null,
+        offensive_position: positions.offensive_position || null,
+        defensive_position: positions.defensive_position || null,
+        stats: pickStats(stats || {})
+      };
+    });
   });
 }
 
@@ -2014,7 +2046,10 @@ function buildBoxDataFromRows(rows, team1Name, team2Name) {
     if (!username) return;
     const side = Number(row.side) === 2 ? 2 : 1;
     const stats = pickStats(row.stats || row);
-    if (row.position || row.pos) stats.position = String(row.position || row.pos).trim().toUpperCase();
+    const positions = statRowPositions(row);
+    if (positions.position) stats.position = positions.position;
+    if (positions.offensive_position) stats.offensive_position = positions.offensive_position;
+    if (positions.defensive_position) stats.defensive_position = positions.defensive_position;
     data[side === 2 ? 'team2' : 'team1'].players[username] = stats;
   });
   return data;
@@ -2022,7 +2057,16 @@ function buildBoxDataFromRows(rows, team1Name, team2Name) {
 
 function validateStatRowsHavePositions(rows) {
   const missing = (Array.isArray(rows) ? rows : [])
-    .filter(row => displayUsername(row?.username || row?.roblox_username) && !normalizeImportedPosition(row?.position || row?.pos))
+    .filter(row => {
+      if (!displayUsername(row?.username || row?.roblox_username)) return false;
+      const positions = statRowPositions(row || {});
+      const stats = row?.stats || row || {};
+      const needsOffense = hasOffensiveStats(stats);
+      const needsDefense = hasDefensiveStats(stats);
+      if (needsOffense && !positions.offensive_position && !isOffensivePosition(positions.position)) return true;
+      if (needsDefense && !positions.defensive_position && !isDefensivePosition(positions.position)) return true;
+      return !needsOffense && !needsDefense && !positions.position;
+    })
     .map(row => displayUsername(row.username || row.roblox_username));
   if (!missing.length) return;
   const uniqueMissing = [...new Set(missing)];
@@ -2034,6 +2078,36 @@ function validateStatRowsHavePositions(rows) {
       `Missing position${uniqueMissing.length === 1 ? '' : 's'}: ${uniqueMissing.join(', ')}`
     ]
   );
+}
+
+function statSheetIssuesForRows(rows, playerKeys = new Set(), aliasToCanonical = {}) {
+  const missingPositions = [];
+  const unresolvedPlayers = [];
+
+  (Array.isArray(rows) ? rows : []).forEach(row => {
+    const username = displayUsername(row?.username || row?.roblox_username);
+    if (!username) return;
+
+    const positions = statRowPositions(row || {});
+    const stats = row?.stats || row || {};
+    const needsOffense = hasOffensiveStats(stats);
+    const needsDefense = hasDefensiveStats(stats);
+    if (
+      (needsOffense && !positions.offensive_position && !isOffensivePosition(positions.position)) ||
+      (needsDefense && !positions.defensive_position && !isDefensivePosition(positions.position)) ||
+      (!needsOffense && !needsDefense && !positions.position)
+    ) {
+      missingPositions.push(username);
+    }
+
+    const key = canonicalUsernameKey(username, aliasToCanonical);
+    if (playerKeys.size && !playerKeys.has(key)) unresolvedPlayers.push(username);
+  });
+
+  return {
+    missing_positions: [...new Set(missingPositions)],
+    unresolved_players: [...new Set(unresolvedPlayers)]
+  };
 }
 
 async function adjustPlayerTotalsForRows(rows, direction = 1, { updateTeam = false } = {}) {
@@ -2084,16 +2158,16 @@ async function adjustPlayerTotalsForRows(rows, direction = 1, { updateTeam = fal
       const next = Number(player[k] || 0) + (Number(deltas[k] || 0) * direction);
       update[k] = Math.max(0, next);
     });
-    if (direction > 0 && normalizeImportedPosition(row.position || row.pos)) {
-      const importedPosition = normalizeImportedPosition(row.position || row.pos);
+    if (direction > 0) {
+      const positions = statRowPositions(row);
       const rowHasDefense = hasDefensiveStats(deltas);
       const rowHasOffense = hasOffensiveStats(deltas);
-      if (rowHasDefense || (isDefensivePosition(importedPosition) && !rowHasOffense)) {
-        update.defensive_position = importedPosition;
+      if ((rowHasDefense || (isDefensivePosition(positions.position) && !rowHasOffense)) && (positions.defensive_position || isDefensivePosition(positions.position))) {
+        update.defensive_position = positions.defensive_position || positions.position;
       }
-      if (rowHasOffense || (isOffensivePosition(importedPosition) && !rowHasDefense)) {
-        update.offensive_position = importedPosition;
-        update.position = importedPosition;
+      if ((rowHasOffense || (isOffensivePosition(positions.position) && !rowHasDefense)) && (positions.offensive_position || isOffensivePosition(positions.position))) {
+        update.offensive_position = positions.offensive_position || positions.position;
+        update.position = positions.offensive_position || positions.position;
       }
     }
     if (direction > 0 && updateTeam && row.team_id && row.team_id !== player.team_id) {
@@ -2385,12 +2459,29 @@ function weekLabelText(w) {
 app.get('/api/games', async (req, res) => {
   try {
     res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
-    const { data: games } = await supabase
-      .from('games').select('*')
-      .order('game_date', { ascending: true });
-    const { data: teams } = await supabase.from('teams').select('*');
-    const { data: boxes, error: boxesError } = await supabase.from('box_scores').select('id, game_id, created_at, data');
+    const [
+      gamesResult,
+      teamsResult,
+      boxesResult,
+      playersResult,
+      aliases
+    ] = await Promise.all([
+      supabase.from('games').select('*').order('game_date', { ascending: true }),
+      supabase.from('teams').select('*'),
+      supabase.from('box_scores').select('id, game_id, created_at, data'),
+      supabase.from('players').select('roblox_username'),
+      fetchPlayerAliases()
+    ]);
+    const { data: games, error: gamesError } = gamesResult;
+    const { data: teams, error: teamsError } = teamsResult;
+    const { data: boxes, error: boxesError } = boxesResult;
+    const { data: players, error: playersError } = playersResult;
+    if (gamesError) throw gamesError;
+    if (teamsError) throw teamsError;
     if (boxesError && !isMissingSupabaseTable(boxesError, 'box_scores')) throw boxesError;
+    if (playersError) throw playersError;
+    const { aliasToCanonical } = buildAliasMaps(aliases);
+    const playerKeys = new Set((players || []).map(player => canonicalUsernameKey(player.roblox_username, aliasToCanonical)).filter(Boolean));
     const boxByGame = {};
     (boxes || []).forEach(box => {
       if (box.game_id && !boxByGame[box.game_id]) boxByGame[box.game_id] = box;
@@ -2399,9 +2490,13 @@ app.get('/api/games', async (req, res) => {
       const box = boxByGame[game.id] || null;
       const boxMeta = asBoxData(box?.data)?.meta || {};
       const hasImportedStats = Boolean(box) && boxMeta.highlight_only !== true;
+      const statsIssues = hasImportedStats ? statSheetIssuesForRows(boxScoreRows(box), playerKeys, aliasToCanonical) : { missing_positions: [], unresolved_players: [] };
+      const statsIncorrect = hasImportedStats && (statsIssues.missing_positions.length > 0 || statsIssues.unresolved_players.length > 0);
       return {
         ...game,
         stats_imported: hasImportedStats,
+        stats_incorrect: statsIncorrect,
+        stats_issues: statsIssues,
         box_score_id: box?.id || null,
         stats_imported_at: hasImportedStats ? box?.created_at || null : null,
         stats_finalized: hasImportedStats && boxMeta.finalized === true,
@@ -2992,15 +3087,17 @@ async function importParsedGameStats({ players, game_id, team1_id, team2_id, tea
     const username = (row.username || '').trim();
     if (!username) continue;
     const deltas = pickStats(row.stats || {});
-    const position = normalizeImportedPosition(row.position || row.pos || row.stats?.position || row.stats?.pos);
-    if (position) deltas.position = position;
+    const positions = statRowPositions({ ...row, stats: { ...(row.stats || {}), ...deltas } });
+    if (positions.position) deltas.position = positions.position;
+    if (positions.offensive_position) deltas.offensive_position = positions.offensive_position;
+    if (positions.defensive_position) deltas.defensive_position = positions.defensive_position;
     const assignedTeamId = row.team_id || null;
     const slot = (assignedTeamId === team1_id) ? 'team1' : (assignedTeamId === team2_id) ? 'team2' : (row.side === 2 ? 'team2' : 'team1');
     boxData[slot].players[username] = deltas;
   }
 
   if (updatesPlayerTotals) {
-    await adjustPlayerTotalsForRows(players, 1, { updateTeam: true });
+    await adjustPlayerTotalsForRows(players, 1, { updateTeam: false });
   }
 
   const boxRow = {
@@ -3139,7 +3236,10 @@ app.get('/api/admin/games/:id/stats-review', async (req, res) => {
     if (!box) return res.status(404).json({ error: 'No stats have been imported for this game yet' });
     const { data: teams, error: teamsError } = await supabase.from('teams').select('id,name,abbreviation,logo_url,primary_color');
     if (teamsError) throw teamsError;
-    const { data: players, error: playersError } = await supabase.from('players').select('id,roblox_username,team_id,avatar_url').order('roblox_username');
+    const { data: players, error: playersError } = await supabase
+      .from('players')
+      .select('id,roblox_username,team_id,avatar_url,offensive_position,defensive_position')
+      .order('roblox_username');
     if (playersError) throw playersError;
     const [gameWithTeams] = attachTeams([game], teams || []);
     res.json({
@@ -3168,13 +3268,24 @@ app.put('/api/admin/games/:id/stats-review', async (req, res) => {
     const oldMeta = asBoxData(box.data)?.meta || {};
     if (oldMeta.finalized === true) await adjustPlayerTotalsForBox(box, -1);
 
-    const rows = (Array.isArray(req.body.rows) ? req.body.rows : []).map(row => ({
-      username: displayUsername(row.username || row.roblox_username),
-      team_id: row.team_id || null,
-      side: Number(row.side) === 2 ? 2 : 1,
-      position: normalizeImportedPosition(row.position || row.pos),
-      stats: pickStats(row.stats || row)
-    })).filter(row => row.username);
+    const rows = (Array.isArray(req.body.rows) ? req.body.rows : []).map(row => {
+      const stats = pickStats(row.stats || row);
+      const positions = statRowPositions({
+        ...row,
+        stats,
+        offensive_position: row.offensive_position || row.offense_position,
+        defensive_position: row.defensive_position || row.defense_position
+      });
+      return {
+        username: displayUsername(row.username || row.roblox_username),
+        team_id: row.team_id || null,
+        side: Number(row.side) === 2 ? 2 : 1,
+        position: positions.position,
+        offensive_position: positions.offensive_position,
+        defensive_position: positions.defensive_position,
+        stats
+      };
+    }).filter(row => row.username);
     if (!rows.length) return res.status(400).json({ error: 'At least one player stat row is required' });
     const resolvedRows = await resolveExistingStatRows(rows);
     if (oldMeta.finalized === true) {
