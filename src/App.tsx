@@ -126,6 +126,16 @@ export function App() {
           <SharedFooter />
           <RedzoneChat pathname={pathname} />
           <GlobalLiveMiniViewer pathname={pathname} />
+          <style>{`
+            body,
+            .art-body,
+            .article-stage-text,
+            .media-editor-page,
+            .media-editor-page textarea,
+            .redzone-chat__text{
+              font-family: Georgia, 'Times New Roman', serif !important;
+            }
+          `}</style>
         </div>
       </Suspense>
     </RouteErrorBoundary>

@@ -2215,6 +2215,19 @@ function isMissingSupabaseTable(error, tableName) {
   return text.includes(tableName.toLowerCase()) && (text.includes('schema cache') || text.includes('does not exist') || text.includes('not found'));
 }
 
+function isMissingPickemsTable(error) {
+  if (!error) return false;
+  const text = `${error.code || ''} ${error.message || ''} ${error.details || ''}`.toLowerCase();
+  return isMissingSupabaseTable(error, 'pickem_picks') ||
+    text.includes('pickem_picks') && (
+      text.includes('schema cache') ||
+      text.includes('does not exist') ||
+      text.includes('not found') ||
+      error.code === '42P01' ||
+      error.code === 'PGRST205'
+    );
+}
+
 function isMissingSupabaseColumn(error, columnName) {
   if (!error) return false;
   const text = `${error.code || ''} ${error.message || ''} ${error.details || ''}`.toLowerCase();
@@ -2771,6 +2784,122 @@ function weekLabelText(w) {
   return t || 'Week';
 }
 
+function gameStartTimeMs(game) {
+  const date = String(game?.game_date || '').trim();
+  if (!date) return NaN;
+  const time = String(game?.game_time || '').trim() || '12:00 PM';
+  const normalized = time
+    .replace(/\bET\b/ig, 'EDT')
+    .replace(/\bEST\b/ig, 'GMT-0500')
+    .replace(/\bEDT\b/ig, 'GMT-0400')
+    .replace(/\bCDT\b/ig, 'GMT-0500')
+    .replace(/\bCST\b/ig, 'GMT-0600');
+  const parsed = Date.parse(`${date} ${normalized}`);
+  if (Number.isFinite(parsed)) return parsed;
+  const fallback = Date.parse(`${date} ${time}`);
+  return Number.isFinite(fallback) ? fallback : Date.parse(`${date}T12:00:00`);
+}
+
+function gameHasFinalScore(game) {
+  return game?.home_score !== null && game?.home_score !== undefined &&
+    game?.away_score !== null && game?.away_score !== undefined;
+}
+
+function gameIsLiveOrPlayed(game) {
+  if (gameHasFinalScore(game)) return true;
+  const start = gameStartTimeMs(game);
+  return Number.isFinite(start) && Date.now() >= start;
+}
+
+function gameIsPickable(game) {
+  return !gameIsLiveOrPlayed(game);
+}
+
+function emptyPickemStats(game) {
+  return {
+    total: 0,
+    home_team_id: game?.home_team_id || null,
+    away_team_id: game?.away_team_id || null,
+    home_picks: 0,
+    away_picks: 0,
+    home_pct: 0,
+    away_pct: 0,
+    avg_home_score: null,
+    avg_away_score: null,
+    avg_spread: null,
+    score_count: 0,
+    leader_team_id: null
+  };
+}
+
+function spreadToNoPushHalfPoint(value) {
+  const spread = Number(value);
+  if (!Number.isFinite(spread) || spread === 0) return spread;
+  const sign = spread < 0 ? -1 : 1;
+  return sign * (Math.floor(Math.abs(spread)) + 0.5);
+}
+
+function pickemWeekKey(value) {
+  return String(value ?? '').trim().toLowerCase().replace(/^week\s*/i, '');
+}
+
+function aggregatePickemStats(games, picks) {
+  const gameMap = {};
+  (games || []).forEach(game => { if (game?.id) gameMap[game.id] = game; });
+  const buckets = {};
+  Object.values(gameMap).forEach(game => { buckets[game.id] = emptyPickemStats(game); });
+  (picks || []).forEach(pick => {
+    const game = gameMap[pick.game_id];
+    if (!game) return;
+    const bucket = buckets[pick.game_id] || emptyPickemStats(game);
+    bucket.total += 1;
+    if (String(pick.selected_team_id) === String(game.home_team_id)) bucket.home_picks += 1;
+    if (String(pick.selected_team_id) === String(game.away_team_id)) bucket.away_picks += 1;
+    const hasHomeScore = pick.predicted_home_score !== null && pick.predicted_home_score !== undefined;
+    const hasAwayScore = pick.predicted_away_score !== null && pick.predicted_away_score !== undefined;
+    const homeScore = Number(pick.predicted_home_score);
+    const awayScore = Number(pick.predicted_away_score);
+    if (hasHomeScore && hasAwayScore && Number.isFinite(homeScore) && Number.isFinite(awayScore)) {
+      bucket.score_count = (bucket.score_count || 0) + 1;
+      bucket.avg_home_score = (bucket.avg_home_score || 0) + homeScore;
+      bucket.avg_away_score = (bucket.avg_away_score || 0) + awayScore;
+    }
+    buckets[pick.game_id] = bucket;
+  });
+  Object.values(buckets).forEach(bucket => {
+    if (!bucket.total) return;
+    bucket.home_pct = Math.round((bucket.home_picks / bucket.total) * 100);
+    bucket.away_pct = Math.round((bucket.away_picks / bucket.total) * 100);
+    if (bucket.score_count) {
+      const avgHomeScore = bucket.avg_home_score / bucket.score_count;
+      const avgAwayScore = bucket.avg_away_score / bucket.score_count;
+      bucket.avg_home_score = Number(avgHomeScore.toFixed(1));
+      bucket.avg_away_score = Number(avgAwayScore.toFixed(1));
+      bucket.avg_spread = Number(spreadToNoPushHalfPoint(avgHomeScore - avgAwayScore).toFixed(1));
+    } else {
+      bucket.avg_home_score = null;
+      bucket.avg_away_score = null;
+      bucket.avg_spread = null;
+    }
+    bucket.leader_team_id = bucket.home_picks > bucket.away_picks
+      ? bucket.home_team_id
+      : (bucket.away_picks > bucket.home_picks ? bucket.away_team_id : null);
+  });
+  return buckets;
+}
+
+async function pickemStatsForGames(games) {
+  const ids = (games || []).map(game => game.id).filter(Boolean);
+  if (!ids.length) return {};
+  const { data, error } = await supabase
+    .from('pickem_picks')
+    .select('game_id, selected_team_id, predicted_home_score, predicted_away_score')
+    .in('game_id', ids);
+  if (isMissingPickemsTable(error)) return aggregatePickemStats(games, []);
+  if (error) throw error;
+  return aggregatePickemStats(games, data || []);
+}
+
 // public — list all games (schedule + scores)
 app.get('/api/games', async (req, res) => {
   try {
@@ -2802,6 +2931,7 @@ app.get('/api/games', async (req, res) => {
     (boxes || []).forEach(box => {
       if (box.game_id && !boxByGame[box.game_id]) boxByGame[box.game_id] = box;
     });
+    const pickemByGame = await pickemStatsForGames(games || []);
     const rows = attachTeams(games || [], teams || []).map(game => {
       const box = boxByGame[game.id] || null;
       const boxMeta = asBoxData(box?.data)?.meta || {};
@@ -2816,7 +2946,9 @@ app.get('/api/games', async (req, res) => {
         box_score_id: box?.id || null,
         stats_imported_at: hasImportedStats ? box?.created_at || null : null,
         stats_finalized: hasImportedStats && boxMeta.finalized === true,
-        stats_draft: hasImportedStats && boxMeta.finalized !== true
+        stats_draft: hasImportedStats && boxMeta.finalized !== true,
+        pickem: pickemByGame[game.id] || emptyPickemStats(game),
+        pickem_open: gameIsPickable(game)
       };
     });
     const weeks = await listLeagueWeeksWithFallback(rows);
@@ -2849,6 +2981,259 @@ app.get('/api/settings', async (req, res) => {
 // ─────────────────────────────────────────────
 //  STANDINGS (tier-aware point system)
 // ─────────────────────────────────────────────
+
+app.get('/api/pickems', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store, max-age=0');
+    const profile = await getRequester(req);
+    if (!profile) return res.json({ auth_required: true, games: [], picks: {}, stats: {} });
+    const { data: games, error: gamesError } = await supabase
+      .from('games')
+      .select('*')
+      .order('game_date', { ascending: true });
+    if (gamesError) throw gamesError;
+    const openGames = (games || []).filter(gameIsPickable);
+    const { data: teams, error: teamsError } = await supabase.from('teams').select('*');
+    if (teamsError) throw teamsError;
+    const withTeams = attachTeams(openGames, teams || []);
+    const stats = await pickemStatsForGames(openGames);
+    const ids = openGames.map(game => game.id).filter(Boolean);
+    let picks = [];
+    if (ids.length) {
+      const pickResult = await supabase
+        .from('pickem_picks')
+        .select('*')
+        .eq('profile_id', profile.id)
+        .in('game_id', ids);
+      if (isMissingPickemsTable(pickResult.error)) {
+        return res.json({ auth_required: false, setup_required: true, games: [], picks: {}, stats: {} });
+      }
+      if (pickResult.error) throw pickResult.error;
+      picks = pickResult.data || [];
+    }
+    const pickByGame = {};
+    picks.forEach(pick => { pickByGame[pick.game_id] = pick; });
+    res.json({
+      auth_required: false,
+      games: withTeams.map(game => ({ ...game, pickem: stats[game.id] || emptyPickemStats(game), user_pick: pickByGame[game.id] || null })),
+      picks: pickByGame,
+      stats
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/pickems/leaderboard', async (req, res) => {
+  try {
+    res.set('Cache-Control', 'no-store, max-age=0');
+    const profile = await getRequester(req);
+    const { data: games, error: gamesError } = await supabase
+      .from('games')
+      .select('*')
+      .order('game_date', { ascending: true });
+    if (gamesError) throw gamesError;
+    const { data: teams, error: teamsError } = await supabase.from('teams').select('*');
+    if (teamsError) throw teamsError;
+
+    const activeWeek = await getLeagueSetting('active_week');
+    const currentWeek = activeWeek || (games || []).find(gameIsPickable)?.week || (games || [])[0]?.week || null;
+    const weekGames = currentWeek == null
+      ? (games || [])
+      : (games || []).filter(game => pickemWeekKey(game.week) === pickemWeekKey(currentWeek));
+    const weekGameIds = weekGames.map(game => game.id).filter(Boolean);
+    const teamById = Object.fromEntries((teams || []).map(team => [String(team.id), team]));
+    let viewerPickRows = [];
+    if (profile && weekGameIds.length) {
+      const pickResult = await supabase
+        .from('pickem_picks')
+        .select('*')
+        .eq('profile_id', profile.id)
+        .in('game_id', weekGameIds);
+      if (isMissingPickemsTable(pickResult.error)) {
+        return res.json({
+          setup_required: true,
+          leaderboard: [],
+          summary: { scored_games: 0, total_picks: 0, pickers: 0, top_score: 0 },
+          viewer: { auth_required: false, week: currentWeek, picks: [] }
+        });
+      }
+      if (pickResult.error) throw pickResult.error;
+      viewerPickRows = pickResult.data || [];
+    }
+    const viewerPickByGame = Object.fromEntries(viewerPickRows.map(pick => [String(pick.game_id), pick]));
+    const viewer = {
+      auth_required: !profile,
+      week: currentWeek,
+      picks: attachTeams(weekGames, teams || []).map(game => {
+        const pick = viewerPickByGame[String(game.id)] || null;
+        const selectedTeam = pick ? teamById[String(pick.selected_team_id)] || null : null;
+        return {
+          game,
+          pick,
+          selected_team: selectedTeam ? {
+            id: selectedTeam.id,
+            name: selectedTeam.name,
+            abbreviation: selectedTeam.abbreviation,
+            logo_url: selectedTeam.logo_url,
+            primary_color: selectedTeam.primary_color
+          } : null,
+          locked: !gameIsPickable(game),
+          final: gameHasFinalScore(game)
+        };
+      })
+    };
+
+    const scoredGames = (games || []).filter(game =>
+      game.home_score !== null && game.home_score !== undefined &&
+      game.away_score !== null && game.away_score !== undefined &&
+      Number(game.home_score) !== Number(game.away_score)
+    );
+    const allGameIds = (games || []).map(game => game.id).filter(Boolean);
+    if (!allGameIds.length) {
+      return res.json({
+        leaderboard: [],
+        summary: { scored_games: 0, total_picks: 0, pickers: 0, top_score: 0 },
+        viewer
+      });
+    }
+
+    const { data: picks, error: picksError } = await supabase
+      .from('pickem_picks')
+      .select('game_id, profile_id, selected_team_id')
+      .in('game_id', allGameIds);
+    if (isMissingPickemsTable(picksError)) {
+      return res.json({
+        setup_required: true,
+        leaderboard: [],
+        summary: { scored_games: scoredGames.length, total_picks: 0, pickers: 0, top_score: 0 },
+        viewer
+      });
+    }
+    if (picksError) throw picksError;
+
+    const profileIds = [...new Set((picks || []).map(pick => pick.profile_id).filter(Boolean))];
+    let profileById = {};
+    if (profileIds.length) {
+      const { data: profiles, error: profilesError } = await supabase
+        .from('user_profiles')
+        .select('id, roblox_username, avatar_url')
+        .in('id', profileIds);
+      if (profilesError) throw profilesError;
+      profileById = Object.fromEntries((profiles || []).map(profile => [profile.id, profile]));
+    }
+
+    const winnerByGame = Object.fromEntries(scoredGames.map(game => [
+      game.id,
+      Number(game.home_score) > Number(game.away_score) ? game.home_team_id : game.away_team_id
+    ]));
+    const rowsByProfile = {};
+    (picks || []).forEach(pick => {
+      const profileId = pick.profile_id;
+      if (!profileId) return;
+      const row = rowsByProfile[profileId] || {
+        profile_id: profileId,
+        roblox_username: profileById[profileId]?.roblox_username || 'Unknown',
+        avatar_url: profileById[profileId]?.avatar_url || null,
+        points: 0,
+        correct: 0,
+        submitted: 0,
+        scored_submitted: 0
+      };
+      row.submitted += 1;
+      if (winnerByGame[pick.game_id]) {
+        row.scored_submitted += 1;
+      }
+      if (winnerByGame[pick.game_id] && String(pick.selected_team_id) === String(winnerByGame[pick.game_id])) {
+        row.points += 1;
+        row.correct += 1;
+      }
+      rowsByProfile[profileId] = row;
+    });
+
+    const leaderboard = Object.values(rowsByProfile)
+      .map(row => {
+        const { scored_submitted, ...publicRow } = row;
+        return {
+          ...publicRow,
+          accuracy: scored_submitted ? Number(((row.correct / scored_submitted) * 100).toFixed(1)) : 100
+        };
+      })
+      .sort((a, b) =>
+        b.points - a.points ||
+        Number(b.accuracy || 0) - Number(a.accuracy || 0) ||
+        b.submitted - a.submitted ||
+        String(a.roblox_username || '').localeCompare(String(b.roblox_username || ''))
+      );
+    let previousPoints = null;
+    let previousRank = 0;
+    leaderboard.forEach((row, index) => {
+      const rank = row.points === previousPoints ? previousRank : index + 1;
+      row.rank = rank;
+      previousRank = rank;
+      previousPoints = row.points;
+    });
+
+    res.json({
+      leaderboard,
+      summary: {
+        scored_games: scoredGames.length,
+        total_picks: (picks || []).length,
+        pickers: leaderboard.length,
+        top_score: leaderboard[0]?.points || 0
+      },
+      viewer
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/pickems/:gameId', async (req, res) => {
+  try {
+    const profile = await getRequester(req);
+    if (!profile) return apiError(res, 401, 'AUTH_REQUIRED', 'You must be signed in to make pick-ems');
+    const { data: game, error: gameError } = await supabase.from('games').select('*').eq('id', req.params.gameId).single();
+    if (gameError || !game) return apiError(res, 404, 'GAME_NOT_FOUND', 'Game not found');
+    if (!gameIsPickable(game)) return apiError(res, 409, 'PICKEM_LOCKED', 'Pick-ems are locked for this game');
+    const selectedTeamId = String(req.body?.selected_team_id || '').trim();
+    if (![String(game.home_team_id), String(game.away_team_id)].includes(selectedTeamId)) {
+      return apiError(res, 400, 'TEAM_REQUIRED', 'Pick either team in this game');
+    }
+    const homeScoreRaw = req.body?.predicted_home_score;
+    const awayScoreRaw = req.body?.predicted_away_score;
+    const hasHomeScore = homeScoreRaw !== null && homeScoreRaw !== undefined && String(homeScoreRaw).trim() !== '';
+    const hasAwayScore = awayScoreRaw !== null && awayScoreRaw !== undefined && String(awayScoreRaw).trim() !== '';
+    if (hasHomeScore !== hasAwayScore) {
+      return apiError(res, 400, 'SCORE_PAIR_REQUIRED', 'Enter both predicted scores or leave both blank');
+    }
+    const predictedHomeScore = hasHomeScore ? Number.parseInt(homeScoreRaw, 10) : null;
+    const predictedAwayScore = hasAwayScore ? Number.parseInt(awayScoreRaw, 10) : null;
+    if ((predictedHomeScore !== null && (!Number.isInteger(predictedHomeScore) || predictedHomeScore < 0 || predictedHomeScore > 255)) ||
+        (predictedAwayScore !== null && (!Number.isInteger(predictedAwayScore) || predictedAwayScore < 0 || predictedAwayScore > 255))) {
+      return apiError(res, 400, 'SCORE_INVALID', 'Enter valid predicted scores or leave them blank');
+    }
+    const row = {
+      game_id: game.id,
+      profile_id: profile.id,
+      selected_team_id: selectedTeamId,
+      predicted_home_score: predictedHomeScore,
+      predicted_away_score: predictedAwayScore,
+      updated_at: new Date().toISOString()
+    };
+    const { data, error } = await supabase
+      .from('pickem_picks')
+      .upsert(row, { onConflict: 'game_id,profile_id' })
+      .select()
+      .single();
+    if (isMissingPickemsTable(error)) return apiError(res, 500, 'PICKEMS_SETUP_REQUIRED', 'Pick-em storage is not set up yet. Run supabase/2026-06-23_pickems.sql.');
+    if (error) throw error;
+    const stats = await pickemStatsForGames([game]);
+    res.json({ success: true, pick: data, pickem: stats[game.id] || emptyPickemStats(game) });
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ error: err.message, code: err.code });
+  }
+});
 
 const TIER_WIN_PTS = { 1: 3, 2: 2.5, 3: 2, 4: 1.5, 5: 1 };
 const PLAYUP_WIN_PTS = {
@@ -3700,14 +4085,37 @@ app.get('/api/games/:id/box-score', async (req, res) => {
     const { data: game, error: gameError } = await supabase.from('games').select('*').eq('id', req.params.id).single();
     if (gameError || !game) return apiError(res, 404, 'GAME_NOT_FOUND', 'Game not found');
 
-    const { data: box, error: boxError } = await supabase.from('box_scores').select('*').eq('game_id', req.params.id).maybeSingle();
-    if (isMissingSupabaseTable(boxError, 'box_scores')) return apiError(res, 404, 'BOX_SCORE_STORAGE_MISSING', 'Box score storage is not set up yet');
-    if (boxError) throw boxError;
-    if (!box) return apiError(res, 404, 'BOX_SCORE_NOT_FOUND', 'No box score has been imported for this game yet');
-
     const { data: teams, error: teamsError } = await supabase.from('teams').select('*');
     if (teamsError) throw teamsError;
     const [gameWithTeams] = attachTeams([game], teams || []);
+
+    const pickemByGame = await pickemStatsForGames([game]);
+    const pickem = pickemByGame[game.id] || emptyPickemStats(game);
+
+    const { data: box, error: boxError } = await supabase.from('box_scores').select('*').eq('game_id', req.params.id).maybeSingle();
+    if (isMissingSupabaseTable(boxError, 'box_scores')) {
+      return res.json({
+        game: gameWithTeams,
+        box_score: null,
+        players: {},
+        highlight: null,
+        comparison: null,
+        pickem,
+        stats_available: false
+      });
+    }
+    if (boxError) throw boxError;
+    if (!box) {
+      return res.json({
+        game: gameWithTeams,
+        box_score: null,
+        players: {},
+        highlight: null,
+        comparison: null,
+        pickem,
+        stats_available: false
+      });
+    }
 
     const usernameSet = new Set();
     ['team1', 'team2'].forEach(slot => {
@@ -3745,7 +4153,9 @@ app.get('/api/games/:id/box-score', async (req, res) => {
       box_score: box,
       players: playerMap,
       highlight,
-      comparison: buildBoxScoreComparison(allBoxes || [], game.away_team_id, game.home_team_id)
+      comparison: buildBoxScoreComparison(allBoxes || [], game.away_team_id, game.home_team_id),
+      pickem,
+      stats_available: true
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

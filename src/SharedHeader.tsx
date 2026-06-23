@@ -1,26 +1,124 @@
+import { useEffect, useRef, useState } from 'react';
+
 const navItems = [
   ['/', 'Home'],
   ['/schedule', 'Schedule'],
   ['/standings', 'Standings'],
   ['/stats', 'Stats'],
+  ['/pick-ems', 'Pick-Ems'],
   ['/teams', 'Teams'],
   ['/players', 'Players'],
   ['/media', 'Media']
 ] as const;
+
+type HeaderProfile = {
+  roblox_username?: string;
+  avatar_url?: string;
+  is_admin?: boolean;
+  admin_tabs?: string[];
+};
 
 function isActive(path: string, href: string) {
   if (href === '/') return path === '/' || path === '/index';
   return path === href || path.startsWith(`${href}/`);
 }
 
+function cookieValue(name: string) {
+  const prefix = `${name}=`;
+  return document.cookie
+    .split(';')
+    .map(part => part.trim())
+    .find(part => part.startsWith(prefix))
+    ?.slice(prefix.length) || '';
+}
+
+function apiUrl(url: string) {
+  const localWeb = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    && location.port
+    && location.port !== '3000';
+  return localWeb && url.startsWith('/api/') ? `http://localhost:3000${url}` : url;
+}
+
+function getStoredToken() {
+  const direct = localStorage.getItem('ofl_token') || decodeURIComponent(cookieValue('ofl_token') || '');
+  if (direct) return direct;
+  try {
+    const session = JSON.parse(localStorage.getItem('ofl_session') || 'null');
+    return session?.token || session?.access_token || session?.ofl_token || '';
+  } catch {
+    return '';
+  }
+}
+
 export function SharedHeader() {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountVisible, setAccountVisible] = useState(false);
+  const [profile, setProfile] = useState<HeaderProfile | null>(null);
+  const accountRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const logoutBtn = document.getElementById('logoutBtn');
+    const token = getStoredToken();
+
+    function showProfile(nextProfile: HeaderProfile | null) {
+      if (!nextProfile?.roblox_username && !token) return;
+      setAccountVisible(true);
+      setProfile(nextProfile);
+    }
+
+    setAccountOpen(false);
+
+    try {
+      showProfile(JSON.parse(localStorage.getItem('ofl_profile') || 'null'));
+    } catch {
+      showProfile(null);
+    }
+
+    function onDocumentPointerDown(event: PointerEvent) {
+      const target = event.target as Node | null;
+      if (target && accountRef.current?.contains(target)) return;
+      setAccountOpen(false);
+    }
+
+    function onLogoutClick(event: MouseEvent) {
+      event.preventDefault();
+      setAccountOpen(false);
+      localStorage.removeItem('ofl_profile');
+      localStorage.removeItem('ofl_token');
+      localStorage.removeItem('ofl_session');
+      document.cookie = 'ofl_token=; path=/; max-age=0; SameSite=Lax';
+      location.href = '/';
+    }
+
+    document.addEventListener('pointerdown', onDocumentPointerDown);
+    logoutBtn?.addEventListener('click', onLogoutClick);
+
+    if (token || cookieValue('ofl_token')) {
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      fetch(apiUrl('/api/me'), { headers, credentials: 'include', cache: 'no-store' })
+        .then(response => response.ok ? response.json() : null)
+        .then(data => {
+          if (!data?.profile) return;
+          localStorage.setItem('ofl_profile', JSON.stringify(data.profile));
+          if (token) localStorage.setItem('ofl_token', token);
+          showProfile(data.profile);
+        })
+        .catch(() => undefined);
+    }
+
+    return () => {
+      document.removeEventListener('pointerdown', onDocumentPointerDown);
+      logoutBtn?.removeEventListener('click', onLogoutClick);
+    };
+  }, [path]);
 
   return (
     <>
       <style>{`
-        .ofl-shared-header{position:sticky;top:0;z-index:1000;background:var(--paper,#ECE4CF);border-bottom:1px solid var(--navy,#15233E);}
-        body[data-theme="dark"] .ofl-shared-header{background:#111827;border-bottom-color:rgba(142,164,201,.45);}
+        .ofl-shared-header{position:sticky;top:0;z-index:1000;background:var(--paper,#ECE4CF);border-bottom:1px solid var(--navy,#15233E);color:var(--navy,#15233E);}
+        body[data-theme="dark"] .ofl-shared-header{background:#111827;border-bottom-color:rgba(142,164,201,.45);color:#F3F6FB;}
         .ofl-shared-header .wrap.nav{display:flex;align-items:center;justify-content:flex-start;gap:clamp(16px,2vw,28px);height:78px;width:100%;max-width:none;min-width:0;margin:0;padding:0 clamp(18px,2vw,28px) 0 18px;box-sizing:border-box;}
         .ofl-shared-header .brand{display:flex;align-items:center;gap:0;flex:0 0 auto;}
         .ofl-shared-header .brand img{height:44px;width:44px;object-fit:contain;display:block;}
@@ -32,8 +130,10 @@ export function SharedHeader() {
         .ofl-shared-header nav.links a:hover::after,.ofl-shared-header nav.links a.active::after{width:100%;}
         .ofl-shared-header .connect-btn{background:var(--navy,#15233E);color:var(--paper,#ECE4CF);font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:2px;padding:14px 24px;transition:background .2s;text-decoration:none;white-space:nowrap;}
         .ofl-shared-header .connect-btn:hover{background:var(--red,#9F3622);}
+        body[data-theme="dark"] .ofl-shared-header .connect-btn{background:#F3F6FB;color:#111827;}
+        body[data-theme="dark"] .ofl-shared-header .connect-btn:hover{background:var(--red,#ff654f);color:#F3F6FB;}
         .ofl-shared-header .account-wrap{position:relative;margin-left:0;margin-right:0;flex:0 0 auto;}
-        .ofl-shared-header .account{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;}
+        .ofl-shared-header .account{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;background:transparent;border:0;padding:0;margin:0;color:inherit;font:inherit;}
         .ofl-shared-header .account img{width:38px;height:38px;border-radius:50%;border:2px solid var(--navy,#15233E);object-fit:cover;}
         body[data-theme="dark"] .ofl-shared-header .account img{border-color:#E8EDF7;}
         .ofl-shared-header .account .uname{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;}
@@ -71,18 +171,29 @@ export function SharedHeader() {
               </a>
             ))}
           </nav>
-          <a href="/connect" className="connect-btn" id="connectBtn">Connect Account</a>
-          <div className="account-wrap" id="accountWrap" style={{ display: 'none' }}>
-            <div className="account" id="accountPill">
-              <img id="accountAvatar" src="" alt="" />
-              <span className="uname" id="accountName"></span>
+          <a href="/connect" className="connect-btn" id="connectBtn" style={{ display: accountVisible ? 'none' : undefined }}>Connect Account</a>
+          <div ref={accountRef} className={`account-wrap${accountOpen ? ' open' : ''}`} id="accountWrap" style={{ display: accountVisible ? undefined : 'none' }}>
+            <button
+              className="account"
+              id="accountPill"
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={accountOpen}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setAccountOpen(open => !open);
+              }}
+            >
+              <img id="accountAvatar" src={profile?.avatar_url || ''} alt="" />
+              <span className="uname" id="accountName">{profile?.roblox_username || 'Account'}</span>
               <span className="chev"></span>
-            </div>
-            <div className="dropdown">
+            </button>
+            <div className="dropdown" role="menu">
               <a href="/profile">Profile</a>
               <a href="/profile?tab=settings">Settings</a>
-              <a href="/media/editor" id="mediaEditorLink" style={{ display: 'none' }}>Media Editor</a>
-              <a href="/admin" className="admin" id="adminLink" style={{ display: 'none' }}>Admin</a>
+              <a href="/media/editor" id="mediaEditorLink" style={{ display: (profile?.admin_tabs || []).includes('media') ? undefined : 'none' }}>Media Editor</a>
+              <a href="/admin" className="admin" id="adminLink" style={{ display: profile?.is_admin ? undefined : 'none' }}>Admin</a>
               <a href="#" className="logout" id="logoutBtn">Log Out</a>
             </div>
           </div>

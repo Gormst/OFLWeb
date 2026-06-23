@@ -55,6 +55,19 @@ const page = {
   .highlight-title{font-family:'Oswald';font-weight:700;text-transform:uppercase;font-size:18px;}
   .highlight-meta{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-top:4px;}
 
+  .hero-pickem{display:grid;gap:10px;border-top:1px solid var(--line-strong);padding:14px clamp(18px,3vw,34px);background:rgba(255,255,255,.16);}
+  body.theme-dark .hero-pickem,body[data-theme="dark"] .hero-pickem{background:rgba(255,255,255,.04);}
+  .hero-pickem-top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
+  .hero-pickem-title,.hero-pickem-line{color:var(--navy);}
+  .hero-pickem-line{font-size:14px;}
+  .hero-pickem-bar{height:12px;background:rgba(21,35,62,.12);display:grid;grid-template-columns:var(--away-pct,50%) 1fr;overflow:hidden;}
+  body.theme-dark .hero-pickem-bar,body[data-theme="dark"] .hero-pickem-bar{background:rgba(255,255,255,.1);}
+  .hero-pickem-bar span:first-child{background:var(--away-color);}
+  .hero-pickem-bar span:last-child{background:var(--home-color);}
+  .hero-pickem-sides{display:grid;grid-template-columns:1fr 1fr;gap:16px;font-family:'Oswald';font-weight:700;font-size:17px;line-height:1;text-transform:uppercase;color:var(--navy);}
+  .hero-pickem-sides span:last-child{text-align:right;}
+  .pregame-note{border:1px solid var(--line-strong);background:var(--paper-2);padding:22px;font-family:'Space Mono';font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
+
   .team-comparison{display:grid;grid-template-columns:1fr;gap:0;}
   .compare-row{display:grid;grid-template-columns:82px minmax(120px,1fr) 82px;align-items:center;gap:14px;padding:13px 18px;border-bottom:1px solid var(--line);}
   .compare-row:last-child{border-bottom:none;}
@@ -174,6 +187,18 @@ const page = {
     const meta=[highlight.week_tag,highlight.team_tag,highlight.posted_by].filter(Boolean).join(' / ');
     return '<section class="panel highlight-panel"><div class="panel-head"><div><h2>Game Highlight</h2><div class="highlight-meta">'+esc(meta||'OFL Media')+'</div></div><div class="highlight-title">'+esc(highlight.title||'Highlight')+'</div></div><div class="highlight-frame"><iframe src="'+esc(youtubeEmbed(highlight.youtube_id))+'" title="'+esc(highlight.title||'Game highlight')+'" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div></section>';
   }
+  function teamAbbr(team){ return (team&&(team.abbreviation||(team.name||'').slice(0,3).toUpperCase()))||'TBD'; }
+  function pickemHero(pickem, away, home){
+    const p=pickem||{}, total=num(p.total), awayPct=num(p.away_pct), homePct=num(p.home_pct);
+    const hasScorePrediction=total&&p.avg_away_score!=null&&p.avg_home_score!=null&&p.avg_spread!=null;
+    const spread=hasScorePrediction?Number(p.avg_spread):null;
+    const line=!total?'No community picks yet':(!hasScorePrediction?'Spread pending':(spread===0?'Pick-em':(spread>0?teamAbbr(home):teamAbbr(away))+' -'+Math.abs(spread).toFixed(1)));
+    return '<div class="hero-pickem" style="--away-pct:'+awayPct+'%;--away-color:'+esc(teamColor(away))+';--home-color:'+esc(teamColor(home))+'">'+
+      '<div class="hero-pickem-top"><span class="hero-pickem-title">Community Pick-Ems</span><span>'+total+' picks</span><span class="hero-pickem-line">'+esc(line)+'</span></div>'+
+      '<div class="hero-pickem-bar"><span></span><span></span></div>'+
+      '<div class="hero-pickem-sides"><span>'+esc(teamAbbr(away))+' '+awayPct+'%</span><span>'+esc(teamAbbr(home))+' '+homePct+'%</span></div>'+
+    '</div>';
+  }
   function positionText(player){
     if(!player) return '';
     const bits=[player.offensive_position,player.defensive_position].filter(Boolean);
@@ -235,6 +260,24 @@ const page = {
       '</div>';
     }).join('')+'</div>';
   }
+  async function loadPregamePreview(id){
+    const res=await fetch('/api/games',{cache:'no-store'});
+    const text=await res.text();
+    let data={};
+    try{ data=text?JSON.parse(text):{}; }catch(e){}
+    if(!res.ok) throw new Error((data&&data.error)||text.slice(0,220)||res.statusText);
+    const game=(data.games||[]).find(g=>String(g.id)===String(id));
+    if(!game) throw new Error('[GAME_NOT_FOUND] Game not found');
+    return {
+      game,
+      box_score:null,
+      players:{},
+      highlight:null,
+      comparison:null,
+      pickem:game.pickem||null,
+      stats_available:false
+    };
+  }
   async function load(){
     if(!gameId){ root.innerHTML='<div class="panel"><p class="note">[BOX_SCORE_GAME_ID_MISSING] No game id was provided.</p></div>'; return; }
     try{
@@ -242,23 +285,36 @@ const page = {
       const text=await res.text();
       let data=null;
       try{ data=text?JSON.parse(text):{}; }catch(e){}
-      if(!res.ok) throw new Error((data&&data.code?'['+data.code+'] ':'')+((data&&data.error)||text.slice(0,220)||res.statusText));
-      const game=data.game, box=data.box_score, playerMap=data.players||{}, highlight=data.highlight||null, comparison=data.comparison||null;
-      const away=game.away_team || { id:box.team1_id, name:box.team1_name };
-      const home=game.home_team || { id:box.team2_id, name:box.team2_name };
+      if(!res.ok){
+        const code=data&&data.code;
+        if(code==='BOX_SCORE_NOT_FOUND'||code==='BOX_SCORE_STORAGE_MISSING'){
+          data=await loadPregamePreview(gameId);
+        }else{
+          throw new Error((code?'['+code+'] ':'')+((data&&data.error)||text.slice(0,220)||res.statusText));
+        }
+      }
+      const game=data.game, box=data.box_score, playerMap=data.players||{}, highlight=data.highlight||null, comparison=data.comparison||null, pickem=data.pickem||null;
+      const away=game.away_team || { id:game.away_team_id, name:'Away Team' };
+      const home=game.home_team || { id:game.home_team_id, name:'Home Team' };
+      document.title=(away.name||'Away')+' at '+(home.name||'Home')+' Box Score - OFL';
+      const awayColor=teamColor(away), homeColor=teamColor(home);
+      const heroHtml =
+        '<section class="hero"><div class="score-head">'+
+          '<div class="team-pane away" style="--team-color:'+esc(awayColor)+'">'+logo(away,'team-logo')+'<div><div class="team-name">'+esc(away.name||'Away Team')+'</div><div class="team-rec">'+esc(away.abbreviation||'Away')+'</div></div></div>'+
+          '<div class="score-box"><div class="score-num">'+score(game,'away')+'</div><div class="score-mid">'+(box?'Final':'Pregame')+'<br>Box Score</div><div class="score-num">'+score(game,'home')+'</div></div>'+
+          '<div class="team-pane home" style="--team-color:'+esc(homeColor)+'"><div><div class="team-name">'+esc(home.name||'Home Team')+'</div><div class="team-rec">'+esc(home.abbreviation||'Home')+'</div></div>'+logo(home,'team-logo')+'</div>'+
+        '</div><div class="hero-meta"><span><strong>'+esc(game.week?'Week '+game.week:'Schedule')+'</strong></span><span>'+esc(fmtDate(game.game_date))+(game.game_time?' / '+esc(game.game_time):'')+'</span><span>'+(box?'Imported '+esc(new Date(box.created_at).toLocaleString()):'Stats pending')+'</span></div>'+pickemHero(pickem,away,home)+'</section>';
+      if(!box){
+        root.innerHTML = heroHtml + '<div class="content-grid"><div class="main-stack"><div class="pregame-note">Box score stats will populate here after the game stats are imported.</div></div><aside class="side-stack"><section class="panel"><div class="panel-head"><h2>Game Leaders</h2></div><p class="note">No leaders before kickoff.</p></section></aside></div>';
+        return;
+      }
       const slotAway=String(box.team1_id||'')===String(game.away_team_id)?box.data.team1:box.data.team2;
       const slotHome=String(box.team1_id||'')===String(game.home_team_id)?box.data.team1:box.data.team2;
       const awayRows=normalizePlayers(slotAway||{players:{}}, playerMap);
       const homeRows=normalizePlayers(slotHome||{players:{}}, playerMap);
       const allRows=[...awayRows,...homeRows];
-      document.title=(away.name||'Away')+' at '+(home.name||'Home')+' Box Score - OFL';
-      const awayColor=teamColor(away), homeColor=teamColor(home);
       root.innerHTML =
-        '<section class="hero"><div class="score-head">'+
-          '<div class="team-pane away" style="--team-color:'+esc(awayColor)+'">'+logo(away,'team-logo')+'<div><div class="team-name">'+esc(away.name||'Away Team')+'</div><div class="team-rec">'+esc(away.abbreviation||'Away')+'</div></div></div>'+
-          '<div class="score-box"><div class="score-num">'+score(game,'away')+'</div><div class="score-mid">Final<br>Box Score</div><div class="score-num">'+score(game,'home')+'</div></div>'+
-          '<div class="team-pane home" style="--team-color:'+esc(homeColor)+'"><div><div class="team-name">'+esc(home.name||'Home Team')+'</div><div class="team-rec">'+esc(home.abbreviation||'Home')+'</div></div>'+logo(home,'team-logo')+'</div>'+
-        '</div><div class="hero-meta"><span><strong>'+esc(game.week?'Week '+game.week:'Schedule')+'</strong></span><span>'+esc(fmtDate(game.game_date))+(game.game_time?' / '+esc(game.game_time):'')+'</span><span>Imported '+esc(new Date(box.created_at).toLocaleString())+'</span></div></section>'+
+        heroHtml+
         '<div class="content-grid"><div class="main-stack">'+
           highlightPanel(highlight)+
           '<section class="panel"><div class="panel-head"><h2>Team Stats</h2></div><div class="team-comparison">'+compareRows(awayRows,homeRows,awayColor,homeColor)+'</div></section>'+

@@ -102,36 +102,6 @@ function bindSharedHeader() {
 
   showHeaderProfile(profile, token);
 
-  if (!(window as any).__oflSharedHeaderClickBound) {
-    (window as any).__oflSharedHeaderClickBound = true;
-    document.addEventListener('click', (event) => {
-      const target = event.target as Element | null;
-      const pill = target?.closest?.('#accountPill');
-      if (pill) {
-        event.preventDefault();
-        event.stopPropagation();
-        if ('stopImmediatePropagation' in event) event.stopImmediatePropagation();
-        const wrap = pill.closest('#accountWrap') || document.getElementById('accountWrap');
-        wrap?.classList.toggle('open');
-        return;
-      }
-      document.querySelectorAll('#accountWrap.open').forEach((wrap) => wrap.classList.remove('open'));
-    }, true);
-  }
-
-  const logoutBtn = document.getElementById('logoutBtn');
-  if (logoutBtn && !logoutBtn.dataset.sharedHeaderBound) {
-    logoutBtn.dataset.sharedHeaderBound = '1';
-    logoutBtn.addEventListener('click', (event) => {
-      event.preventDefault();
-      localStorage.removeItem('ofl_profile');
-      localStorage.removeItem('ofl_token');
-      localStorage.removeItem('ofl_session');
-      document.cookie = 'ofl_token=; path=/; max-age=0; SameSite=Lax';
-      location.href = '/';
-    });
-  }
-
   if (!token && !cookieValue('ofl_token')) return;
 
   const headers: Record<string, string> = {};
