@@ -2700,7 +2700,7 @@ function weekLabelText(w) {
 // public — list all games (schedule + scores)
 app.get('/api/games', async (req, res) => {
   try {
-    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+    res.set('Cache-Control', 'no-store, max-age=0');
     const [
       gamesResult,
       teamsResult,
@@ -2721,9 +2721,9 @@ app.get('/api/games', async (req, res) => {
     if (gamesError) throw gamesError;
     if (teamsError) throw teamsError;
     if (boxesError && !isMissingSupabaseTable(boxesError, 'box_scores')) throw boxesError;
-    if (playersError) throw playersError;
+    if (playersError) console.warn('[api/games] player metadata unavailable:', playersError.message || playersError);
     const { aliasToCanonical } = buildAliasMaps(aliases);
-    const playerKeys = new Set((players || []).map(player => canonicalUsernameKey(player.roblox_username, aliasToCanonical)).filter(Boolean));
+    const playerKeys = new Set((playersError ? [] : (players || [])).map(player => canonicalUsernameKey(player.roblox_username, aliasToCanonical)).filter(Boolean));
     const boxByGame = {};
     (boxes || []).forEach(box => {
       if (box.game_id && !boxByGame[box.game_id]) boxByGame[box.game_id] = box;
@@ -5047,7 +5047,7 @@ app.delete('/api/media/articles/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'media');
   if (!me) return;
   try {
-    const { data: article, error: articleError } = await supabase.from('media_articles').select('posted_by, thumbnail_url').eq('id', req.params.id).maybeSingle();
+    const { data: article, error: articleError } = await supabase.from('media_articles').select('posted_by, thumbnail_url, body').eq('id', req.params.id).maybeSingle();
     if (isMissingSupabaseColumn(articleError, 'posted_by')) {
       return apiError(res, 500, 'MEDIA_POSTED_BY_MISSING', 'Run supabase/2026-06-20_media_game_highlights.sql to add media ownership columns, then retry.');
     }
@@ -5058,7 +5058,12 @@ app.delete('/api/media/articles/:id', async (req, res) => {
     const isOwner = article.posted_by && article.posted_by.toLowerCase() === (me.roblox_username || '').toLowerCase();
     if (!isOwner && !isFullAdmin) return res.status(403).json({ error: 'You can only delete your own posts' });
     await supabase.from('media_articles').delete().eq('id', req.params.id);
-    await removeUploadedImage(article.thumbnail_url);
+    const articleImages = new Set([article.thumbnail_url]);
+    String(article.body || '').replace(/<img[^>]+src=["']([^"']+)["']/gi, (_match, src) => {
+      articleImages.add(src);
+      return '';
+    });
+    await Promise.all([...articleImages].map(url => removeUploadedImage(url)));
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -5067,7 +5072,21 @@ app.delete('/api/media/articles/:id', async (req, res) => {
 //  CLEAN URL ROUTING
 // ─────────────────────────────────────────────
 
-app.use(express.static(CLIENT_DIR, { extensions: false }));
+app.use(express.static(CLIENT_DIR, {
+  extensions: false,
+  setHeaders(res, filePath) {
+    const rel = path.relative(CLIENT_DIR, filePath).replace(/\\/g, '/');
+    if (rel === 'index.html') {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return;
+    }
+    if (rel.startsWith('assets/')) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      return;
+    }
+    res.setHeader('Cache-Control', 'public, max-age=300');
+  }
+}));
 
 app.get('/:page.html', (req, res) => {
   res.redirect(301, '/' + req.params.page.replace(/index$/, ''));
@@ -5075,6 +5094,7 @@ app.get('/:page.html', (req, res) => {
 
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api') || path.extname(req.path)) return next();
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.sendFile(path.join(CLIENT_DIR, 'index.html'), (err) => { if (err) next(); });
 });
 

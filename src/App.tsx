@@ -8,11 +8,24 @@ import { RedzoneChat } from './RedzoneChat';
 import { SharedFooter } from './SharedFooter';
 import { SharedHeader } from './SharedHeader';
 
+function isStaleRouteChunkError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module/i.test(message);
+}
+
 class RouteErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
+  }
+
+  componentDidCatch(error: Error) {
+    if (!isStaleRouteChunkError(error)) return;
+    const key = 'ofl_stale_chunk_reload';
+    if (sessionStorage.getItem(key) === '1') return;
+    sessionStorage.setItem(key, '1');
+    window.location.reload();
   }
 
   render() {
@@ -34,6 +47,7 @@ const lazyPages = {} as Record<PageKey, LazyExoticComponent<ComponentType>>;
 
 for (const key of Object.keys(pageLoaders) as PageKey[]) {
   lazyPages[key] = lazy(async () => {
+      try {
       const module = await pageLoaders[key]();
       const PageModule = module.default;
       return {
@@ -41,6 +55,13 @@ for (const key of Object.keys(pageLoaders) as PageKey[]) {
           ? () => <LegacyPage page={PageModule} />
           : PageModule
       };
+      } catch (error) {
+        if (isStaleRouteChunkError(error) && sessionStorage.getItem('ofl_stale_chunk_reload') !== '1') {
+          sessionStorage.setItem('ofl_stale_chunk_reload', '1');
+          window.location.reload();
+        }
+        throw error;
+      }
     });
 }
 
@@ -62,10 +83,16 @@ function routeToPage(pathname: string): PageKey | null {
 
 export function App() {
   const [pathname, setPathname] = useState(window.location.pathname);
+  const [locationKey, setLocationKey] = useState(window.location.pathname + window.location.search + window.location.hash);
+
+  useEffect(() => {
+    sessionStorage.removeItem('ofl_stale_chunk_reload');
+  }, [locationKey]);
 
   useEffect(() => {
     function syncPath() {
       setPathname(window.location.pathname);
+      setLocationKey(window.location.pathname + window.location.search + window.location.hash);
       window.scrollTo({ top: 0, left: 0 });
     }
 
@@ -106,12 +133,12 @@ export function App() {
   const Page = lazyPages[pageKey];
 
   return (
-    <RouteErrorBoundary>
+    <RouteErrorBoundary key={locationKey}>
       <Suspense fallback={null}>
         <div className="ofl-app-shell">
           <SharedHeader />
           <div className="ofl-page-shell">
-            <Page key={pageKey} />
+            <Page key={`${pageKey}:${locationKey}`} />
           </div>
           <SharedFooter />
           <RedzoneChat pathname={pathname} />

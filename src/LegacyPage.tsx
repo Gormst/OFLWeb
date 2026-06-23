@@ -5,7 +5,33 @@ type LegacyPageProps = {
   page: LegacyPageData;
 };
 
-function runScript(script: LegacyScript) {
+function inlineHandlerNames(html: string) {
+  const names = new Set<string>();
+  html.replace(/\son[a-z]+\s*=\s*(["'])([\s\S]*?)\1/gi, (_match, _quote, code) => {
+    String(code).replace(/\b([A-Za-z_$][\w$]*)\s*\(/g, (_call, name) => {
+      if (!['if', 'for', 'while', 'switch', 'return', 'function'].includes(name)) names.add(name);
+      return '';
+    });
+    return '';
+  });
+  return [...names];
+}
+
+function scopedInlineScript(code: string, exposedNames: string[]) {
+  const exposedJson = JSON.stringify(exposedNames);
+  return `(() => {
+    const __oflExpose = ${exposedJson};
+${code}
+    for (const __oflName of __oflExpose) {
+      try {
+        const __oflValue = eval(__oflName);
+        if (typeof __oflValue === 'function') window[__oflName] = __oflValue;
+      } catch {}
+    }
+  })();`;
+}
+
+function runScript(script: LegacyScript, exposedNames: string[]) {
   return new Promise<HTMLScriptElement>((resolve, reject) => {
     const tag = document.createElement('script');
     tag.async = false;
@@ -15,7 +41,7 @@ function runScript(script: LegacyScript) {
       tag.onload = () => resolve(tag);
       tag.onerror = () => reject(new Error(`Failed to load script: ${script.src}`));
     } else {
-      tag.text = script.code;
+      tag.text = scopedInlineScript(script.code, exposedNames);
       resolve(tag);
     }
 
@@ -327,6 +353,7 @@ export function LegacyPage({ page }: LegacyPageProps) {
   useEffect(() => {
     let cancelled = false;
     const mountedScripts: HTMLScriptElement[] = [];
+    const exposedNames = inlineHandlerNames(page.body);
 
     document.title = page.title;
     bindSharedHeader();
@@ -336,7 +363,7 @@ export function LegacyPage({ page }: LegacyPageProps) {
     async function runScripts() {
       for (const script of page.scripts) {
         if (cancelled) return;
-        const mounted = await runScript(script);
+        const mounted = await runScript(script, exposedNames);
         mountedScripts.push(mounted);
       }
       if (!cancelled) {
