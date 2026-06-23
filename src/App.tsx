@@ -96,26 +96,9 @@ export function App() {
       window.scrollTo({ top: 0, left: 0 });
     }
 
-    function handleClick(event: MouseEvent) {
-      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
-      const target = event.target as Element | null;
-      const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
-      if (!anchor || anchor.target || anchor.download) return;
-      const next = new URL(anchor.href, window.location.href);
-      if (next.origin !== window.location.origin) return;
-      if (!routeToPage(next.pathname)) return;
-      event.preventDefault();
-      if (next.pathname + next.search + next.hash !== window.location.pathname + window.location.search + window.location.hash) {
-        window.history.pushState(null, '', next.pathname + next.search + next.hash);
-        syncPath();
-      }
-    }
-
     window.addEventListener('popstate', syncPath);
-    document.addEventListener('click', handleClick);
     return () => {
       window.removeEventListener('popstate', syncPath);
-      document.removeEventListener('click', handleClick);
     };
   }, []);
 

@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import Draggable, { type DraggableData, type DraggableEvent } from 'react-draggable';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent } from 'react';
 import { Resizable, type ResizeCallback } from 're-resizable';
 
 type Profile = {
@@ -44,8 +43,7 @@ type ArticleImage = {
   id: string;
   src: string;
   alt: string;
-  x: number;
-  y: number;
+  lineIndex: number;
   width: number;
   height: number;
 };
@@ -113,6 +111,19 @@ function fileToDataUrl(file: File) {
   });
 }
 
+function imageExtensionFromMime(type: string) {
+  if (type === 'image/jpeg') return 'jpg';
+  if (type === 'image/webp') return 'webp';
+  if (type === 'image/svg+xml') return 'svg';
+  return 'png';
+}
+
+function normalizedImageFile(file: File, fallbackName: string) {
+  if (file.name) return file;
+  const ext = imageExtensionFromMime(file.type);
+  return new File([file], `${fallbackName}.${ext}`, { type: file.type });
+}
+
 function discordMarkupToHtml(text: string) {
   return escapeHtml(text)
     .split(/\n{2,}/)
@@ -126,15 +137,71 @@ function discordMarkupToHtml(text: string) {
     .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
 }
 
+function discordInlineMarkupToHtml(text: string) {
+  return escapeHtml(text)
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_\n]+)__/g, '<u>$1</u>')
+    .replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
+}
+
+function textLineHeight(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed) return 18;
+  return Math.max(34, Math.ceil(trimmed.length / 62) * 30 + 10);
+}
+
+function articleTextBlocks(text: string) {
+  const lines = String(text || '').split('\n');
+  const source = lines.length ? lines : [''];
+  return source.map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return { html: '<div class="article-line-gap"></div>', height: textLineHeight(line) };
+    if (/^##\s+/.test(trimmed)) return { html: `<h2>${discordInlineMarkupToHtml(trimmed.replace(/^##\s+/, ''))}</h2>`, height: 48 };
+    if (/^>\s?/.test(trimmed)) return { html: `<blockquote>${discordInlineMarkupToHtml(trimmed.replace(/^>\s?/, ''))}</blockquote>`, height: textLineHeight(trimmed) + 14 };
+    return { html: `<p>${discordInlineMarkupToHtml(line)}</p>`, height: textLineHeight(line) };
+  });
+}
+
+function imageRowHtml(image: ArticleImage) {
+  const width = Math.max(40, Math.round(image.width));
+  const height = Math.max(40, Math.round(image.height));
+  if (!isSafeArticleUrl(image.src)) return '';
+  return `<figure class="article-inline-image" data-image-id="${escapeHtml(image.id)}" data-line="${Math.max(0, Math.round(image.lineIndex || 0))}"><img class="article-free-image" src="${escapeHtml(image.src)}" alt="${escapeHtml(image.alt || 'Article image')}" style="width:${width}px;height:${height}px;object-fit:contain;" data-w="${width}" data-h="${height}"></figure>`;
+}
+
+function articleFlowHtml(text: string, images: ArticleImage[]) {
+  const blocks = articleTextBlocks(text);
+  const html: string[] = [];
+  const maxLine = blocks.length;
+  const sortedImages = [...images].sort((a, b) => Math.max(0, a.lineIndex || 0) - Math.max(0, b.lineIndex || 0));
+  blocks.forEach((block, index) => {
+    sortedImages
+      .filter(image => Math.min(maxLine, Math.max(0, image.lineIndex || 0)) === index)
+      .forEach(image => {
+        const row = imageRowHtml(image);
+        if (row) html.push(row);
+      });
+    html.push(block.html);
+  });
+  sortedImages
+    .filter(image => Math.min(maxLine, Math.max(0, image.lineIndex || 0)) === maxLine)
+    .forEach(image => {
+      const row = imageRowHtml(image);
+      if (row) html.push(row);
+    });
+  return {
+    html: html.join('') || '<p></p>',
+    height: Math.max(620, blocks.reduce((sum, block) => sum + block.height, 0) + images.reduce((sum, img) => sum + Math.max(40, img.height) + 34, 0) + 60)
+  };
+}
+
 function articleBodyHtml(text: string, images: ArticleImage[]) {
-  const textHtml = discordMarkupToHtml(text.trim());
-  if (!images.length) return textHtml;
-  const maxY = images.reduce((max, img) => Math.max(max, img.y + img.height + 28), 420);
-  const imageHtml = images
-    .filter(img => isSafeArticleUrl(img.src))
-    .map(img => `<img class="article-free-image" src="${escapeHtml(img.src)}" alt="${escapeHtml(img.alt || 'Article image')}" style="position:absolute;left:${Math.max(0, Math.round(img.x))}px;top:${Math.max(0, Math.round(img.y))}px;width:${Math.max(40, Math.round(img.width))}px;height:${Math.max(40, Math.round(img.height))}px;object-fit:contain;" data-x="${Math.max(0, Math.round(img.x))}" data-y="${Math.max(0, Math.round(img.y))}" data-w="${Math.max(40, Math.round(img.width))}" data-h="${Math.max(40, Math.round(img.height))}">`)
-    .join('');
-  return `<div class="article-free-layout" style="position:relative;min-height:${Math.round(maxY)}px;">${textHtml}${imageHtml}</div>`;
+  if (!images.length) return discordMarkupToHtml(text.trim());
+  const flow = articleFlowHtml(text, images);
+  return `<div class="article-free-layout">${flow.html}</div>`;
 }
 
 function insertFormat(text: string, selectionStart: number, selectionEnd: number, open: string, close = open) {
@@ -179,6 +246,7 @@ export default function MediaEditor() {
   const [articleImages, setArticleImages] = useState<ArticleImage[]>(emptyArticleImage);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [postingArticle, setPostingArticle] = useState(false);
+  const [articleSubmitStatus, setArticleSubmitStatus] = useState<{ text: string; ok?: boolean } | null>(null);
 
   const [videoTitle, setVideoTitle] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
@@ -188,9 +256,9 @@ export default function MediaEditor() {
   const [postingVideo, setPostingVideo] = useState(false);
 
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
-  const stageRef = useRef<HTMLDivElement | null>(null);
 
-  const articlePreviewHtml = useMemo(() => discordMarkupToHtml(articleText), [articleText]);
+  const articlePreviewBlocks = useMemo(() => articleTextBlocks(articleText), [articleText]);
+  const articlePreviewFlow = useMemo(() => articleFlowHtml(articleText, articleImages), [articleText, articleImages]);
   const selectedImage = articleImages.find(img => img.id === selectedImageId) || null;
 
   function showMessage(text: string, ok = false) {
@@ -321,6 +389,28 @@ export default function MediaEditor() {
     return String(json.url);
   }
 
+  function articleInsertionLine(offset = 0) {
+    const caret = textAreaRef.current?.selectionStart ?? articleText.length;
+    const beforeCaret = articleText.slice(0, caret);
+    const linesBeforeCaret = beforeCaret.match(/\n/g)?.length || 0;
+    return linesBeforeCaret + (caret > 0 && articleText[caret - 1] !== '\n' ? 1 : 0) + offset;
+  }
+
+  async function insertArticleImageFile(file: File, offset = 0) {
+    const namedFile = normalizedImageFile(file, `article-image-${Date.now()}`);
+    const url = await uploadImage(namedFile, articleTitle || namedFile.name);
+    const next: ArticleImage = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      src: url,
+      alt: namedFile.name.replace(/\.[^.]+$/, '') || 'Article image',
+      lineIndex: articleInsertionLine(offset),
+      width: 260,
+      height: 160
+    };
+    setArticleImages(prev => [...prev, next]);
+    setSelectedImageId(next.id);
+  }
+
   async function handleThumbFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -341,23 +431,30 @@ export default function MediaEditor() {
     if (!file) return;
     try {
       showMessage('Uploading article image...', true);
-      const url = await uploadImage(file, articleTitle || file.name);
-      const next: ArticleImage = {
-        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        src: url,
-        alt: file.name.replace(/\.[^.]+$/, '') || 'Article image',
-        x: 24,
-        y: 80 + articleImages.length * 24,
-        width: 260,
-        height: 160
-      };
-      setArticleImages(prev => [...prev, next]);
-      setSelectedImageId(next.id);
+      await insertArticleImageFile(file);
       showMessage('Image inserted', true);
     } catch (error) {
       showMessage(error instanceof Error ? error.message : 'Article image upload failed');
     } finally {
       event.target.value = '';
+    }
+  }
+
+  async function handleArticlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(event.clipboardData?.items || [])
+      .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+      .map(item => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+    if (!files.length) return;
+    event.preventDefault();
+    try {
+      showMessage(files.length === 1 ? 'Uploading pasted image...' : `Uploading ${files.length} pasted images...`, true);
+      for (let index = 0; index < files.length; index += 1) {
+        await insertArticleImageFile(files[index], index);
+      }
+      showMessage(files.length === 1 ? 'Pasted image inserted' : 'Pasted images inserted', true);
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : 'Pasted image upload failed');
     }
   }
 
@@ -373,17 +470,23 @@ export default function MediaEditor() {
   }
 
   async function postArticle() {
-    const body = articleBodyHtml(articleText, articleImages);
+    if (postingArticle) return;
+    setArticleSubmitStatus(null);
     if (!articleTitle.trim()) {
+      setArticleSubmitStatus({ text: 'Title is required' });
       showMessage('Title is required');
       return;
     }
     if (!articleText.trim() && !articleImages.length) {
+      setArticleSubmitStatus({ text: 'Article body is required' });
       showMessage('Article body is required');
       return;
     }
     setPostingArticle(true);
+    setArticleSubmitStatus({ text: 'Posting article...', ok: true });
+    showMessage('Posting article...', true);
     try {
+      const body = articleBodyHtml(articleText, articleImages);
       const response = await apiFetch('/api/media/articles', {
         method: 'POST',
         body: JSON.stringify({
@@ -395,7 +498,9 @@ export default function MediaEditor() {
       });
       const json = await readJsonSafe(response);
       if (!response.ok) {
-        showMessage((json.code ? `[${json.code}] ` : '') + (json.error || 'Could not post article'));
+        const text = (json.code ? `[${json.code}] ` : '') + (json.error || 'Could not post article');
+        setArticleSubmitStatus({ text });
+        showMessage(text);
         return;
       }
       setArticleTitle('');
@@ -404,10 +509,13 @@ export default function MediaEditor() {
       setArticleThumb('');
       setArticleImages([]);
       setSelectedImageId(null);
+      setArticleSubmitStatus({ text: 'Article posted!', ok: true });
       showMessage('Article posted!', true);
       await loadArticles();
-    } catch {
-      showMessage('Network error');
+    } catch (error) {
+      const text = error instanceof Error ? error.message : 'Network error';
+      setArticleSubmitStatus({ text });
+      showMessage(text);
     } finally {
       setPostingArticle(false);
     }
@@ -507,6 +615,26 @@ export default function MediaEditor() {
     setArticleImages(prev => prev.map(img => (img.id === id ? { ...img, ...patch } : img)));
   }
 
+  function clampImageLine(lineIndex: number) {
+    return Math.max(0, Math.min(articlePreviewBlocks.length, lineIndex));
+  }
+
+  function renderInlineImages(lineIndex: number) {
+    return articleImages
+      .filter(image => clampImageLine(image.lineIndex) === lineIndex)
+      .map(image => (
+        <ArticleImageBox
+          key={image.id}
+          image={{ ...image, lineIndex: clampImageLine(image.lineIndex) }}
+          selected={selectedImageId === image.id}
+          maxLineIndex={articlePreviewBlocks.length}
+          onSelect={() => setSelectedImageId(image.id)}
+          onChange={patch => updateImage(image.id, patch)}
+          onRemove={() => setArticleImages(prev => prev.filter(img => img.id !== image.id))}
+        />
+      ));
+  }
+
   if (gate === 'loading') return <main className="media-editor-page"><p className="empty">Loading...</p></main>;
   if (gate === 'login') return <Gate title="Connect Required" copy="Log in before opening the media editor." href="/connect" label="Connect Account" />;
   if (gate === 'denied') return <Gate title="No Media Access" copy="Your account does not have access to this editor." href="/media" label="Back to Media" />;
@@ -532,7 +660,7 @@ export default function MediaEditor() {
         <>
           <section className="media-editor-panel">
             <h2>Post Article</h2>
-            <p className="desc">Write the article text, then place images directly on the preview canvas.</p>
+            <p className="desc">Place your cursor between article lines before uploading an image. Use the image controls to resize or move it between lines.</p>
             <div className="form-grid">
               <label>
                 Title
@@ -571,34 +699,47 @@ export default function MediaEditor() {
                 ref={textAreaRef}
                 value={articleText}
                 onChange={event => setArticleText(event.target.value)}
+                onPaste={event => void handleArticlePaste(event)}
                 placeholder="Write your article here..."
               />
-              <div className="article-stage" ref={stageRef} onMouseDown={() => setSelectedImageId(null)}>
-                <div className="article-stage-text" dangerouslySetInnerHTML={{ __html: articlePreviewHtml || '<p></p>' }} />
-                {articleImages.map(image => (
-                  <ArticleImageBox
-                    key={image.id}
-                    image={image}
-                    selected={selectedImageId === image.id}
-                    onSelect={() => setSelectedImageId(image.id)}
-                    onChange={patch => updateImage(image.id, patch)}
-                    onRemove={() => setArticleImages(prev => prev.filter(img => img.id !== image.id))}
-                  />
-                ))}
+              <div
+                className="article-stage"
+                style={{ minHeight: articlePreviewFlow.height }}
+                onMouseDown={() => setSelectedImageId(null)}
+              >
+                <div className="article-stage-text">
+                  {articlePreviewBlocks.map((block, index) => (
+                    <div className="article-flow-slot" key={`line-${index}`}>
+                      {renderInlineImages(index)}
+                      <div dangerouslySetInnerHTML={{ __html: block.html }} />
+                    </div>
+                  ))}
+                  {renderInlineImages(articlePreviewBlocks.length)}
+                </div>
               </div>
             </div>
 
             {selectedImage ? (
               <div className="image-inspector">
                 <span>Selected image</span>
+                <label>Line
+                  <select value={clampImageLine(selectedImage.lineIndex)} onChange={event => updateImage(selectedImage.id, { lineIndex: Number(event.target.value) })}>
+                    {Array.from({ length: articlePreviewBlocks.length + 1 }, (_value, index) => (
+                      <option key={index} value={index}>{index === 0 ? 'Before line 1' : index === articlePreviewBlocks.length ? 'End of article' : `After line ${index}`}</option>
+                    ))}
+                  </select>
+                </label>
                 <label>Alt <input value={selectedImage.alt} onChange={event => updateImage(selectedImage.id, { alt: event.target.value })} /></label>
                 <button type="button" onClick={() => setArticleImages(prev => prev.filter(img => img.id !== selectedImage.id))}>Remove</button>
               </div>
             ) : null}
 
-            <button className="btn btn-solid" type="button" disabled={postingArticle} onClick={postArticle}>
-              {postingArticle ? 'Posting...' : 'Post Article'}
-            </button>
+            <div className="submit-row">
+              <button className="btn btn-solid" type="button" disabled={postingArticle} onClick={() => void postArticle()}>
+                {postingArticle ? 'Posting...' : 'Post Article'}
+              </button>
+              {articleSubmitStatus ? <span className={`submit-status ${articleSubmitStatus.ok ? 'ok' : 'err'}`}>{articleSubmitStatus.text}</span> : null}
+            </div>
           </section>
 
           <section className="media-editor-panel">
@@ -690,20 +831,18 @@ function Gate({ title, copy, href, label }: { title: string; copy: string; href:
 function ArticleImageBox({
   image,
   selected,
+  maxLineIndex,
   onSelect,
   onChange,
   onRemove
 }: {
   image: ArticleImage;
   selected: boolean;
+  maxLineIndex: number;
   onSelect: () => void;
   onChange: (patch: Partial<ArticleImage>) => void;
   onRemove: () => void;
 }) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const onDrag = (_event: DraggableEvent, data: DraggableData) => {
-    onChange({ x: Math.max(0, data.x), y: Math.max(0, data.y) });
-  };
   const onResizeStop: ResizeCallback = (_event, _direction, _elementRef, delta) => {
     onChange({
       width: Math.max(40, image.width + delta.width),
@@ -712,28 +851,41 @@ function ArticleImageBox({
   };
 
   return (
-    <Draggable nodeRef={ref} bounds="parent" position={{ x: image.x, y: image.y }} onDrag={onDrag}>
-      <div
-        ref={ref}
-        className={`article-image-box ${selected ? 'selected' : ''}`}
-        onMouseDown={event => {
-          event.stopPropagation();
-          onSelect();
-        }}
-      >
-        <Resizable
-          size={{ width: image.width, height: image.height }}
-          minWidth={40}
-          minHeight={40}
-          lockAspectRatio
-          onResizeStop={onResizeStop}
-          enable={{ bottomRight: true }}
+    <figure
+      className={`article-image-box ${selected ? 'selected' : ''}`}
+      onMouseDown={event => {
+        event.stopPropagation();
+        onSelect();
+      }}
+    >
+      <div className="image-flow-controls">
+        <button
+          type="button"
+          disabled={image.lineIndex <= 0}
+          onClick={() => onChange({ lineIndex: Math.max(0, image.lineIndex - 1) })}
         >
-          <img src={image.src} alt={image.alt} draggable={false} />
-        </Resizable>
-        <button type="button" className="image-remove" onClick={onRemove}>X</button>
+          Up
+        </button>
+        <button
+          type="button"
+          disabled={image.lineIndex >= maxLineIndex}
+          onClick={() => onChange({ lineIndex: Math.min(maxLineIndex, image.lineIndex + 1) })}
+        >
+          Down
+        </button>
       </div>
-    </Draggable>
+      <Resizable
+        size={{ width: image.width, height: image.height }}
+        minWidth={40}
+        minHeight={40}
+        lockAspectRatio
+        onResizeStop={onResizeStop}
+        enable={{ bottomRight: true }}
+      >
+        <img src={image.src} alt={image.alt} draggable={false} />
+      </Resizable>
+      <button type="button" className="image-remove" onClick={onRemove}>X</button>
+    </figure>
   );
 }
 
@@ -763,14 +915,24 @@ const styles = `
   .composer-toolbar button:hover,.image-upload-button:hover{color:#F3F6FB;border-bottom-color:#F3F6FB;}
   .image-upload-button input{display:none;}
   .media-editor-page .composer-grid{display:grid;grid-template-columns:minmax(420px,0.92fr) minmax(560px,1.08fr);gap:18px;align-items:start;margin-bottom:20px;}
-  .media-editor-page .article-stage{position:relative;min-height:620px;background:#111827;border:1px solid rgba(142,164,201,.42);padding:20px;overflow:hidden;}
-  .article-stage-text{font-size:17px;line-height:1.7;pointer-events:none;}
+  .media-editor-page .article-stage{position:relative;min-height:620px;background:#111827;border:1px solid rgba(142,164,201,.42);padding:20px;overflow:auto;}
+  .article-stage-text{font-size:17px;line-height:1.7;}
   .article-stage-text p{margin:0 0 18px;}
-  .article-image-box{position:absolute;line-height:0;cursor:move;z-index:5;}
-  .article-image-box.selected{outline:2px solid #D85A3A;outline-offset:3px;}
-  .article-image-box img{display:block;width:100%;height:100%;object-fit:contain;border:1px solid rgba(142,164,201,.42);background:rgba(255,255,255,.04);user-select:none;pointer-events:none;}
+  .article-stage-text h2{font-family:'Oswald';font-size:28px;line-height:1.1;text-transform:uppercase;margin:16px 0 12px;color:#F3F6FB;}
+  .article-stage-text blockquote{border-left:3px solid var(--red);margin:0 0 18px;padding-left:14px;color:#AFC0DA;font-style:italic;}
+  .article-line-gap{height:18px;}
+  .article-flow-slot{min-width:0;}
+  .article-inline-image,.article-image-box{display:inline-flex;position:relative;line-height:0;margin:10px 0 22px;max-width:100%;vertical-align:top;}
+  .article-inline-image img,.article-image-box img{display:block;max-width:100%;object-fit:contain;border:0;background:transparent;user-select:none;}
+  .article-image-box{align-items:flex-start;cursor:pointer;z-index:5;}
+  .article-image-box.selected{outline:2px solid #D85A3A;outline-offset:5px;}
+  .article-image-box img{display:block;width:100%;height:100%;object-fit:contain;border:0;background:transparent;user-select:none;pointer-events:none;}
+  .image-flow-controls{position:absolute;left:0;top:-28px;display:flex;gap:6px;line-height:1;z-index:9;opacity:0;transition:opacity .15s;}
+  .article-image-box.selected .image-flow-controls,.article-image-box:hover .image-flow-controls{opacity:1;}
+  .image-flow-controls button{background:#F3F6FB;color:#111827;border:0;font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:5px 8px;cursor:pointer;}
+  .image-flow-controls button:disabled{opacity:.35;cursor:not-allowed;}
   .image-remove{position:absolute;right:-10px;top:-10px;width:22px;height:22px;border:2px solid #111827;background:var(--red);color:var(--paper);font-family:'Space Mono';font-size:12px;line-height:16px;cursor:pointer;z-index:8;}
-  .image-inspector{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:0 0 20px;font-family:'Space Mono';font-size:11px;text-transform:uppercase;color:var(--muted);}
+  .image-inspector{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:0 0 20px;font-family:'Space Mono';font-size:11px;text-transform:uppercase;color:#8EA4C9;}
   .image-inspector label{min-width:260px;}
   .btn{font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:2px;padding:13px 26px;cursor:pointer;border:2px solid var(--navy);transition:all .2s;text-decoration:none;display:inline-flex;}
   .btn-solid{background:var(--navy);color:var(--paper);}
@@ -778,6 +940,10 @@ const styles = `
   .btn-danger{background:none;color:var(--red);border-color:var(--red);font-family:'Space Mono';font-size:11px;letter-spacing:1px;padding:7px 14px;}
   .btn-danger:hover{background:var(--red);color:var(--paper);}
   .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .submit-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .submit-status{font-family:'Space Mono';font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#8EA4C9;}
+  .submit-status.ok{color:var(--green);}
+  .submit-status.err{color:var(--red);}
   .msg{font-family:'Space Mono';font-size:12px;padding:10px 14px;margin-bottom:16px;}
   .msg.ok{background:rgba(60,122,78,.14);color:var(--green);}
   .msg.err{background:rgba(159,54,34,.12);color:var(--red);}

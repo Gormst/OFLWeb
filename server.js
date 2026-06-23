@@ -1540,6 +1540,32 @@ function withOauthConnected(row, oauthConnections, aliases = []) {
   };
 }
 
+function teamStaffRolesForUsername(username, teams, aliases = []) {
+  const { aliasToCanonical } = buildAliasMaps(aliases);
+  const key = canonicalUsernameKey(username, aliasToCanonical);
+  if (!key) return [];
+  const roles = [];
+  (teams || []).forEach(team => {
+    if (canonicalUsernameKey(team.head_coach, aliasToCanonical) === key) {
+      roles.push({ role: 'HC', label: 'Head Coach', team: publicTeamSummary(team) });
+    }
+    if (canonicalUsernameKey(team.director_of_ops, aliasToCanonical) === key) {
+      roles.push({ role: 'DFO', label: 'Director of Franchise Operations', team: publicTeamSummary(team) });
+    }
+    if (canonicalUsernameKey(team.franchise_owner, aliasToCanonical) === key) {
+      roles.push({ role: 'Owner', label: 'Franchise Owner', team: publicTeamSummary(team) });
+    }
+  });
+  return roles;
+}
+
+function withTeamStaffRoles(row, teams, aliases = []) {
+  return {
+    ...row,
+    staff_roles: teamStaffRolesForUsername(row?.roblox_username, teams, aliases)
+  };
+}
+
 function aliasNameGroup(username, aliases) {
   const { aliasToCanonical, canonicalToAliases } = buildAliasMaps(aliases);
   const canonical = canonicalUsernameKey(username, aliasToCanonical);
@@ -1704,10 +1730,11 @@ app.get('/api/me/player-profile', async (req, res) => {
 
     const currentStats = statSummary(player);
     const { tabs, isAdmin, isSuper } = effectiveTabs(profile);
+    const profileStaffRoles = teamStaffRolesForUsername(username, teams, aliases);
     res.json({
-      profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper, oauth_connected: Boolean(profile.roblox_user_id && oauthConnections.ids.has(String(profile.roblox_user_id))) },
+      profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper, oauth_connected: Boolean(profile.roblox_user_id && oauthConnections.ids.has(String(profile.roblox_user_id))), staff_roles: profileStaffRoles },
       player: player ? {
-        ...withOauthConnected(player, oauthConnections, aliases),
+        ...withTeamStaffRoles(withOauthConnected(player, oauthConnections, aliases), teams, aliases),
         team: publicTeamSummary(teamMap[player.team_id])
       } : null,
       current_stats: currentStats,
@@ -3887,7 +3914,7 @@ app.get('/api/players', async (req, res) => {
         const key = canonicalUsernameKey(row.roblox_username, aliasToCanonical);
         registryMap[key] = row;
         const roster = rosterMap[key] || {};
-        combined.push(withOauthConnected({
+        combined.push(withTeamStaffRoles(withOauthConnected({
           ...roster,
           ...row,
           id: roster.id || row.id,
@@ -3899,18 +3926,18 @@ app.get('/api/players', async (req, res) => {
           cap_value: Number(row.cap_value || roster.cap_value || 0),
           team_id: roster.team_id || null,
           team: roster.team_id ? (teamMap[roster.team_id] || null) : null
-        }, oauthConnections, aliases));
+        }, oauthConnections, aliases), teamsResult.data || [], aliases));
       });
       (rosterRows || []).forEach(roster => {
         const key = canonicalUsernameKey(roster.roblox_username, aliasToCanonical);
         if (registryMap[key]) return;
-        combined.push(withOauthConnected({
+        combined.push(withTeamStaffRoles(withOauthConnected({
           ...roster,
           eligibility: roster.eligibility || null,
           position_tag: roster.position_tag || roster.position || null,
           cap_value: Number(roster.cap_value || 0),
           team: roster.team_id ? (teamMap[roster.team_id] || null) : null
-        }, oauthConnections, aliases));
+        }, oauthConnections, aliases), teamsResult.data || [], aliases));
       });
 
       const filtered = q ? combined.filter(p => matchesPlayerSearch(p, q)) : combined;
@@ -3969,13 +3996,13 @@ app.get('/api/players', async (req, res) => {
     res.json({
       players: players.map(p => {
         const reg = registryMap[canonicalUsernameKey(p.roblox_username, aliasToCanonical)] || null;
-        return withOauthConnected({
+        return withTeamStaffRoles(withOauthConnected({
           ...p,
           eligibility: reg ? reg.eligibility : null,
           position_tag: reg ? reg.position_tag : p.position,
           cap_value: reg ? Number(reg.cap_value || p.cap_value || 0) : Number(p.cap_value || 0),
           team: p.team_id ? (map[p.team_id] || null) : null
-        }, oauthConnections, aliases);
+        }, oauthConnections, aliases), teams, aliases);
       }),
       total: playersResult.count ?? players.length,
       limit,

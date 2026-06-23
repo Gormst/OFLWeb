@@ -11,6 +11,22 @@ themeStyle.textContent = `
   body{
     min-height:100vh;
   }
+  body[data-theme="light"]{
+    --paper:#ECE4CF;
+    --paper-2:#E4DAC0;
+    --navy:#15233E;
+    --red:#9F3622;
+    --red-bright:#B23E26;
+    --muted:#6B6253;
+    --green:#3c7a4e;
+    --line:rgba(21,35,62,.16);
+    --line-strong:rgba(21,35,62,.32);
+    --promote:rgba(60,122,78,.13);
+    --remain:rgba(21,35,62,.06);
+    --demote:rgba(159,54,34,.10);
+    color:#15233E;
+    color-scheme:light;
+  }
   #root{
     display:flex;
     flex-direction:column;
@@ -44,6 +60,9 @@ themeStyle.textContent = `
   body[data-theme="dark"] input,
   body[data-theme="dark"] textarea,
   body[data-theme="dark"] select{color-scheme:dark;}
+  body[data-theme="light"] input,
+  body[data-theme="light"] textarea,
+  body[data-theme="light"] select{color-scheme:light;}
 `;
 document.head.appendChild(themeStyle);
 
@@ -60,7 +79,10 @@ function applySavedTheme() {
       theme = null;
     }
   }
-  document.body.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+  const resolvedTheme = theme === 'dark' ? 'dark' : 'light';
+  document.body.dataset.theme = resolvedTheme;
+  document.body.classList.toggle('theme-dark', resolvedTheme === 'dark');
+  document.body.classList.toggle('theme-light', resolvedTheme === 'light');
 }
 
 applySavedTheme();
