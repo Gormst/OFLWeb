@@ -21,18 +21,6 @@ function DiscordIcon() {
   );
 }
 
-function RobloxIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M6.35 1.75 22.25 6l-4.28 15.95L2.05 17.68 6.35 1.75Zm4.43 8.82 2.66.72-.72 2.66-2.66-.72.72-2.66Z"
-      />
-    </svg>
-  );
-}
-
 export function SharedFooter() {
   return (
     <>
@@ -47,6 +35,7 @@ export function SharedFooter() {
         .ofl-shared-footer .footer-social-link{width:44px;height:44px;border:1px solid rgba(255,255,255,.26);display:flex;align-items:center;justify-content:center;color:#fff;background:transparent;transition:background .16s,border-color .16s,color .16s;}
         .ofl-shared-footer .footer-social-link:hover{background:var(--red,#9F3622);border-color:var(--red,#9F3622);color:#fff;}
         .ofl-shared-footer .footer-social-link svg{width:23px;height:23px;}
+        .ofl-shared-footer .footer-social-link img{width:24px;height:24px;object-fit:contain;display:block;}
         .ofl-shared-footer .footer-links{grid-column:1/-1;display:flex;gap:18px;flex-wrap:wrap;padding-top:18px;border-top:1px solid rgba(255,255,255,.1);font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.62);}
         .ofl-shared-footer .footer-links a{color:inherit;text-decoration:none;}
         .ofl-shared-footer .footer-links a:hover{color:#fff;}
@@ -65,8 +54,8 @@ export function SharedFooter() {
             <a className="footer-social-link" href="https://discord.gg/8sktYMawP" target="_blank" rel="noopener" aria-label="Discord Server">
               <DiscordIcon />
             </a>
-            <a className="footer-social-link" href="https://www.roblox.com/communities/988829/OFL-Old-Football-League#!/about" target="_blank" rel="noopener" aria-label="Roblox Group">
-              <RobloxIcon />
+            <a className="footer-social-link roblox-social-link" href="https://www.roblox.com/communities/988829/OFL-Old-Football-League#!/about" target="_blank" rel="noopener" aria-label="Roblox Group">
+              <img src="/logos/roblox-logo.png" alt="Roblox" />
             </a>
           </div>
           <div className="footer-links">

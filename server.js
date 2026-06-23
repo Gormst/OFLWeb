@@ -1494,6 +1494,52 @@ function combinePlayerRowsByAlias(rows, aliases) {
   });
 }
 
+async function fetchOauthConnections(aliases = []) {
+  const { data: tokenRows, error } = await supabase
+    .from('roblox_oauth_tokens')
+    .select('profile_id, roblox_user_id');
+  if (error && isMissingSupabaseTable(error, 'roblox_oauth_tokens')) {
+    return { ids: new Set(), usernames: new Map() };
+  }
+  if (error) throw error;
+
+  const ids = new Set((tokenRows || []).map(row => String(row.roblox_user_id || '').trim()).filter(Boolean));
+  const usernames = new Map();
+  const profileIds = (tokenRows || []).map(row => row.profile_id).filter(Boolean);
+  if (profileIds.length) {
+    const { data: profiles, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('id, roblox_username, roblox_user_id')
+      .in('id', profileIds);
+    if (profileError) throw profileError;
+    const { aliasToCanonical } = buildAliasMaps(aliases);
+    (profiles || []).forEach(profile => {
+      const username = canonicalUsernameKey(profile.roblox_username, aliasToCanonical);
+      const robloxUserId = String(profile.roblox_user_id || '').trim();
+      if (username && robloxUserId && ids.has(robloxUserId)) usernames.set(username, robloxUserId);
+    });
+  }
+
+  return { ids, usernames };
+}
+
+function withOauthConnected(row, oauthConnections, aliases = []) {
+  const connections = oauthConnections instanceof Set ? { ids: oauthConnections, usernames: new Map() } : (oauthConnections || {});
+  const ids = connections.ids || new Set();
+  const usernames = connections.usernames || new Map();
+  const id = String(row?.roblox_user_id || '').trim();
+  if (id && ids.has(id)) return { ...row, oauth_connected: true };
+
+  const { aliasToCanonical } = buildAliasMaps(aliases);
+  const username = canonicalUsernameKey(row?.roblox_username, aliasToCanonical);
+  const connectedId = username ? usernames.get(username) : null;
+  return {
+    ...row,
+    roblox_user_id: connectedId || row?.roblox_user_id || null,
+    oauth_connected: Boolean(connectedId)
+  };
+}
+
 function aliasNameGroup(username, aliases) {
   const { aliasToCanonical, canonicalToAliases } = buildAliasMaps(aliases);
   const canonical = canonicalUsernameKey(username, aliasToCanonical);
@@ -1541,11 +1587,12 @@ app.get('/api/me/player-profile', async (req, res) => {
     const aliases = await fetchPlayerAliases();
     const nameKeys = aliasNameGroup(username, aliases);
     const nameSet = new Set(nameKeys);
-    const [teamsResult, playerByIdResult, playersByNamesResult, registryByNamesResult] = await Promise.all([
+    const [teamsResult, playerByIdResult, playersByNamesResult, registryByNamesResult, oauthConnections] = await Promise.all([
       supabase.from('teams').select('*').order('name'),
       profile.roblox_user_id ? supabase.from('players').select('*').eq('roblox_user_id', String(profile.roblox_user_id)).maybeSingle() : Promise.resolve({ data: null, error: null }),
       nameSet.size ? supabase.from('players').select('*') : Promise.resolve({ data: [], error: null }),
-      nameSet.size ? supabase.from('league_players').select('roblox_username, cap_value, position_tag') : Promise.resolve({ data: [], error: null })
+      nameSet.size ? supabase.from('league_players').select('roblox_username, cap_value, position_tag') : Promise.resolve({ data: [], error: null }),
+      fetchOauthConnections(aliases)
     ]);
 
     if (teamsResult.error) throw teamsResult.error;
@@ -1658,9 +1705,9 @@ app.get('/api/me/player-profile', async (req, res) => {
     const currentStats = statSummary(player);
     const { tabs, isAdmin, isSuper } = effectiveTabs(profile);
     res.json({
-      profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper },
+      profile: { ...profile, admin_tabs: tabs, is_admin: isAdmin, is_superuser: isSuper, oauth_connected: Boolean(profile.roblox_user_id && oauthConnections.ids.has(String(profile.roblox_user_id))) },
       player: player ? {
-        ...player,
+        ...withOauthConnected(player, oauthConnections, aliases),
         team: publicTeamSummary(teamMap[player.team_id])
       } : null,
       current_stats: currentStats,
@@ -3810,10 +3857,11 @@ app.get('/api/players', async (req, res) => {
     const offset = Number.isFinite(rawOffset) && rawOffset > 0 ? rawOffset : 0;
 
     if (includeRegistry) {
-      const [registryRows, rawRosterRows, aliases] = await Promise.all([
+      const aliases = await fetchPlayerAliases();
+      const [registryRows, rawRosterRows, oauthConnections] = await Promise.all([
         fetchAll(supabase.from('league_players').select('*').order('cap_value', { ascending: false }).order('roblox_username')),
         fetchAll(supabase.from('players').select('*').order('roblox_username')),
-        fetchPlayerAliases()
+        fetchOauthConnections(aliases)
       ]);
       const rosterRows = combinePlayerRowsByAlias(rawRosterRows || [], aliases);
       const teamsResult = await withTimeout(
@@ -3839,7 +3887,7 @@ app.get('/api/players', async (req, res) => {
         const key = canonicalUsernameKey(row.roblox_username, aliasToCanonical);
         registryMap[key] = row;
         const roster = rosterMap[key] || {};
-        combined.push({
+        combined.push(withOauthConnected({
           ...roster,
           ...row,
           id: roster.id || row.id,
@@ -3851,18 +3899,18 @@ app.get('/api/players', async (req, res) => {
           cap_value: Number(row.cap_value || roster.cap_value || 0),
           team_id: roster.team_id || null,
           team: roster.team_id ? (teamMap[roster.team_id] || null) : null
-        });
+        }, oauthConnections, aliases));
       });
       (rosterRows || []).forEach(roster => {
         const key = canonicalUsernameKey(roster.roblox_username, aliasToCanonical);
         if (registryMap[key]) return;
-        combined.push({
+        combined.push(withOauthConnected({
           ...roster,
           eligibility: roster.eligibility || null,
           position_tag: roster.position_tag || roster.position || null,
           cap_value: Number(roster.cap_value || 0),
           team: roster.team_id ? (teamMap[roster.team_id] || null) : null
-        });
+        }, oauthConnections, aliases));
       });
 
       const filtered = q ? combined.filter(p => matchesPlayerSearch(p, q)) : combined;
@@ -3900,6 +3948,7 @@ app.get('/api/players', async (req, res) => {
     }
 
     const aliases = await fetchPlayerAliases();
+    const oauthConnections = await fetchOauthConnections(aliases);
     const players = combinePlayerRowsByAlias(playersResult.data || [], aliases);
     const teams = teamsResult.data || [];
     const map = {};
@@ -3920,13 +3969,13 @@ app.get('/api/players', async (req, res) => {
     res.json({
       players: players.map(p => {
         const reg = registryMap[canonicalUsernameKey(p.roblox_username, aliasToCanonical)] || null;
-        return {
+        return withOauthConnected({
           ...p,
           eligibility: reg ? reg.eligibility : null,
           position_tag: reg ? reg.position_tag : p.position,
           cap_value: reg ? Number(reg.cap_value || p.cap_value || 0) : Number(p.cap_value || 0),
           team: p.team_id ? (map[p.team_id] || null) : null
-        };
+        }, oauthConnections, aliases);
       }),
       total: playersResult.count ?? players.length,
       limit,

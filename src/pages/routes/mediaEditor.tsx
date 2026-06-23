@@ -1,16 +1,795 @@
-import type { LegacyPageData } from '../types';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import Draggable, { type DraggableData, type DraggableEvent } from 'react-draggable';
+import { Resizable, type ResizeCallback } from 're-resizable';
 
-const page = {
-  "file": "media-editor.html",
-  "title": "Media Editor — OFL",
-  "styles": ":root{--paper:#ECE4CF;--paper-2:#E4DAC0;--navy:#15233E;--red:#9F3622;--muted:#6B6253;--green:#3c7a4e;--line:rgba(21,35,62,.16);--line-strong:rgba(21,35,62,.32);}\r\n  *{margin:0;padding:0;box-sizing:border-box;}html,body{max-width:100%;overflow-x:hidden;}img,svg,video,canvas{max-width:100%;}\r\n  body{background:var(--paper);color:var(--navy);font-family:'Spectral',Georgia,serif;min-height:100vh;\r\n    background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E\");}\r\n  a{color:inherit;text-decoration:none;}.wrap{width:min(1800px,calc(100% - clamp(28px,4vw,80px)));max-width:1800px;min-width:0;margin:0 auto;padding:0;}\r\n\r\n  header{position:sticky;top:0;z-index:50;background:var(--paper);border-bottom:1px solid var(--navy);}\r\n  .nav{display:flex;align-items:center;justify-content:space-between;height:78px;}\r\n  .brand{display:flex;align-items:center;gap:14px;}\r\n  .brand img{height:44px;width:44px;object-fit:contain;}\r\n  .brand .logo-fallback{height:44px;width:44px;border:2px solid var(--navy);display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:15px;}\r\n  .brand .bt{font-family:'Anton';font-size:22px;line-height:1;}\r\n  .brand-word{display:flex;flex-direction:column;justify-content:center;flex:0 0 auto;margin-right:4px;}\r\n  .brand-word .bt{font-family:'Anton';font-size:22px;line-height:1;white-space:nowrap;}\r\n  .nav{justify-content:flex-start;gap:clamp(14px,2vw,28px);}\r\n  .brand{gap:0;flex:0 0 auto;margin-left:18px;}\r\n  nav.links{margin-right:auto;}\r\n  .wrap.nav{width:100%;min-width:0;margin:0;padding:0;}\r\n  .menu-toggle{margin-left:auto;}\r\n  nav.links{display:flex;gap:clamp(16px,2vw,34px);}\r\n  nav.links a{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1.5px;padding:4px 0;position:relative;}\r\n  nav.links a::after{content:'';position:absolute;left:0;bottom:-2px;height:2px;width:0;background:var(--red);transition:width .25s;}\r\n  nav.links a:hover::after{width:100%;}\r\n  .connect-btn{background:var(--navy);color:var(--paper);font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:2px;padding:14px 26px;}\r\n  .account-wrap{position:relative;margin-right:clamp(16px,2vw,28px);}\r\n  .account{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;}\r\n  .account img{width:38px;height:38px;border-radius:50%;border:2px solid var(--navy);object-fit:cover;}\r\n  .account .uname{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1px;}\r\n  .account .chev{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid var(--navy);transition:transform .2s;}\r\n  .account-wrap.open .chev{transform:rotate(180deg);}\r\n  .dropdown{position:absolute;top:calc(100% + 12px);right:0;min-width:180px;background:var(--paper);border:1px solid var(--navy);opacity:0;visibility:hidden;transform:translateY(-6px);transition:all .18s ease;box-shadow:0 14px 30px rgba(21,35,62,.16);}\r\n  .account-wrap.open .dropdown{opacity:1;visibility:visible;transform:none;}\r\n  .dropdown a{display:block;font-family:'Oswald';font-weight:500;font-size:14px;text-transform:uppercase;letter-spacing:1px;padding:14px 18px;border-bottom:1px solid rgba(21,35,62,.1);}\r\n  .dropdown a:last-child{border-bottom:none;}.dropdown a:hover{background:var(--navy);color:var(--paper);}\r\n  .dropdown a.admin{color:var(--red);}.dropdown a.admin:hover,.dropdown a.logout:hover{background:var(--red);color:var(--paper);}\r\n  .menu-toggle{display:none;background:none;border:none;cursor:pointer;}\r\n  .menu-toggle span{display:block;width:26px;height:2px;background:var(--navy);margin:5px 0;}\r\n  @media(max-width:1100px){.account .uname{display:none;}nav.links{gap:clamp(12px,1.5vw,22px);}}@media(max-width:940px){nav.links,.connect-btn,.account-wrap,.brand-word{display:none;}.menu-toggle{display:block;}}\r\n\r\n  /* gate */\r\n  .gate{text-align:center;padding:100px 20px;}\r\n  .gate h2{font-family:'Anton';font-size:40px;text-transform:uppercase;margin-bottom:12px;}\r\n  .gate p{font-size:17px;font-style:italic;color:var(--muted);margin-bottom:24px;}\r\n  .gate a{display:inline-block;font-family:'Oswald';font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:2px;background:var(--navy);color:var(--paper);padding:14px 26px;}\r\n\r\n  /* page */\r\n  .page{padding:56px 0 90px;}\r\n  .eyebrow{font-family:'Space Mono';font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--red);margin-bottom:10px;}\r\n  h1{font-family:'Anton';font-size:clamp(40px,6vw,72px);text-transform:uppercase;line-height:.9;margin-bottom:10px;}\r\n  .subtitle{font-family:'Space Mono';font-size:12px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:40px;}\r\n\r\n  /* view toggle */\r\n  .view-toggle{display:flex;border:2px solid var(--navy);width:fit-content;margin-bottom:36px;}\r\n  .vt-btn{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1.5px;padding:12px 24px;border:none;background:none;color:var(--muted);cursor:pointer;transition:all .15s;}\r\n  .vt-btn.active{background:var(--navy);color:var(--paper);}\r\n\r\n  .view{display:none;}.view.active{display:block;}\r\n\r\n  /* panels */\r\n  .panel{background:var(--paper-2);border:1px solid var(--line-strong);padding:28px;margin-bottom:24px;}\r\n  .panel h2{font-family:'Oswald';font-weight:700;font-size:22px;text-transform:uppercase;margin-bottom:6px;}\r\n  .panel .desc{font-size:15px;font-style:italic;color:var(--muted);margin-bottom:22px;}\r\n\r\n  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}\r\n  .form-grid .full{grid-column:1/-1;}\r\n  @media(max-width:700px){.form-grid{grid-template-columns:1fr;}}\r\n  label{font-family:'Space Mono';font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:7px;}\r\n  input[type=text],select,textarea{width:100%;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:500;font-size:15px;padding:11px 14px;margin-bottom:0;}\r\n  input[type=file]{width:100%;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Oswald';font-weight:500;font-size:15px;padding:10px 12px;}\r\n  .upload-actions{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;}\r\n  .upload-path{font-family:'Space Mono';font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase;word-break:break-all;}\r\n  textarea{font-family:'Spectral',Georgia,serif;font-size:16px;line-height:1.6;resize:vertical;}\r\n  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--navy);}\r\n  .article-toolbar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:transparent;border:none;padding:0 0 10px;}\r\n  .tool-btn{appearance:none;border:none;background:transparent;color:var(--muted);font-size:16px;line-height:1;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:3px 0;border-bottom:1px solid transparent;}\r\n  .tool-btn:hover,.tool-btn.active{color:var(--red);border-bottom-color:var(--red);}\r\n  .tool-btn.active{font-weight:800;}\r\n  .tool-btn[data-cmd=bold]{font-family:'Spectral',Georgia,serif;font-weight:800;}\r\n  .tool-btn[data-cmd=italic]{font-family:'Spectral',Georgia,serif;font-style:italic;font-weight:600;}\r\n  .tool-btn[data-value=h2]{font-family:'Oswald';font-weight:700;font-size:18px;text-transform:uppercase;}\r\n  .tool-btn[data-value=blockquote]{font-family:'Spectral',Georgia,serif;font-style:italic;font-size:15px;}\r\n  .tool-btn[data-cmd=insertUnorderedList],.tool-btn[data-action=link],.tool-btn[data-action=image]{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;}\r\n    .article-editor{min-height:320px;background:var(--paper);border:1px solid var(--line-strong);color:var(--navy);font-family:'Spectral',Georgia,serif;font-size:17px;line-height:1.7;padding:18px;overflow-wrap:anywhere;}\r\n  .article-editor:focus{outline:none;border-color:var(--navy);}\r\n  .article-editor:empty:before{content:attr(data-placeholder);color:var(--muted);font-style:italic;}\r\n  .article-editor h2{font-family:'Oswald';font-size:28px;line-height:1.1;text-transform:uppercase;margin:18px 0 8px;}\r\n  .article-editor blockquote{border-left:4px solid var(--red);padding-left:16px;margin:14px 0;color:var(--muted);font-style:italic;}\r\n  .article-editor u{text-decoration:underline;text-decoration-thickness:1.5px;text-underline-offset:3px;}\r\n  .article-editor s{text-decoration-thickness:1.5px;}\r\n  .article-editor code{font-family:'Space Mono';font-size:.9em;background:rgba(21,35,62,.08);padding:1px 4px;}\r\n  .article-editor ul,.article-editor ol{padding-left:24px;margin:12px 0;}\r\n  .article-editor figure{margin:18px 0;}\r\n  .article-editor>img{display:block;width:min(100%,220px);height:auto;margin:16px 0;border:1px solid var(--line-strong);object-fit:contain;}\r\n  .article-editor figcaption{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-top:7px;}\r\n\r\n  /* yt preview */\r\n  .yt-preview{margin-top:14px;display:none;}\r\n  .yt-preview img{width:240px;height:135px;object-fit:cover;border:1px solid var(--line-strong);}\r\n  .yt-preview .yt-label{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-top:6px;}\r\n\r\n  .btn{font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:2px;padding:13px 26px;cursor:pointer;border:2px solid var(--navy);transition:all .2s;}\r\n  .btn-solid{background:var(--navy);color:var(--paper);}\r\n  .btn-solid:hover{background:var(--red);border-color:var(--red);}\r\n  .btn-danger{background:none;color:var(--red);border-color:var(--red);font-family:'Space Mono';font-size:11px;letter-spacing:1px;padding:7px 14px;}\r\n  .btn-danger:hover{background:var(--red);color:var(--paper);}\r\n  .btn:disabled{opacity:.4;cursor:not-allowed;}\r\n\r\n  .msg{font-family:'Space Mono';font-size:12px;padding:10px 14px;margin-top:14px;display:none;}\r\n  .confirm-overlay{position:fixed;inset:0;background:rgba(5,7,11,.78);z-index:200;display:none;align-items:center;justify-content:center;padding:22px;}\r\n  .confirm-overlay.open{display:flex;}\r\n  .confirm-card{width:min(420px,100%);background:var(--paper);border:1px solid var(--navy);box-shadow:0 24px 60px rgba(0,0,0,.28);padding:24px;}\r\n  .confirm-kicker{font-family:'Space Mono';font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--red);margin-bottom:8px;}\r\n  .confirm-title{font-family:'Oswald';font-weight:700;font-size:24px;text-transform:uppercase;line-height:1.05;margin-bottom:10px;}\r\n  .confirm-copy{font-size:15px;color:var(--muted);line-height:1.45;margin-bottom:22px;}\r\n  .confirm-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;}\r\n  .msg.ok{background:rgba(60,122,78,.14);color:var(--green);display:block;}\r\n  .msg.err{background:rgba(159,54,34,.12);color:var(--red);display:block;}\r\n\r\n  /* posted items list */\r\n  .item-list{display:flex;flex-direction:column;gap:0;}\r\n  .item-row{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--line);}\r\n  .item-row:last-child{border-bottom:none;}\r\n  .item-thumb{width:80px;height:46px;object-fit:cover;flex-shrink:0;border:1px solid var(--line);}\r\n  .item-thumb-placeholder{width:80px;height:46px;background:var(--navy);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:13px;color:rgba(255,255,255,.3);}\r\n  .item-info{flex:1;}\r\n  .item-info .it{font-family:'Oswald';font-weight:700;font-size:15px;text-transform:uppercase;line-height:1.2;}\r\n  .item-info .im{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-top:3px;}\r\n  .empty{font-style:italic;color:var(--muted);padding:20px 0;}\r\n  .connect-game-row{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:10px;align-items:end;margin-top:10px;}\r\n  .game-link-pill{display:inline-flex;font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--green);margin-top:4px;}\r\n  .embed-note{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-top:6px;}\r\n  @media(max-width:720px){.connect-game-row{grid-template-columns:1fr;}}\r\n",
-  "body": "<header>\r\n  <div class=\"wrap nav\">\r\n    <a class=\"brand\" href=\"/\">\r\n      <img src=\"/logos/league.png\" alt=\"OFL\" onerror=\"this.outerHTML='<div class=\\'logo-fallback\\'>OFL</div>'\">\r\n    </a>\r\n    <nav class=\"links\">\r\n      <a href=\"/\">Home</a><a href=\"/schedule\">Schedule</a><a href=\"/standings\">Standings</a>\r\n      <a href=\"/stats\">Stats</a><a href=\"/teams\">Teams</a><a href=\"/players\">Players</a>\r\n      <a href=\"/media\">Media</a>\r\n    </nav>\r\n    <a href=\"/connect\" class=\"connect-btn\" id=\"connectBtn\">Connect Account</a>\r\n    <div class=\"account-wrap\" id=\"accountWrap\" style=\"display:none;\">\r\n      <div class=\"account\" id=\"accountPill\">\r\n        <img id=\"accountAvatar\" src=\"\" alt=\"\"><span class=\"uname\" id=\"accountName\"></span><span class=\"chev\"></span>\r\n      </div>\r\n      <div class=\"dropdown\">\r\n        <a href=\"/profile\">Profile</a>\r\n        <a href=\"/profile?tab=settings\">Settings</a>\r\n        <a href=\"/media/editor\" class=\"active\">Media Editor</a>\r\n        <a href=\"/admin\" class=\"admin\" id=\"adminLink\" style=\"display:none;\">Admin</a>\r\n        <a href=\"#\" class=\"logout\" id=\"logoutBtn\">Log Out</a>\r\n      </div>\r\n    </div>\r\n    <button class=\"menu-toggle\" aria-label=\"Menu\"><span></span><span></span><span></span></button>\r\n  </div>\r\n</header>\r\n\r\n<div class=\"gate\" id=\"gateLogin\" style=\"display:none;\">\r\n  <h2>Sign In Required</h2>\r\n  <p>Connect your Roblox account to access the Media Editor.</p>\r\n  <a href=\"/connect\">Connect Account</a>\r\n</div>\r\n\r\n<div class=\"gate\" id=\"gateNoAccess\" style=\"display:none;\">\r\n  <h2>No Access</h2>\r\n  <p>Your account hasn't been granted media posting access. Contact an admin.</p>\r\n  <a href=\"/media\">← Back to Media</a>\r\n</div>\r\n\r\n<div id=\"editorPage\" style=\"display:none;\">\r\n  <div class=\"wrap page\">\r\n    <div class=\"eyebrow\">// Media Editor</div>\r\n    <h1>Media Editor</h1>\r\n    <div class=\"subtitle\" id=\"editorUser\"></div>\r\n\r\n    <div class=\"view-toggle\">\r\n      <button class=\"vt-btn active\" onclick=\"switchView('highlights')\">Highlights</button>\r\n      <button class=\"vt-btn\" onclick=\"switchView('articles')\">Articles</button>\r\n    </div>\r\n\r\n    <!-- HIGHLIGHTS VIEW -->\r\n    <div class=\"view active\" id=\"view-highlights\">\r\n\r\n      <div class=\"panel\">\r\n        <h2>Post a Highlight</h2>\r\n        <div class=\"desc\">Paste a YouTube link. The thumbnail is pulled automatically — no API key needed.</div>\r\n        <div class=\"form-grid\">\r\n          <div class=\"full\">\r\n            <label>Title *</label>\r\n            <input type=\"text\" id=\"vid_title\" placeholder=\"e.g. Week 3 — Adurite Bucks vs Roblox Panthers\">\r\n          </div>\r\n          <div class=\"full\">\r\n            <label>YouTube URL *</label>\r\n            <input type=\"text\" id=\"vid_url\" placeholder=\"https://www.youtube.com/watch?v=...\" oninput=\"previewYT()\">\r\n            <div class=\"yt-preview\" id=\"ytPreview\">\r\n              <img id=\"ytThumbImg\" src=\"\" alt=\"Thumbnail preview\">\r\n              <div class=\"yt-label\">Thumbnail preview</div>\r\n            </div>\r\n          </div>\r\n          <div>\r\n            <label>Week Tag (optional)</label>\r\n            <input type=\"text\" id=\"vid_week\" placeholder=\"e.g. Week 3\">\r\n          </div>\r\n                    <div class=\"full\">\n            <label>Connect Highlights to Game (optional)</label>\n            <select id=\"vid_game\"><option value=\"\">No connected game</option></select>\n            <div class=\"embed-note\">Only completed games without a connected highlight are shown.</div>\n          </div>\n          <div class=\"full\">\r\n            <label>Description (optional)</label>\r\n            <input type=\"text\" id=\"vid_desc\" placeholder=\"Brief description…\">\r\n          </div>\r\n        </div>\r\n        <div style=\"margin-top:20px;\">\r\n          <button class=\"btn btn-solid\" id=\"vidPostBtn\">Post Highlight</button>\r\n        </div>\r\n        <div class=\"msg\" id=\"vidMsg\"></div>\r\n      </div>\r\n\r\n      <div class=\"panel\">\r\n        <div style=\"display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:16px;\">\r\n          <h2>Posted Highlights</h2>\r\n          <a href=\"/media\" style=\"font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--navy);border-bottom:2px solid var(--red);padding-bottom:2px;\">View on Media page →</a>\r\n        </div>\r\n        <div style=\"font-family:'Space Mono';font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:14px;\" id=\"vidCount\"></div>\r\n        <div class=\"item-list\" id=\"vidList\"></div>\r\n      </div>\r\n\r\n    </div>\r\n\r\n    <!-- ARTICLES VIEW -->\r\n    <div class=\"view\" id=\"view-articles\">\r\n\r\n      <div class=\"panel\">\r\n        <h2>Write an Article</h2>\r\n        <div class=\"desc\">Post league news, game recaps, trade analysis, or announcements.</div>\r\n        <div class=\"form-grid\">\r\n          <div class=\"full\">\r\n            <label>Title *</label>\r\n            <input type=\"text\" id=\"art_title\" placeholder=\"e.g. Season 48 Trade Deadline Recap\">\r\n          </div>\r\n          <div>\r\n            <label>Author</label>\r\n            <input type=\"text\" id=\"art_author\" placeholder=\"Leave blank to use your username\">\r\n          </div>\r\n          <div>\r\n            <label>Thumbnail Image (optional)</label>\r\n            <input type=\"file\" id=\"art_thumb_file\" accept=\"image/png,image/jpeg,image/webp,image/svg+xml\">\r\n            <input type=\"hidden\" id=\"art_thumb\" value=\"\">\r\n            <div class=\"upload-actions\">\r\n              <button class=\"btn btn-danger\" type=\"button\" id=\"art_thumb_clear\">Clear Image</button>\r\n              <span class=\"upload-path\" id=\"art_thumb_path\"></span>\r\n            </div>\r\n          </div>\r\n          <div class=\"full\">\r\n            <div class=\"yt-preview\" id=\"thumbPreview\" style=\"margin-bottom:14px;\">\r\n              <img id=\"thumbImg\" src=\"\" alt=\"Thumbnail preview\">\r\n              <div class=\"yt-label\">Thumbnail preview</div>\r\n            </div>\r\n          </div>\r\n          <div class=\"full\">\r\n            <label>Body *</label>\r\n            <div class=\"article-toolbar\" aria-label=\"Article formatting tools\">\r\n              <button class=\"tool-btn\" type=\"button\" data-cmd=\"bold\" title=\"Bold\">B</button>\r\n              <button class=\"tool-btn\" type=\"button\" data-cmd=\"italic\" title=\"Italic\">I</button>\r\n              <button class=\"tool-btn\" type=\"button\" data-cmd=\"formatBlock\" data-value=\"h2\" title=\"Heading\">H2</button>\r\n              <button class=\"tool-btn\" type=\"button\" data-cmd=\"formatBlock\" data-value=\"blockquote\" title=\"Quote\">Quote</button>\r\n              <button class=\"tool-btn\" type=\"button\" data-cmd=\"insertUnorderedList\" title=\"Bulleted list\">List</button>\r\n              <button class=\"tool-btn\" type=\"button\" data-action=\"link\" title=\"Add link\">Link</button>\r\n            </div>\r\n            <div id=\"art_body\" class=\"article-editor\" contenteditable=\"true\" data-placeholder=\"Write your article here...\"></div>\r\n          </div>\r\n        </div>\r\n        <div style=\"margin-top:20px;\">\r\n          <button class=\"btn btn-solid\" id=\"artPostBtn\">Post Article</button>\r\n        </div>\r\n        <div class=\"msg\" id=\"artMsg\"></div>\r\n      </div>\r\n\r\n      <div class=\"panel\">\r\n        <div style=\"display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:16px;\">\r\n          <h2>Posted Articles</h2>\r\n          <a href=\"/media\" style=\"font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--navy);border-bottom:2px solid var(--red);padding-bottom:2px;\">View on Media page →</a>\r\n        </div>\r\n        <div style=\"font-family:'Space Mono';font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:14px;\" id=\"artCount\"></div>\r\n        <div class=\"item-list\" id=\"artList\"></div>\r\n      </div>\r\n\r\n    </div>\r\n  </div>\r\n</div>\r\n\r\n<div class=\"confirm-overlay\" id=\"mediaConfirm\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"mediaConfirmTitle\">\r\n  <div class=\"confirm-card\">\r\n    <div class=\"confirm-kicker\" id=\"mediaConfirmKicker\">// Confirm</div>\r\n    <div class=\"confirm-title\" id=\"mediaConfirmTitle\">Delete Item?</div>\r\n    <div class=\"confirm-copy\" id=\"mediaConfirmCopy\">This cannot be undone.</div>\r\n    <div class=\"confirm-actions\">\r\n      <button class=\"btn btn-danger\" type=\"button\" id=\"mediaConfirmCancel\">Cancel</button>\r\n      <button class=\"btn btn-solid\" type=\"button\" id=\"mediaConfirmOk\">Delete</button>\r\n    </div>\r\n  </div>\r\n</div>",
-  "scripts": [
-    {
-      "src": null,
-      "code": "const $ = id => document.getElementById(id);\r\n  const token = localStorage.getItem('ofl_token');\r\n  let currentUser = null;\r\n  let currentCanDeleteMedia = false;\r\n  let highlightGames = [];\r\n\r\n  function apiFetch(url, opts={}){\r\n    opts.headers = Object.assign({'Content-Type':'application/json'}, opts.headers||{});\r\n    if(token) opts.headers['Authorization'] = 'Bearer '+token;\r\n    return fetch(url, opts);\r\n  }\r\n\r\n  function msg(id, t, ok){ const m=$(id); m.textContent=t; m.className='msg '+(ok?'ok':'err'); setTimeout(()=>m.className='msg',3500); }\r\n  function readJsonSafe(response){ return response.text().then(text=>{ try{return text?JSON.parse(text):{};}catch(e){return {}; } }); }\r\n  function mediaNotice(text, ok){ msg('artMsg',text,ok); msg('vidMsg',text,ok); }\r\n  function showMediaConfirm({title, copy, actionLabel='Delete'}){\r\n    return new Promise(resolve=>{\r\n      const overlay=$('mediaConfirm'), titleEl=$('mediaConfirmTitle'), copyEl=$('mediaConfirmCopy'), ok=$('mediaConfirmOk'), cancel=$('mediaConfirmCancel');\r\n      if(!overlay||!titleEl||!copyEl||!ok||!cancel){ resolve(false); return; }\r\n      titleEl.textContent=title; copyEl.textContent=copy; ok.textContent=actionLabel; overlay.classList.add('open');\r\n      const done=value=>{ overlay.classList.remove('open'); ok.onclick=null; cancel.onclick=null; overlay.onclick=null; document.removeEventListener('keydown',onKey); resolve(value); };\r\n      const onKey=e=>{ if(e.key==='Escape') done(false); };\r\n      ok.onclick=()=>done(true); cancel.onclick=()=>done(false); overlay.onclick=e=>{ if(e.target===overlay) done(false); }; document.addEventListener('keydown',onKey);\r\n    });\r\n  }\r\n  function ytId(url){ const m=url.match(/(?:youtube\\.com\\/(?:watch\\?v=|shorts\\/)|youtu\\.be\\/)([a-zA-Z0-9_-]{11})/); return m?m[1]:null; }\r\n  function ytThumb(id){ return `https://img.youtube.com/vi/${id}/mqdefault.jpg`; }\n  function gameLabel(game){\n    if(!game) return 'Connected game';\n    const away=game.away_team?game.away_team.abbreviation||game.away_team.name:'TBD';\n    const home=game.home_team?game.home_team.abbreviation||game.home_team.name:'TBD';\n    const week=game.week?'Week '+game.week:'Game';\n    const score=(game.away_score!=null&&game.home_score!=null)?' · '+game.away_score+'-'+game.home_score:'';\n    return week+' · '+away+' @ '+home+score;\n  }\n  function gameOptions(selectedGame){\n    const seen=new Set();\n    let options='<option value=\"\">No connected game</option>';\n    if(selectedGame&&selectedGame.id){\n      seen.add(String(selectedGame.id));\n      options+='<option value=\"'+selectedGame.id+'\" selected>'+gameLabel(selectedGame)+'</option>';\n    }\n    highlightGames.forEach(g=>{\n      if(seen.has(String(g.id))) return;\n      options+='<option value=\"'+g.id+'\">'+gameLabel(g)+'</option>';\n    });\n    return options;\n  }\n  async function loadHighlightGames(){\n    try{\n      const r=await apiFetch('/api/media/highlight-games');\n      const j=await readJsonSafe(r);\n      highlightGames=(j&&j.games)||[];\n      const select=$('vid_game');\n      if(select) select.innerHTML=gameOptions(null);\n    }catch(e){ highlightGames=[]; }\n  }\r\n\r\n  // view toggle\r\n  function switchView(v){\r\n    document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));\r\n    document.querySelectorAll('.vt-btn').forEach(b=>b.classList.remove('active'));\r\n    $('view-'+v).classList.add('active');\r\n    event.target.classList.add('active');\r\n  }\r\n\r\n  // YT thumbnail preview\r\n  function previewYT(){\r\n    const id=ytId($('vid_url').value||'');\r\n    const prev=$('ytPreview');\r\n    if(id){ $('ytThumbImg').src=ytThumb(id); prev.style.display='block'; }\r\n    else{ prev.style.display='none'; }\r\n  }\r\n\r\n  // article thumbnail preview\r\n  function previewThumb(){\r\n    const url=($('art_thumb').value||'').trim();\r\n    const prev=$('thumbPreview');\r\n    const path=$('art_thumb_path');\r\n    if(path) path.textContent=url;\r\n    if(url){ $('thumbImg').src=url; prev.style.display='block'; }\r\n    else{ prev.style.display='none'; }\r\n  }\r\n\r\n  function readFileAsDataUrl(file){\r\n    return new Promise((resolve,reject)=>{\r\n      const reader=new FileReader();\r\n      reader.onload=()=>resolve(String(reader.result||''));\r\n      reader.onerror=()=>reject(new Error('Could not read image file'));\r\n      reader.readAsDataURL(file);\r\n    });\r\n  }\r\n\r\n  async function uploadArticleThumbnailFile(file){\r\n    if(!file) return;\r\n    try{\r\n      if(file.size>5*1024*1024){ msg('artMsg','Image must be 5MB or smaller'); $('art_thumb_file').value=''; return; }\r\n      if(!/^image\\/(png|jpeg|webp|svg\\+xml)$/.test(file.type)){ msg('artMsg','Use a PNG, JPG, WEBP, or SVG image'); $('art_thumb_file').value=''; return; }\r\n      msg('artMsg','Uploading thumbnail...',true);\r\n      const data_url=await readFileAsDataUrl(file);\r\n      const r=await apiFetch('/api/media/articles/thumbnail-upload',{method:'POST',body:JSON.stringify({filename:file.name,title:$('art_title').value||file.name,data_url})});\r\n      const j=await readJsonSafe(r);\r\n      if(!r.ok){ msg('artMsg',r.status===404?'Image upload endpoint was not found. Restart the API server and try again.':'Image upload failed. Try again.'); return; }\r\n      if(!j||!j.url){ msg('artMsg','Image upload did not return a usable file. Restart the API server and try again.'); return; }\r\n      $('art_thumb').value=j.url;\r\n      previewThumb();\r\n      msg('artMsg','Thumbnail uploaded',true);\r\n    }catch(e){ msg('artMsg','Image upload failed. Check the API connection.'); }\r\n  }\r\n  function escapeHtml(value){ return String(value==null?'':value).replace(/[&<>\"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[ch])); }\r\n  function escapeAttr(value){ return escapeHtml(value); }\r\n  function isSafeArticleUrl(url){ return /^(https?:\\/\\/|\\/)/i.test(String(url||'')); }\r\n  function discordArticleMarkupToHtml(html){\r\n    const template=document.createElement('template');\r\n    template.innerHTML=String(html||'');\r\n    const skip=new Set(['A','PRE','SCRIPT','STYLE']);\r\n    const convert=text=>escapeHtml(text)\r\n      .replace(/\`([^\`\\n]+)\`/g,'<code>$1</code>')\r\n      .replace(/\\*\\*([^*\\n]+)\\*\\*/g,'<strong>$1</strong>')\r\n      .replace(/__([^_\\n]+)__/g,'<u>$1</u>')\r\n      .replace(/~~([^~\\n]+)~~/g,'<s>$1</s>')\r\n      .replace(/(^|[^*])\\*([^*\\n]+)\\*(?!\\*)/g,'$1<em>$2</em>')\r\n      .replace(/(^|[^_])_([^_\\n]+)_(?!_)/g,'$1<em>$2</em>');\r\n    const walk=node=>{\r\n      [...node.childNodes].forEach(child=>{\r\n        if(child.nodeType===Node.TEXT_NODE){\r\n          const converted=convert(child.nodeValue||'');\r\n          if(converted!==escapeHtml(child.nodeValue||'')){ const span=document.createElement('span'); span.innerHTML=converted; child.replaceWith(...span.childNodes); }\r\n          return;\r\n        }\r\n        if(child.nodeType===Node.ELEMENT_NODE&&!skip.has(child.tagName)) walk(child);\r\n      });\r\n    };\r\n    walk(template.content);\r\n    return template.innerHTML;\r\n  }\r\n  function discordArticleMarkupToPreviewHtml(html){\r\n    const template=document.createElement('template');\r\n    template.innerHTML=String(html||'');\r\n    const skip=new Set(['A','CODE','PRE','SCRIPT','STYLE','STRONG','B','EM','I','U','S','DEL']);\r\n    const convert=text=>escapeHtml(text)\r\n      .replace(/\`([^\`\\n]+)\`/g,'`<code>$1</code>`')\r\n      .replace(/\\*\\*([^*\\n]+)\\*\\*/g,'**<strong>$1</strong>**')\r\n      .replace(/__([^_\\n]+)__/g,'__<u>$1</u>__')\r\n      .replace(/~~([^~\\n]+)~~/g,'~~<s>$1</s>~~')\r\n      .replace(/(^|[^*])\\*([^*\\n]+)\\*(?!\\*)/g,'$1*<em>$2</em>*')\r\n      .replace(/(^|[^_])_([^_\\n]+)_(?!_)/g,'$1_<em>$2</em>_');\r\n    const walk=node=>{\r\n      [...node.childNodes].forEach(child=>{\r\n        if(child.nodeType===Node.TEXT_NODE){\r\n          const converted=convert(child.nodeValue||'');\r\n          if(converted!==escapeHtml(child.nodeValue||'')){ const span=document.createElement('span'); span.innerHTML=converted; child.replaceWith(...span.childNodes); }\r\n          return;\r\n        }\r\n        if(child.nodeType===Node.ELEMENT_NODE&&!skip.has(child.tagName)) walk(child);\r\n      });\r\n    };\r\n    walk(template.content);\r\n    return template.innerHTML;\r\n  }\r\n  function sanitizeArticleHtml(html,allowEditorPreviews=false){\r\n    const source=String(html||'').trim();\r\n    if(!source) return '';\r\n    const allowed=new Set(['P','BR','STRONG','B','EM','I','U','S','DEL','CODE','A','H2','H3','BLOCKQUOTE','UL','OL','LI','FIGURE','FIGCAPTION','IMG']);\r\n    const template=document.createElement('template');\r\n    template.innerHTML=source.replace(/<div><br><\\/div>/gi,'<p><br></p>');\r\n    const clean=node=>{\r\n      [...node.childNodes].forEach(child=>{\r\n        if(child.nodeType===Node.TEXT_NODE) return;\r\n        if(child.nodeType!==Node.ELEMENT_NODE){ child.remove(); return; }\r\n        const tag=child.tagName;\r\n        if(!allowed.has(tag)){\r\n          const frag=document.createDocumentFragment();\r\n          while(child.firstChild) frag.appendChild(child.firstChild);\r\n          child.replaceWith(frag);\r\n          clean(node);\r\n          return;\r\n        }\r\n        const savedHref=child.getAttribute('href')||'';\r\n        const savedSrc=child.getAttribute('src')||'';\r\n        const savedAlt=child.getAttribute('alt')||'';\r\n        const savedStyle=child.getAttribute('style')||'';\r\n        const savedWidth=child.getAttribute('width')||child.getAttribute('data-width')||'';\r\n        const savedClass=child.getAttribute('class')||'';\r\n        const savedContentEditable=child.getAttribute('contenteditable')||'';\r\n        [...child.attributes].forEach(attr=>child.removeAttribute(attr.name));\r\n        if(tag==='A'&&isSafeArticleUrl(savedHref)){ child.setAttribute('href',savedHref); child.setAttribute('target','_blank'); child.setAttribute('rel','noopener noreferrer'); }\r\n        if(tag==='IMG'){\r\n          if(!isSafeArticleUrl(savedSrc)){ child.remove(); return; }\r\n          child.setAttribute('src',savedSrc);\r\n          child.setAttribute('alt',savedAlt||'Article image');\r\n          child.setAttribute('loading','lazy');\r\n          const widthMatch=savedStyle.match(/width\s*:\s*(\d{1,3})%/i)||String(savedWidth).match(/^(\d{1,3})%?$/);\r\n          if(widthMatch){ const width=Math.max(12,Math.min(100,parseInt(widthMatch[1],10))); child.setAttribute('style','width:'+width+'%;max-width:100%;'); child.setAttribute('data-width',String(width)); }\r\n        }\r\n        clean(child);\r\n      });\r\n    };\r\n    clean(template.content);\r\n    return template.innerHTML.trim();\r\n  }\r\n  function articleEditorCaretOffset(editor){\r\n    const sel=window.getSelection&&window.getSelection();\r\n    if(!sel||!sel.rangeCount) return 0;\r\n    const range=sel.getRangeAt(0);\r\n    if(!editor.contains(range.startContainer)) return editor.textContent.length;\r\n    const pre=range.cloneRange();\r\n    pre.selectNodeContents(editor);\r\n    pre.setEnd(range.startContainer,range.startOffset);\r\n    return pre.toString().length;\r\n  }\r\n  function setArticleEditorCaretOffset(editor,offset){\r\n    const range=document.createRange();\r\n    const sel=window.getSelection&&window.getSelection();\r\n    let left=Math.max(0,offset);\r\n    const walker=document.createTreeWalker(editor,NodeFilter.SHOW_TEXT);\r\n    let node=walker.nextNode();\r\n    while(node){\r\n      const len=node.nodeValue.length;\r\n      if(left<=len){ range.setStart(node,left); range.collapse(true); if(sel){ sel.removeAllRanges(); sel.addRange(range); } return; }\r\n      left-=len; node=walker.nextNode();\r\n    }\r\n    range.selectNodeContents(editor); range.collapse(false); if(sel){ sel.removeAllRanges(); sel.addRange(range); }\r\n  }\r\n  function unwrapArticleShortcutPreviewHtml(html){\r\n    const template=document.createElement('template');\r\n    template.innerHTML=String(html||'');\r\n    const unwrapTags=new Set(['STRONG','B','EM','I','U','S','DEL','CODE']);\r\n    const textBefore=node=>node.previousSibling&&node.previousSibling.nodeType===Node.TEXT_NODE?node.previousSibling.nodeValue:'';\r\n    const textAfter=node=>node.nextSibling&&node.nextSibling.nodeType===Node.TEXT_NODE?node.nextSibling.nodeValue:'';\r\n    const hasPreviewMarkers=(node,opens,closes)=>opens.some((open,i)=>textBefore(node).endsWith(open)&&textAfter(node).startsWith(closes[i]));\r\n    const isShortcutPreview=node=>{\r\n      const tag=node.tagName;\r\n      if(tag==='STRONG'||tag==='B') return hasPreviewMarkers(node,['**'],['**']);\r\n      if(tag==='EM'||tag==='I') return hasPreviewMarkers(node,['*','_'],['*','_']);\r\n      if(tag==='U') return hasPreviewMarkers(node,['__'],['__']);\r\n      if(tag==='S'||tag==='DEL') return hasPreviewMarkers(node,['~~'],['~~']);\r\n      if(tag==='CODE') return hasPreviewMarkers(node,['`'],['`']);\r\n      return false;\r\n    };\r\n    const walk=node=>{\r\n      [...node.childNodes].forEach(child=>{\r\n        if(child.nodeType!==Node.ELEMENT_NODE) return;\r\n        walk(child);\r\n        if(unwrapTags.has(child.tagName)&&isShortcutPreview(child)){ child.replaceWith(document.createTextNode(child.textContent||'')); }\r\n      });\r\n    };\r\n    walk(template.content);\r\n    return template.innerHTML;\r\n  }\r\n  function applyArticleShortcutPreview(editor){\r\n    if(!editor||editor.dataset.formatting==='1') return;\r\n    const raw=unwrapArticleShortcutPreviewHtml(editor.innerHTML);\r\n    if(!raw.includes('**')&&!raw.includes('__')&&!raw.includes('~~')&&!raw.includes('`')&&!raw.includes('*')) return;\r\n    const next=sanitizeArticleHtml(discordArticleMarkupToPreviewHtml(raw),true);\r\n    if(next&&next!==editor.innerHTML){\r\n      const offset=articleEditorCaretOffset(editor);\r\n      editor.dataset.formatting='1';\r\n      editor.innerHTML=next;\r\n      setArticleEditorCaretOffset(editor,offset);\r\n      editor.dataset.formatting='0';\r\n    }\r\n  }\r\n  function articlePlainText(){ const editor=$('art_body'); return editor ? editor.textContent.trim() : ''; }\r\n  function articleHtml(){ const editor=$('art_body'); return editor ? sanitizeArticleHtml(discordArticleMarkupToHtml(unwrapArticleShortcutPreviewHtml(editor.innerHTML))) : ''; }\r\n  function activeArticleBlock(){ try{ return String(document.queryCommandValue('formatBlock')||'').replace(/[<>]/g,'').toLowerCase(); }catch(e){ return ''; } }\r\n  function updateArticleToolbarState(){\r\n    document.querySelectorAll('.article-toolbar .tool-btn').forEach(btn=>{\r\n      let active=false;\r\n      const cmd=btn.dataset.cmd;\r\n      const value=String(btn.dataset.value||'').toLowerCase();\r\n      try{\r\n        if(cmd==='bold'||cmd==='italic'||cmd==='insertUnorderedList') active=document.queryCommandState(cmd);\r\n        else if(cmd==='formatBlock'&&value) active=activeArticleBlock()===value;\r\n      }catch(e){}\r\n      btn.classList.toggle('active',!!active);\r\n      btn.setAttribute('aria-pressed',active?'true':'false');\r\n    });\r\n  }\r\n  function runArticleCommand(cmd,value){\r\n    const editor=$('art_body'); if(!editor) return;\r\n    editor.focus();\r\n    if(cmd==='formatBlock'){\r\n      const next=activeArticleBlock()===String(value||'').toLowerCase()?'p':value;\r\n      document.execCommand(cmd,false,next||'p');\r\n    }else{\r\n      document.execCommand(cmd,false,value||null);\r\n    }\r\n    updateArticleToolbarState();\r\n  }\r\n  function setupArticleEditor(){\r\n    document.querySelectorAll('.article-toolbar .tool-btn').forEach(btn=>{\r\n      btn.setAttribute('aria-pressed','false');\r\n      btn.addEventListener('mousedown',e=>e.preventDefault());\r\n      btn.addEventListener('click',()=>{\r\n        const action=btn.dataset.action;\r\n        if(action==='link'){\r\n          const href=prompt('Paste a link URL');\r\n          if(href&&isSafeArticleUrl(href)) runArticleCommand('createLink',href.trim());\r\n          else if(href) msg('artMsg','Use a full http(s) link or a site path beginning with /');\r\n          return;\r\n        }\r\n        runArticleCommand(btn.dataset.cmd,btn.dataset.value||null);\r\n      });\r\n    });\r\n    const editor=$('art_body');\r\n    if(editor){\r\n      editor.addEventListener('input',()=>{ applyArticleShortcutPreview(editor); updateArticleToolbarState(); });\r\n      ['keyup','mouseup','focus'].forEach(type=>editor.addEventListener(type,updateArticleToolbarState));\r\n      document.addEventListener('selectionchange',()=>{\r\n        const sel=window.getSelection&&window.getSelection();\r\n        if(!sel||!sel.anchorNode) return;\r\n        const anchor=sel.anchorNode.nodeType===Node.ELEMENT_NODE?sel.anchorNode:sel.anchorNode.parentNode;\r\n        if(anchor&&editor.contains(anchor)) updateArticleToolbarState();\r\n      });\r\n    }\r\n    updateArticleToolbarState();\r\n  }\r\n\r\n  // ── BOOT: check auth + media access ──\r\n  (async function(){\r\n    let p=null;\r\n    try{ p=JSON.parse(localStorage.getItem('ofl_profile')||'null'); }catch(e){}\r\n    if(!token || !p || !p.roblox_username){ $('gateLogin').style.display='block'; return; }\r\n\r\n    // verify with server\r\n    try{\r\n      const r=await apiFetch('/api/me');\r\n      const j=await r.json();\r\n      if(!j.profile){ $('gateLogin').style.display='block'; return; }\r\n      const tabs=j.profile.admin_tabs||[];\r\n      // allow if has media tab OR is superuser/admin\r\n      if(!tabs.includes('media') && !j.profile.is_admin){ $('gateNoAccess').style.display='block'; return; }\r\n      // set up header\r\n      $('connectBtn').style.display='none';\r\n      $('accountWrap').style.display='block';\r\n      $('accountName').textContent=j.profile.roblox_username;\r\n      if(j.profile.avatar_url) $('accountAvatar').src=j.profile.avatar_url;\r\n      if(j.profile.is_admin){ const al=$('adminLink'); if(al) al.style.display='block'; }\r\n      $('editorUser').textContent=j.profile.roblox_username+' · Media Editor';\r\n      currentUser=j.profile.roblox_username;\r\n      currentCanDeleteMedia=!!j.profile.is_superuser || tabs.includes('access') || tabs.includes('teams');\r\n      $('editorPage').style.display='block';\r\n      setupArticleEditor();\r\n      await loadHighlightGames(); loadVideos(); loadArticles();\r\n    }catch(e){ $('gateNoAccess').style.display='block'; }\r\n\r\n    // account dropdown\r\n    const wrap=$('accountWrap'), pill=$('accountPill');\r\n    if(pill){\r\n      pill.addEventListener('click',e=>{e.stopPropagation();wrap.classList.toggle('open');});\r\n      document.addEventListener('click',()=>wrap.classList.remove('open'));\r\n    }\r\n    $('logoutBtn').addEventListener('click',e=>{\r\n      e.preventDefault();\r\n      localStorage.removeItem('ofl_profile'); localStorage.removeItem('ofl_token');\r\n      location.href='/';\r\n    });\r\n    document.querySelector('.menu-toggle').addEventListener('click',()=>{\r\n      const l=document.querySelector('nav.links'); const o=l.style.display==='flex';\r\n      l.style.cssText=o?'':\"display:flex;position:absolute;top:78px;left:0;right:0;background:var(--paper);flex-direction:column;padding:20px 22px;gap:18px;border-bottom:1px solid var(--navy);\";\r\n    });\r\n  })();\r\n\r\n  // ── VIDEOS ──\r\n  async function loadVideos(){\r\n    try{\r\n      const j=await(await fetch('/api/media/videos')).json();\r\n      const vids=j.videos||[];\r\n      $('vidCount').textContent=vids.length+' highlight'+(vids.length!==1?'s':'')+' posted';\r\n      if(!vids.length){ $('vidList').innerHTML='<p class=\"empty\">No highlights posted yet.</p>'; return; }\r\n      $('vidList').innerHTML=vids.map(v=>{\r\n        const mine=currentUser&&v.posted_by&&v.posted_by.toLowerCase()===currentUser.toLowerCase();\r\n        const canDelete=currentCanDeleteMedia||mine;\r\n        return `<div class=\"item-row\">\r\n          <img class=\"item-thumb\" src=\"${ytThumb(v.youtube_id)}\" onerror=\"this.style.display='none'\">\r\n          <div class=\"item-info\">\r\n            <div class=\"it\">${v.title}</div>\r\n            <div class=\"im\">${v.week_tag||'No tags'} · ${new Date(v.published_at).toLocaleDateString()}</div>\r\n            ${v.game?'<a class=\"game-link-pill\" href=\"/box-score/'+v.game.id+'\">Box Score: '+gameLabel(v.game)+'</a>':''}\n            <div class=\"connect-game-row\">\n              <select id=\"video_game_${v.id}\">${gameOptions(v.game)}</select>\n              <button class=\"btn btn-danger\" onclick=\"connectVideoGame('${v.id}')\">Connect</button>\n            </div>\n          </div>\n          ${canDelete?`<button class=\"btn btn-danger\" onclick=\"deleteVideo('${v.id}')\">Delete</button>`:''}\r\n        </div>`;\r\n      }).join('');\r\n    }catch(e){}\r\n  }\r\n\r\n  async function connectVideoGame(id){\n    const select=$('video_game_'+id);\n    if(!select) return;\n    try{\n      const r=await apiFetch('/api/media/videos/'+id,{method:'PUT',body:JSON.stringify({game_id:select.value||null})});\n      const j=await readJsonSafe(r);\n      if(!r.ok){ mediaNotice((j&&j.error)||'Could not connect that game.'); return; }\n      mediaNotice('Highlight game connection saved.',true);\n      await loadHighlightGames();\r\n      loadVideos();\n    }catch(e){ mediaNotice('Could not connect that game. Check the API connection.'); }\n  }\n\n  async function deleteVideo(id){\r\n    const ok=await showMediaConfirm({title:'Delete Highlight?',copy:'This highlight will be removed from the Media page.',actionLabel:'Delete Highlight'});\r\n    if(!ok) return;\r\n    try{\r\n      const r=await apiFetch('/api/media/videos/'+id,{method:'DELETE'});\r\n      await readJsonSafe(r);\r\n      if(!r.ok){ mediaNotice(r.status===404?'That highlight was already gone. Refreshing the list.':'Could not delete that highlight. Try again.'); loadVideos(); return; }\r\n      mediaNotice('Highlight deleted.',true);\r\n      loadVideos();\r\n    }catch(e){ mediaNotice('Could not delete that highlight. Check the API connection.'); }\r\n  }\r\n\r\n  $('vidPostBtn').addEventListener('click', async()=>{\r\n    const title=$('vid_title').value.trim(), url=$('vid_url').value.trim();\r\n    if(!title){ msg('vidMsg','Title is required'); return; }\r\n    if(!url || !ytId(url)){ msg('vidMsg','Enter a valid YouTube URL'); return; }\r\n    $('vidPostBtn').disabled=true; $('vidPostBtn').textContent='Posting…';\r\n    try{\r\n      const r=await apiFetch('/api/media/videos',{method:'POST',body:JSON.stringify({\r\n        title, youtube_url:url,\r\n        description:$('vid_desc').value.trim()||null,\r\n        week_tag:$('vid_week').value.trim()||null,\r\n        game_id:$('vid_game').value||null\r\n      })});\r\n      const j=await readJsonSafe(r);\r\n      if(!r.ok){ msg('vidMsg',(j&&j.code?'['+j.code+'] ':'')+((j&&j.error)||'Could not post highlight')); return; }\r\n      msg('vidMsg','Highlight posted!',true);\r\n      ['vid_title','vid_url','vid_desc','vid_week'].forEach(id=>$(id).value='');\r\n      if($('vid_game')) $('vid_game').value='';\r\n      $('ytPreview').style.display='none';\r\n      await loadHighlightGames();\r\n      loadVideos();\r\n    }catch(e){ msg('vidMsg','Network error'); }\r\n    finally{ $('vidPostBtn').disabled=false; $('vidPostBtn').textContent='Post Highlight'; }\r\n  });\r\n\r\n\r\n\r\n  // ── ARTICLES ──\r\n  async function loadArticles(){\r\n    try{\r\n      const j=await(await fetch('/api/media/articles')).json();\r\n      const arts=j.articles||[];\r\n      $('artCount').textContent=arts.length+' article'+(arts.length!==1?'s':'')+' posted';\r\n      if(!arts.length){ $('artList').innerHTML='<p class=\"empty\">No articles posted yet.</p>'; return; }\r\n      $('artList').innerHTML=arts.map(a=>{\r\n        const mine=currentUser&&a.posted_by&&a.posted_by.toLowerCase()===currentUser.toLowerCase();\r\n        const canDelete=currentCanDeleteMedia||mine;\r\n        return `<div class=\"item-row\">\r\n          ${a.thumbnail_url?`<img class=\"item-thumb\" src=\"${a.thumbnail_url}\" onerror=\"this.style.display='none'\">`:`<div class=\"item-thumb-placeholder\">OFL</div>`}\r\n          <div class=\"item-info\">\r\n            <div class=\"it\">${a.title}</div>\r\n            <div class=\"im\">${a.author||'OFL Staff'} · ${new Date(a.published_at).toLocaleDateString()}</div>\r\n          </div>\r\n          ${canDelete?`<button class=\"btn btn-danger\" onclick=\"deleteArticle('${a.id}')\">Delete</button>`:''}\r\n        </div>`;\r\n      }).join('');\r\n    }catch(e){}\r\n  }\r\n\r\n  async function deleteArticle(id){\r\n    const ok=await showMediaConfirm({title:'Delete Article?',copy:'This article will be removed from the Media page.',actionLabel:'Delete Article'});\r\n    if(!ok) return;\r\n    try{\r\n      const r=await apiFetch('/api/media/articles/'+id,{method:'DELETE'});\r\n      await readJsonSafe(r);\r\n      if(!r.ok){ mediaNotice(r.status===404?'That article was already gone. Refreshing the list.':'Could not delete that article. Try again.'); loadArticles(); return; }\r\n      mediaNotice('Article deleted.',true);\r\n      loadArticles();\r\n    }catch(e){ mediaNotice('Could not delete that article. Check the API connection.'); }\r\n  }\r\n\r\n  if($('art_thumb_file')) $('art_thumb_file').addEventListener('change',e=>uploadArticleThumbnailFile(e.target.files&&e.target.files[0]));\r\n  if($('art_thumb_clear')) $('art_thumb_clear').addEventListener('click',()=>{ $('art_thumb').value=''; $('art_thumb_file').value=''; previewThumb(); });\r\n\r\n  $('artPostBtn').addEventListener('click', async()=>{\r\n    const title=$('art_title').value.trim(), body=articleHtml();\r\n    if(!title){ msg('artMsg','Title is required'); return; }\r\n    if(!articlePlainText()){ msg('artMsg','Article body is required'); return; }\r\n    $('artPostBtn').disabled=true; $('artPostBtn').textContent='Posting…';\r\n    try{\r\n      const r=await apiFetch('/api/media/articles',{method:'POST',body:JSON.stringify({\r\n        title, body,\r\n        author:$('art_author').value.trim()||null,\r\n        thumbnail_url:$('art_thumb').value.trim()||null\r\n      })});\r\n      const j=await readJsonSafe(r);\r\n      if(!r.ok){ msg('artMsg',(j&&j.code?'['+j.code+'] ':'')+((j&&j.error)||'Could not post article')); return; }\r\n      msg('artMsg','Article posted!',true);\r\n      ['art_title','art_author','art_thumb'].forEach(id=>$(id).value='');\r\n      $('art_body').innerHTML='';\r\n      if($('art_thumb_file')) $('art_thumb_file').value='';\r\n      if($('art_thumb_path')) $('art_thumb_path').textContent='';\r\n      $('thumbPreview').style.display='none';\r\n      loadArticles();\r\n    }catch(e){ msg('artMsg','Network error'); }\r\n    finally{ $('artPostBtn').disabled=false; $('artPostBtn').textContent='Post Article'; }\r\n  });\r\n\r\n\r\n\r\n\r\n  window.connectVideoGame=connectVideoGame;\r\n  window.deleteVideo=deleteVideo;\r\n  window.deleteArticle=deleteArticle;\r\n  window.switchView=switchView;\r\n  window.previewYT=previewYT;\r\n  window.previewThumb=previewThumb;"
+type Profile = {
+  roblox_username?: string;
+  avatar_url?: string | null;
+  admin_tabs?: string[];
+  is_admin?: boolean;
+  is_superuser?: boolean;
+};
+
+type GameTeam = { name?: string; abbreviation?: string };
+type HighlightGame = {
+  id: string;
+  week?: string | number | null;
+  home_score?: number | null;
+  away_score?: number | null;
+  home_team?: GameTeam | null;
+  away_team?: GameTeam | null;
+};
+
+type Video = {
+  id: string;
+  title: string;
+  youtube_id?: string;
+  youtube_url?: string;
+  week_tag?: string | null;
+  published_at: string;
+  posted_by?: string | null;
+  game?: HighlightGame | null;
+};
+
+type Article = {
+  id: string;
+  title: string;
+  author?: string | null;
+  thumbnail_url?: string | null;
+  published_at: string;
+  posted_by?: string | null;
+};
+
+type ArticleImage = {
+  id: string;
+  src: string;
+  alt: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+const emptyArticleImage: ArticleImage[] = [];
+
+function token() {
+  return localStorage.getItem('ofl_token') || '';
+}
+
+async function readJsonSafe(response: Response) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function apiFetch(url: string, opts: RequestInit = {}) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const auth = token();
+  if (auth) headers.Authorization = `Bearer ${auth}`;
+  return fetch(url, { ...opts, headers: { ...headers, ...(opts.headers || {}) } });
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[ch] || ch));
+}
+
+function isSafeArticleUrl(url: string) {
+  return /^(https?:\/\/|\/)/i.test(String(url || ''));
+}
+
+function youtubeId(url: string) {
+  const match = url.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
+function youtubeThumb(id?: string) {
+  return id ? `https://img.youtube.com/vi/${id}/mqdefault.jpg` : '';
+}
+
+function gameLabel(game?: HighlightGame | null) {
+  if (!game) return 'Connected game';
+  const away = game.away_team?.abbreviation || game.away_team?.name || 'TBD';
+  const home = game.home_team?.abbreviation || game.home_team?.name || 'TBD';
+  const week = game.week ? `Week ${game.week}` : 'Game';
+  const score = game.away_score != null && game.home_score != null ? ` · ${game.away_score}-${game.home_score}` : '';
+  return `${week} · ${away} @ ${home}${score}`;
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Could not read image file'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function discordMarkupToHtml(text: string) {
+  return escapeHtml(text)
+    .split(/\n{2,}/)
+    .map(block => `<p>${block.replace(/\n/g, '<br>')}</p>`)
+    .join('')
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_\n]+)__/g, '<u>$1</u>')
+    .replace(/~~([^~\n]+)~~/g, '<s>$1</s>')
+    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>')
+    .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
+}
+
+function articleBodyHtml(text: string, images: ArticleImage[]) {
+  const textHtml = discordMarkupToHtml(text.trim());
+  if (!images.length) return textHtml;
+  const maxY = images.reduce((max, img) => Math.max(max, img.y + img.height + 28), 420);
+  const imageHtml = images
+    .filter(img => isSafeArticleUrl(img.src))
+    .map(img => `<img class="article-free-image" src="${escapeHtml(img.src)}" alt="${escapeHtml(img.alt || 'Article image')}" style="position:absolute;left:${Math.max(0, Math.round(img.x))}px;top:${Math.max(0, Math.round(img.y))}px;width:${Math.max(40, Math.round(img.width))}px;height:${Math.max(40, Math.round(img.height))}px;object-fit:contain;" data-x="${Math.max(0, Math.round(img.x))}" data-y="${Math.max(0, Math.round(img.y))}" data-w="${Math.max(40, Math.round(img.width))}" data-h="${Math.max(40, Math.round(img.height))}">`)
+    .join('');
+  return `<div class="article-free-layout" style="position:relative;min-height:${Math.round(maxY)}px;">${textHtml}${imageHtml}</div>`;
+}
+
+function insertFormat(text: string, selectionStart: number, selectionEnd: number, open: string, close = open) {
+  const selected = text.slice(selectionStart, selectionEnd) || 'text';
+  const next = `${text.slice(0, selectionStart)}${open}${selected}${close}${text.slice(selectionEnd)}`;
+  const caret = selectionStart + open.length + selected.length + close.length;
+  return { next, caret };
+}
+
+function hydrateSharedHeader(profile: Profile | null) {
+  const connect = document.getElementById('connectBtn') as HTMLElement | null;
+  const accountWrap = document.getElementById('accountWrap') as HTMLElement | null;
+  const accountName = document.getElementById('accountName');
+  const accountAvatar = document.getElementById('accountAvatar') as HTMLImageElement | null;
+  const mediaEditorLink = document.getElementById('mediaEditorLink') as HTMLElement | null;
+  const adminLink = document.getElementById('adminLink') as HTMLElement | null;
+
+  if (!profile?.roblox_username) return;
+
+  if (connect) connect.style.display = 'none';
+  if (accountWrap) accountWrap.style.display = 'block';
+  if (accountName) accountName.textContent = profile.roblox_username;
+  if (accountAvatar && profile.avatar_url) accountAvatar.src = profile.avatar_url;
+  if (mediaEditorLink && (profile.admin_tabs || []).includes('media')) mediaEditorLink.style.display = 'block';
+  if (adminLink && profile.is_admin) adminLink.style.display = 'block';
+}
+
+export default function MediaEditor() {
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [gate, setGate] = useState<'loading' | 'login' | 'denied' | 'ok'>('loading');
+  const [view, setView] = useState<'articles' | 'videos'>('articles');
+  const [message, setMessage] = useState<{ text: string; ok?: boolean } | null>(null);
+  const [videos, setVideos] = useState<Video[]>([]);
+  const [articles, setArticles] = useState<Article[]>([]);
+  const [games, setGames] = useState<HighlightGame[]>([]);
+  const [canDeleteMedia, setCanDeleteMedia] = useState(false);
+
+  const [articleTitle, setArticleTitle] = useState('');
+  const [articleAuthor, setArticleAuthor] = useState('');
+  const [articleText, setArticleText] = useState('');
+  const [articleThumb, setArticleThumb] = useState('');
+  const [articleImages, setArticleImages] = useState<ArticleImage[]>(emptyArticleImage);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
+  const [postingArticle, setPostingArticle] = useState(false);
+
+  const [videoTitle, setVideoTitle] = useState('');
+  const [videoUrl, setVideoUrl] = useState('');
+  const [videoDescription, setVideoDescription] = useState('');
+  const [videoWeek, setVideoWeek] = useState('');
+  const [videoGame, setVideoGame] = useState('');
+  const [postingVideo, setPostingVideo] = useState(false);
+
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
+
+  const articlePreviewHtml = useMemo(() => discordMarkupToHtml(articleText), [articleText]);
+  const selectedImage = articleImages.find(img => img.id === selectedImageId) || null;
+
+  function showMessage(text: string, ok = false) {
+    setMessage({ text, ok });
+    window.setTimeout(() => setMessage(null), 3500);
+  }
+
+  async function loadHighlightGames() {
+    try {
+      const response = await apiFetch('/api/media/highlight-games');
+      const json = await readJsonSafe(response);
+      setGames(json.games || []);
+    } catch {
+      setGames([]);
     }
-  ]
-} satisfies LegacyPageData;
+  }
 
-export default page;
+  async function loadVideos() {
+    try {
+      const response = await fetch('/api/media/videos');
+      const json = await response.json();
+      setVideos(json.videos || []);
+    } catch {
+      setVideos([]);
+    }
+  }
+
+  async function loadArticles() {
+    try {
+      const response = await fetch('/api/media/articles');
+      const json = await response.json();
+      setArticles(json.articles || []);
+    } catch {
+      setArticles([]);
+    }
+  }
+
+  useEffect(() => {
+    async function boot() {
+      let cached: Profile | null = null;
+      try {
+        cached = JSON.parse(localStorage.getItem('ofl_profile') || 'null');
+      } catch {
+        cached = null;
+      }
+      if (!token()) {
+        setGate('login');
+        return;
+      }
+      if (cached?.roblox_username) hydrateSharedHeader(cached);
+      try {
+        const response = await apiFetch('/api/me');
+        const json = await response.json();
+        if (!json.profile) {
+          setGate('login');
+          return;
+        }
+        const tabs: string[] = json.profile.admin_tabs || [];
+        if (!tabs.includes('media') && !json.profile.is_admin) {
+          setGate('denied');
+          return;
+        }
+        setProfile(json.profile);
+        hydrateSharedHeader(json.profile);
+        setCanDeleteMedia(!!json.profile.is_superuser || tabs.includes('access') || tabs.includes('teams'));
+        setGate('ok');
+        await Promise.all([loadHighlightGames(), loadVideos(), loadArticles()]);
+      } catch {
+        setGate('denied');
+      }
+    }
+    void boot();
+  }, []);
+
+  useEffect(() => {
+    let opened = false;
+    const wrap = document.getElementById('accountWrap');
+    const pill = document.getElementById('accountPill');
+    const logout = document.getElementById('logoutBtn');
+    const menu = document.querySelector('.ofl-shared-header .menu-toggle');
+    const links = document.querySelector('.ofl-shared-header nav.links') as HTMLElement | null;
+
+    function toggleAccount(event: Event) {
+      event.stopPropagation();
+      opened = !opened;
+      wrap?.classList.toggle('open', opened);
+    }
+    function closeAccount() {
+      opened = false;
+      wrap?.classList.remove('open');
+    }
+    function logoutUser(event: Event) {
+      event.preventDefault();
+      localStorage.removeItem('ofl_profile');
+      localStorage.removeItem('ofl_token');
+      localStorage.removeItem('ofl_session');
+      window.location.href = '/';
+    }
+    function toggleMenu() {
+      if (!links) return;
+      const isOpen = links.style.display === 'flex';
+      links.style.cssText = isOpen ? '' : 'display:flex;position:absolute;top:78px;left:0;right:0;background:var(--paper);flex-direction:column;padding:20px 22px;gap:18px;border-bottom:1px solid var(--navy);';
+    }
+
+    pill?.addEventListener('click', toggleAccount);
+    document.addEventListener('click', closeAccount);
+    logout?.addEventListener('click', logoutUser);
+    menu?.addEventListener('click', toggleMenu);
+
+    return () => {
+      pill?.removeEventListener('click', toggleAccount);
+      document.removeEventListener('click', closeAccount);
+      logout?.removeEventListener('click', logoutUser);
+      menu?.removeEventListener('click', toggleMenu);
+    };
+  }, []);
+
+  async function uploadImage(file: File, title: string) {
+    if (file.size > 5 * 1024 * 1024) throw new Error('Image must be 5MB or smaller');
+    if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) throw new Error('Use a PNG, JPG, WEBP, or SVG image');
+    const dataUrl = await fileToDataUrl(file);
+    const response = await apiFetch('/api/media/articles/thumbnail-upload', {
+      method: 'POST',
+      body: JSON.stringify({ filename: file.name, title, data_url: dataUrl })
+    });
+    const json = await readJsonSafe(response);
+    if (!response.ok || !json.url) throw new Error(json.error || 'Image upload failed');
+    return String(json.url);
+  }
+
+  async function handleThumbFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      showMessage('Uploading thumbnail...', true);
+      const url = await uploadImage(file, articleTitle || file.name);
+      setArticleThumb(url);
+      showMessage('Thumbnail uploaded', true);
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : 'Image upload failed');
+    } finally {
+      event.target.value = '';
+    }
+  }
+
+  async function handleArticleImageFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      showMessage('Uploading article image...', true);
+      const url = await uploadImage(file, articleTitle || file.name);
+      const next: ArticleImage = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        src: url,
+        alt: file.name.replace(/\.[^.]+$/, '') || 'Article image',
+        x: 24,
+        y: 80 + articleImages.length * 24,
+        width: 260,
+        height: 160
+      };
+      setArticleImages(prev => [...prev, next]);
+      setSelectedImageId(next.id);
+      showMessage('Image inserted', true);
+    } catch (error) {
+      showMessage(error instanceof Error ? error.message : 'Article image upload failed');
+    } finally {
+      event.target.value = '';
+    }
+  }
+
+  function formatArticle(open: string, close = open) {
+    const area = textAreaRef.current;
+    if (!area) return;
+    const { next, caret } = insertFormat(articleText, area.selectionStart, area.selectionEnd, open, close);
+    setArticleText(next);
+    window.requestAnimationFrame(() => {
+      area.focus();
+      area.setSelectionRange(caret, caret);
+    });
+  }
+
+  async function postArticle() {
+    const body = articleBodyHtml(articleText, articleImages);
+    if (!articleTitle.trim()) {
+      showMessage('Title is required');
+      return;
+    }
+    if (!articleText.trim() && !articleImages.length) {
+      showMessage('Article body is required');
+      return;
+    }
+    setPostingArticle(true);
+    try {
+      const response = await apiFetch('/api/media/articles', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: articleTitle.trim(),
+          body,
+          author: articleAuthor.trim() || null,
+          thumbnail_url: articleThumb.trim() || null
+        })
+      });
+      const json = await readJsonSafe(response);
+      if (!response.ok) {
+        showMessage((json.code ? `[${json.code}] ` : '') + (json.error || 'Could not post article'));
+        return;
+      }
+      setArticleTitle('');
+      setArticleAuthor('');
+      setArticleText('');
+      setArticleThumb('');
+      setArticleImages([]);
+      setSelectedImageId(null);
+      showMessage('Article posted!', true);
+      await loadArticles();
+    } catch {
+      showMessage('Network error');
+    } finally {
+      setPostingArticle(false);
+    }
+  }
+
+  async function postVideo() {
+    if (!videoTitle.trim()) {
+      showMessage('Title is required');
+      return;
+    }
+    if (!videoUrl.trim() || !youtubeId(videoUrl)) {
+      showMessage('Enter a valid YouTube URL');
+      return;
+    }
+    setPostingVideo(true);
+    try {
+      const response = await apiFetch('/api/media/videos', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: videoTitle.trim(),
+          youtube_url: videoUrl.trim(),
+          description: videoDescription.trim() || null,
+          week_tag: videoWeek.trim() || null,
+          game_id: videoGame || null
+        })
+      });
+      const json = await readJsonSafe(response);
+      if (!response.ok) {
+        showMessage((json.code ? `[${json.code}] ` : '') + (json.error || 'Could not post highlight'));
+        return;
+      }
+      setVideoTitle('');
+      setVideoUrl('');
+      setVideoDescription('');
+      setVideoWeek('');
+      setVideoGame('');
+      showMessage('Highlight posted!', true);
+      await Promise.all([loadHighlightGames(), loadVideos()]);
+    } catch {
+      showMessage('Network error');
+    } finally {
+      setPostingVideo(false);
+    }
+  }
+
+  async function deleteVideo(id: string) {
+    if (!window.confirm('Delete this highlight?')) return;
+    try {
+      const response = await apiFetch(`/api/media/videos/${id}`, { method: 'DELETE' });
+      const json = await readJsonSafe(response);
+      if (!response.ok) {
+        showMessage(json.error || 'Could not delete that highlight');
+        return;
+      }
+      showMessage('Highlight deleted.', true);
+      await loadVideos();
+    } catch {
+      showMessage('Could not delete that highlight. Check the API connection.');
+    }
+  }
+
+  async function deleteArticle(id: string) {
+    if (!window.confirm('Delete this article?')) return;
+    try {
+      const response = await apiFetch(`/api/media/articles/${id}`, { method: 'DELETE' });
+      const json = await readJsonSafe(response);
+      if (!response.ok) {
+        showMessage(json.error || 'Could not delete that article');
+        return;
+      }
+      showMessage('Article deleted.', true);
+      await loadArticles();
+    } catch {
+      showMessage('Could not delete that article. Check the API connection.');
+    }
+  }
+
+  async function connectVideoGame(id: string, gameId: string) {
+    try {
+      const response = await apiFetch(`/api/media/videos/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ game_id: gameId || null })
+      });
+      const json = await readJsonSafe(response);
+      if (!response.ok) {
+        showMessage(json.error || 'Could not connect that game.');
+        return;
+      }
+      showMessage('Highlight game connection saved.', true);
+      await Promise.all([loadHighlightGames(), loadVideos()]);
+    } catch {
+      showMessage('Could not connect that game. Check the API connection.');
+    }
+  }
+
+  function updateImage(id: string, patch: Partial<ArticleImage>) {
+    setArticleImages(prev => prev.map(img => (img.id === id ? { ...img, ...patch } : img)));
+  }
+
+  if (gate === 'loading') return <main className="media-editor-page"><p className="empty">Loading...</p></main>;
+  if (gate === 'login') return <Gate title="Connect Required" copy="Log in before opening the media editor." href="/connect" label="Connect Account" />;
+  if (gate === 'denied') return <Gate title="No Media Access" copy="Your account does not have access to this editor." href="/media" label="Back to Media" />;
+
+  return (
+    <main className="media-editor-page">
+      <style>{styles}</style>
+      <div className="media-editor-head">
+        <div>
+          <div className="eyebrow">// Media Desk</div>
+          <h1>Media Editor</h1>
+          <p className="subtitle">{profile?.roblox_username || 'OFL'} · Articles and highlights</p>
+        </div>
+        <div className="media-editor-toggle">
+          <button className={view === 'articles' ? 'active' : ''} type="button" onClick={() => setView('articles')}>Articles</button>
+          <button className={view === 'videos' ? 'active' : ''} type="button" onClick={() => setView('videos')}>Highlights</button>
+        </div>
+      </div>
+
+      {message ? <div className={`msg ${message.ok ? 'ok' : 'err'}`}>{message.text}</div> : null}
+
+      {view === 'articles' ? (
+        <>
+          <section className="media-editor-panel">
+            <h2>Post Article</h2>
+            <p className="desc">Write the article text, then place images directly on the preview canvas.</p>
+            <div className="form-grid">
+              <label>
+                Title
+                <input value={articleTitle} onChange={event => setArticleTitle(event.target.value)} />
+              </label>
+              <label>
+                Author
+                <input value={articleAuthor} onChange={event => setArticleAuthor(event.target.value)} placeholder={profile?.roblox_username || 'OFL Staff'} />
+              </label>
+              <label className="full">
+                Thumbnail image
+                <input value={articleThumb} onChange={event => setArticleThumb(event.target.value)} placeholder="/media/uploads/example.png" />
+              </label>
+              <label className="full">
+                Upload thumbnail
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleThumbFile} />
+              </label>
+            </div>
+            {articleThumb ? <img className="thumb-preview" src={articleThumb} alt="Thumbnail preview" /> : null}
+
+            <div className="composer-toolbar">
+              <button type="button" onClick={() => formatArticle('**')}>B</button>
+              <button type="button" onClick={() => formatArticle('*')}>I</button>
+              <button type="button" onClick={() => formatArticle('__')}>U</button>
+              <button type="button" onClick={() => formatArticle('~~')}>S</button>
+              <button type="button" onClick={() => formatArticle('## ', '')}>H2</button>
+              <button type="button" onClick={() => formatArticle('> ', '')}>Quote</button>
+              <label className="image-upload-button">
+                Image
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" onChange={handleArticleImageFile} />
+              </label>
+            </div>
+
+            <div className="composer-grid">
+              <textarea
+                ref={textAreaRef}
+                value={articleText}
+                onChange={event => setArticleText(event.target.value)}
+                placeholder="Write your article here..."
+              />
+              <div className="article-stage" ref={stageRef} onMouseDown={() => setSelectedImageId(null)}>
+                <div className="article-stage-text" dangerouslySetInnerHTML={{ __html: articlePreviewHtml || '<p></p>' }} />
+                {articleImages.map(image => (
+                  <ArticleImageBox
+                    key={image.id}
+                    image={image}
+                    selected={selectedImageId === image.id}
+                    onSelect={() => setSelectedImageId(image.id)}
+                    onChange={patch => updateImage(image.id, patch)}
+                    onRemove={() => setArticleImages(prev => prev.filter(img => img.id !== image.id))}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {selectedImage ? (
+              <div className="image-inspector">
+                <span>Selected image</span>
+                <label>Alt <input value={selectedImage.alt} onChange={event => updateImage(selectedImage.id, { alt: event.target.value })} /></label>
+                <button type="button" onClick={() => setArticleImages(prev => prev.filter(img => img.id !== selectedImage.id))}>Remove</button>
+              </div>
+            ) : null}
+
+            <button className="btn btn-solid" type="button" disabled={postingArticle} onClick={postArticle}>
+              {postingArticle ? 'Posting...' : 'Post Article'}
+            </button>
+          </section>
+
+          <section className="media-editor-panel">
+            <h2>Posted Articles</h2>
+            <p className="desc">{articles.length} article{articles.length === 1 ? '' : 's'} posted</p>
+            <div className="item-list">
+              {articles.length ? articles.map(article => {
+                const mine = profile?.roblox_username && article.posted_by?.toLowerCase() === profile.roblox_username.toLowerCase();
+                return (
+                  <div className="item-row" key={article.id}>
+                    {article.thumbnail_url ? <img className="item-thumb" src={article.thumbnail_url} alt="" /> : <div className="item-thumb-placeholder">OFL</div>}
+                    <div className="item-info">
+                      <div className="it">{article.title}</div>
+                      <div className="im">{article.author || 'OFL Staff'} · {new Date(article.published_at).toLocaleDateString()}</div>
+                    </div>
+                    {(canDeleteMedia || mine) ? <button className="btn btn-danger" type="button" onClick={() => void deleteArticle(article.id)}>Delete</button> : null}
+                  </div>
+                );
+              }) : <p className="empty">No articles posted yet.</p>}
+            </div>
+          </section>
+        </>
+      ) : (
+        <>
+          <section className="media-editor-panel">
+            <h2>Post Highlight</h2>
+            <p className="desc">Paste a YouTube URL and optionally connect it to a completed game.</p>
+            <div className="form-grid">
+              <label>Title<input value={videoTitle} onChange={event => setVideoTitle(event.target.value)} /></label>
+              <label>YouTube URL<input value={videoUrl} onChange={event => setVideoUrl(event.target.value)} /></label>
+              <label>Week Tag<input value={videoWeek} onChange={event => setVideoWeek(event.target.value)} placeholder="Week 3" /></label>
+              <label>
+                Connected game
+                <select value={videoGame} onChange={event => setVideoGame(event.target.value)}>
+                  <option value="">No connected game</option>
+                  {games.map(game => <option key={game.id} value={game.id}>{gameLabel(game)}</option>)}
+                </select>
+              </label>
+              <label className="full">Description<textarea value={videoDescription} onChange={event => setVideoDescription(event.target.value)} /></label>
+            </div>
+            {youtubeId(videoUrl) ? <img className="thumb-preview" src={youtubeThumb(youtubeId(videoUrl) || '')} alt="YouTube preview" /> : null}
+            <button className="btn btn-solid" type="button" disabled={postingVideo} onClick={postVideo}>
+              {postingVideo ? 'Posting...' : 'Post Highlight'}
+            </button>
+          </section>
+
+          <section className="media-editor-panel">
+            <h2>Posted Highlights</h2>
+            <p className="desc">{videos.length} highlight{videos.length === 1 ? '' : 's'} posted</p>
+            <div className="item-list">
+              {videos.length ? videos.map(video => {
+                const mine = profile?.roblox_username && video.posted_by?.toLowerCase() === profile.roblox_username.toLowerCase();
+                return (
+                  <div className="item-row" key={video.id}>
+                    {video.youtube_id ? <img className="item-thumb" src={youtubeThumb(video.youtube_id)} alt="" /> : <div className="item-thumb-placeholder">OFL</div>}
+                    <div className="item-info">
+                      <div className="it">{video.title}</div>
+                      <div className="im">{video.week_tag || 'No tags'} · {new Date(video.published_at).toLocaleDateString()}</div>
+                      {video.game ? <a className="game-link-pill" href={`/box-score/${video.game.id}`}>Box Score: {gameLabel(video.game)}</a> : null}
+                      <select value={video.game?.id || ''} onChange={event => void connectVideoGame(video.id, event.target.value)}>
+                        <option value="">No connected game</option>
+                        {video.game ? <option value={video.game.id}>{gameLabel(video.game)}</option> : null}
+                        {games.filter(game => game.id !== video.game?.id).map(game => <option key={game.id} value={game.id}>{gameLabel(game)}</option>)}
+                      </select>
+                    </div>
+                    {(canDeleteMedia || mine) ? <button className="btn btn-danger" type="button" onClick={() => void deleteVideo(video.id)}>Delete</button> : null}
+                  </div>
+                );
+              }) : <p className="empty">No highlights posted yet.</p>}
+            </div>
+          </section>
+        </>
+      )}
+    </main>
+  );
+}
+
+function Gate({ title, copy, href, label }: { title: string; copy: string; href: string; label: string }) {
+  return (
+    <main className="media-editor-page gate">
+      <style>{styles}</style>
+      <h1>{title}</h1>
+      <p>{copy}</p>
+      <a className="btn btn-solid" href={href}>{label}</a>
+    </main>
+  );
+}
+
+function ArticleImageBox({
+  image,
+  selected,
+  onSelect,
+  onChange,
+  onRemove
+}: {
+  image: ArticleImage;
+  selected: boolean;
+  onSelect: () => void;
+  onChange: (patch: Partial<ArticleImage>) => void;
+  onRemove: () => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const onDrag = (_event: DraggableEvent, data: DraggableData) => {
+    onChange({ x: Math.max(0, data.x), y: Math.max(0, data.y) });
+  };
+  const onResizeStop: ResizeCallback = (_event, _direction, _elementRef, delta) => {
+    onChange({
+      width: Math.max(40, image.width + delta.width),
+      height: Math.max(40, image.height + delta.height)
+    });
+  };
+
+  return (
+    <Draggable nodeRef={ref} bounds="parent" position={{ x: image.x, y: image.y }} onDrag={onDrag}>
+      <div
+        ref={ref}
+        className={`article-image-box ${selected ? 'selected' : ''}`}
+        onMouseDown={event => {
+          event.stopPropagation();
+          onSelect();
+        }}
+      >
+        <Resizable
+          size={{ width: image.width, height: image.height }}
+          minWidth={40}
+          minHeight={40}
+          lockAspectRatio
+          onResizeStop={onResizeStop}
+          enable={{ bottomRight: true }}
+        >
+          <img src={image.src} alt={image.alt} draggable={false} />
+        </Resizable>
+        <button type="button" className="image-remove" onClick={onRemove}>X</button>
+      </div>
+    </Draggable>
+  );
+}
+
+const styles = `
+  :root{--paper:#ECE4CF;--paper-2:#E4DAC0;--navy:#15233E;--red:#9F3622;--muted:#6B6253;--green:#3c7a4e;--line:rgba(21,35,62,.16);--line-strong:rgba(21,35,62,.32);}
+  body{background:#111827;color:#F3F6FB;}
+  .media-editor-page{width:min(1800px,calc(100% - clamp(28px,4vw,80px)));margin:0 auto;padding:56px 0 90px;color:#F3F6FB;font-family:'Spectral',Georgia,serif;}
+  .media-editor-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:32px;flex-wrap:wrap;}
+  .media-editor-page .eyebrow{font-family:'Space Mono';font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--red);margin-bottom:10px;}
+  .media-editor-page h1{font-family:'Anton';font-size:clamp(40px,6vw,72px);text-transform:uppercase;line-height:.9;margin:0 0 10px;color:#F3F6FB;}
+  .media-editor-page .subtitle,.media-editor-page .desc{font-family:'Space Mono';font-size:12px;letter-spacing:1px;color:#8EA4C9;text-transform:uppercase;}
+  .media-editor-toggle{display:flex;border:1px solid rgba(232,237,247,.8);}
+  .media-editor-toggle button{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1.5px;padding:12px 24px;border:0;background:transparent;color:#AFC0DA;cursor:pointer;}
+  .media-editor-toggle button.active{background:#F3F6FB;color:#111827;}
+  .media-editor-panel{background:#15233E!important;border:1px solid rgba(232,237,247,.22)!important;padding:28px;margin-bottom:24px;color:#F3F6FB;box-shadow:0 16px 36px rgba(0,0,0,.22);}
+  .media-editor-panel h2{font-family:'Oswald';font-weight:700;font-size:22px;text-transform:uppercase;margin:0 0 6px;color:#F3F6FB;}
+  .media-editor-panel .desc{color:#8EA4C9;}
+  .media-editor-page .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0;}
+  .form-grid .full{grid-column:1/-1;}
+  .media-editor-page label{font-family:'Space Mono';font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#8EA4C9;display:flex;flex-direction:column;gap:7px;}
+  .media-editor-page input,.media-editor-page select,.media-editor-page textarea{width:100%;background:#111827;border:1px solid rgba(142,164,201,.42);color:#F3F6FB;font-family:'Oswald';font-weight:500;font-size:15px;padding:11px 14px;box-sizing:border-box;}
+  .media-editor-page textarea{min-height:520px;font-family:'Spectral',Georgia,serif;font-size:16px;line-height:1.6;resize:vertical;}
+  .media-editor-page input:focus,.media-editor-page select:focus,.media-editor-page textarea:focus{outline:none;border-color:#F3F6FB;}
+  .thumb-preview{width:240px;max-width:100%;height:auto;max-height:150px;object-fit:contain;border:1px solid var(--line-strong);display:block;margin:14px 0;}
+  .composer-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:22px 0 12px;}
+  .composer-toolbar button,.image-upload-button{appearance:none;border:0;background:transparent;color:#8EA4C9;font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;cursor:pointer;padding:3px 0;border-bottom:1px solid transparent;}
+  .composer-toolbar button:hover,.image-upload-button:hover{color:#F3F6FB;border-bottom-color:#F3F6FB;}
+  .image-upload-button input{display:none;}
+  .media-editor-page .composer-grid{display:grid;grid-template-columns:minmax(420px,0.92fr) minmax(560px,1.08fr);gap:18px;align-items:start;margin-bottom:20px;}
+  .media-editor-page .article-stage{position:relative;min-height:620px;background:#111827;border:1px solid rgba(142,164,201,.42);padding:20px;overflow:hidden;}
+  .article-stage-text{font-size:17px;line-height:1.7;pointer-events:none;}
+  .article-stage-text p{margin:0 0 18px;}
+  .article-image-box{position:absolute;line-height:0;cursor:move;z-index:5;}
+  .article-image-box.selected{outline:2px solid #D85A3A;outline-offset:3px;}
+  .article-image-box img{display:block;width:100%;height:100%;object-fit:contain;border:1px solid rgba(142,164,201,.42);background:rgba(255,255,255,.04);user-select:none;pointer-events:none;}
+  .image-remove{position:absolute;right:-10px;top:-10px;width:22px;height:22px;border:2px solid #111827;background:var(--red);color:var(--paper);font-family:'Space Mono';font-size:12px;line-height:16px;cursor:pointer;z-index:8;}
+  .image-inspector{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:0 0 20px;font-family:'Space Mono';font-size:11px;text-transform:uppercase;color:var(--muted);}
+  .image-inspector label{min-width:260px;}
+  .btn{font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:2px;padding:13px 26px;cursor:pointer;border:2px solid var(--navy);transition:all .2s;text-decoration:none;display:inline-flex;}
+  .btn-solid{background:var(--navy);color:var(--paper);}
+  .btn-solid:hover{background:var(--red);border-color:var(--red);}
+  .btn-danger{background:none;color:var(--red);border-color:var(--red);font-family:'Space Mono';font-size:11px;letter-spacing:1px;padding:7px 14px;}
+  .btn-danger:hover{background:var(--red);color:var(--paper);}
+  .btn:disabled{opacity:.4;cursor:not-allowed;}
+  .msg{font-family:'Space Mono';font-size:12px;padding:10px 14px;margin-bottom:16px;}
+  .msg.ok{background:rgba(60,122,78,.14);color:var(--green);}
+  .msg.err{background:rgba(159,54,34,.12);color:var(--red);}
+  .item-list{display:flex;flex-direction:column;gap:0;}
+  .item-row{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid rgba(142,164,201,.22);}
+  .item-thumb,.item-thumb-placeholder{width:80px;height:46px;object-fit:cover;flex-shrink:0;border:1px solid var(--line);}
+  .item-thumb-placeholder{background:var(--navy);display:flex;align-items:center;justify-content:center;font-family:'Anton';font-size:13px;color:rgba(255,255,255,.35);}
+  .item-info{flex:1;display:grid;gap:6px;}
+  .it{font-family:'Oswald';font-weight:700;font-size:15px;text-transform:uppercase;line-height:1.2;color:#F3F6FB;}
+  .im,.game-link-pill{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
+  .game-link-pill{color:var(--green);text-decoration:none;}
+  .empty{font-style:italic;color:var(--muted);padding:20px 0;}
+  .gate{text-align:center;}
+  @media(max-width:900px){.form-grid,.composer-grid{grid-template-columns:1fr;}.article-stage{min-height:520px;}}
+`;

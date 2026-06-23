@@ -21,8 +21,10 @@
     "@vitejs/plugin-react": "^6.0.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "re-resizable": "^6.11.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "react-draggable": "^4.7.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   }
