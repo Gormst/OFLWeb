@@ -1,8 +1,10 @@
-import { Component, lazy, Suspense, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import type { ComponentType, LazyExoticComponent } from 'react';
+import { GlobalLiveMiniViewer } from './GlobalLiveMiniViewer';
 import { LegacyPage } from './LegacyPage';
 import { pageLoaders, type PageKey } from './pages/manifest';
 import { isLegacyPageData } from './pages/types';
+import { RedzoneChat } from './RedzoneChat';
 import { SharedFooter } from './SharedFooter';
 import { SharedHeader } from './SharedHeader';
 
@@ -59,7 +61,38 @@ function routeToPage(pathname: string): PageKey | null {
 }
 
 export function App() {
-  const pageKey = routeToPage(window.location.pathname);
+  const [pathname, setPathname] = useState(window.location.pathname);
+
+  useEffect(() => {
+    function syncPath() {
+      setPathname(window.location.pathname);
+      window.scrollTo({ top: 0, left: 0 });
+    }
+
+    function handleClick(event: MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target = event.target as Element | null;
+      const anchor = target?.closest?.('a[href]') as HTMLAnchorElement | null;
+      if (!anchor || anchor.target || anchor.download) return;
+      const next = new URL(anchor.href, window.location.href);
+      if (next.origin !== window.location.origin) return;
+      if (!routeToPage(next.pathname)) return;
+      event.preventDefault();
+      if (next.pathname + next.search + next.hash !== window.location.pathname + window.location.search + window.location.hash) {
+        window.history.pushState(null, '', next.pathname + next.search + next.hash);
+        syncPath();
+      }
+    }
+
+    window.addEventListener('popstate', syncPath);
+    document.addEventListener('click', handleClick);
+    return () => {
+      window.removeEventListener('popstate', syncPath);
+      document.removeEventListener('click', handleClick);
+    };
+  }, []);
+
+  const pageKey = routeToPage(pathname);
 
   if (!pageKey) {
     return (
@@ -81,6 +114,8 @@ export function App() {
             <Page key={pageKey} />
           </div>
           <SharedFooter />
+          <RedzoneChat pathname={pathname} />
+          <GlobalLiveMiniViewer pathname={pathname} />
         </div>
       </Suspense>
     </RouteErrorBoundary>

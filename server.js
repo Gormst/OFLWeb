@@ -1083,6 +1083,181 @@ function apiError(res, status, code, message, details) {
   });
 }
 
+const REDZONE_BASE_BLOCKED_TERMS = [
+  'bmlnZ2Vy',
+  'bmlnZ2E=',
+  'ZmFnZ290',
+  'Y2hpbms=',
+  'c3BpYw==',
+  'a2lrZQ==',
+  'a3lrZQ==',
+  'd2V0YmFjaw==',
+  'dHJhbm55'
+].map(value => Buffer.from(value, 'base64').toString('utf8'));
+
+function redzoneNormalize(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[@4]/g, 'a')
+    .replace(/[!1|]/g, 'i')
+    .replace(/[0]/g, 'o')
+    .replace(/[3]/g, 'e')
+    .replace(/[5$]/g, 's')
+    .replace(/[7]/g, 't')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function redzonePublicMessage(row) {
+  return {
+    id: row.id,
+    roblox_username: String(row.roblox_username || ''),
+    avatar_url: row.avatar_url || null,
+    message: String(row.message || ''),
+    created_at: row.created_at
+  };
+}
+
+function cleanRedzoneMessage(value) {
+  const message = String(value || '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
+  if (!message) return { error: 'Message is required' };
+  if (message.length > 240) return { error: 'Message must be 240 characters or less' };
+  if (/[<>]/.test(message)) return { error: 'Message cannot contain HTML markup' };
+  return { message };
+}
+
+async function redzoneBlacklistTerms() {
+  const { data, error } = await supabase
+    .from('redzone_chat_blacklist')
+    .select('normalized_term');
+  if (error) throw error;
+  return (data || []).map(row => String(row.normalized_term || '')).filter(Boolean);
+}
+
+function redzoneBlockedByTerm(message, dynamicTerms) {
+  const normalized = redzoneNormalize(message);
+  if (!normalized) return false;
+  return REDZONE_BASE_BLOCKED_TERMS.concat(dynamicTerms || [])
+    .map(redzoneNormalize)
+    .filter(term => term.length >= 2)
+    .some(term => normalized.includes(term));
+}
+
+async function redzoneActiveMute(profile) {
+  const normalizedUsername = redzoneNormalize(profile && profile.roblox_username);
+  if (!normalizedUsername) return null;
+  const { data, error } = await supabase
+    .from('redzone_chat_mutes')
+    .select('expires_at')
+    .eq('normalized_username', normalizedUsername)
+    .gt('expires_at', new Date().toISOString())
+    .order('expires_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data && data[0] ? data[0] : null;
+}
+
+function redzoneSchemaError(error) {
+  const message = String((error && (error.message || error.details || error.hint)) || '');
+  return /redzone_chat_|schema cache|relation .* does not exist/i.test(message);
+}
+
+app.get('/api/redzone-chat', async (req, res) => {
+  try {
+    const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 80, 120));
+    const { data, error } = await supabase
+      .from('redzone_chat_messages')
+      .select('id,roblox_username,avatar_url,message,created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) throw error;
+    res.json({ success: true, messages: (data || []).reverse().map(redzonePublicMessage) });
+  } catch (error) {
+    if (redzoneSchemaError(error)) {
+      return apiError(res, 500, 'REDZONE_CHAT_SCHEMA_MISSING', 'Run supabase/2026-06-22_redzone_chat.sql before using chat');
+    }
+    return apiError(res, 500, 'REDZONE_CHAT_LOAD_FAILED', error.message || 'Could not load chat');
+  }
+});
+
+app.post('/api/redzone-chat', async (req, res) => {
+  try {
+    const profile = await getRequester(req);
+    if (!profile) return apiError(res, 401, 'AUTH_REQUIRED', 'Connect your Roblox account to chat');
+
+    const cleaned = cleanRedzoneMessage(req.body && req.body.message);
+    if (cleaned.error) return apiError(res, 400, 'REDZONE_CHAT_INVALID_MESSAGE', cleaned.error);
+
+    const message = cleaned.message;
+    const { isAdmin } = effectiveTabs(profile);
+    const muteCommand = message.match(/^\/mute\s+([^\s]+)\s+(\d{1,5})$/i);
+    const blacklistCommand = message.match(/^\/blacklist\s+(.+)$/i);
+
+    if (muteCommand || blacklistCommand) {
+      if (!isAdmin) return apiError(res, 403, 'REDZONE_CHAT_ADMIN_REQUIRED', 'Only admins can run chat commands');
+
+      if (muteCommand) {
+        const targetUsername = muteCommand[1].trim();
+        const minutes = Math.max(1, Math.min(parseInt(muteCommand[2], 10) || 0, 1440));
+        const normalizedUsername = redzoneNormalize(targetUsername);
+        if (!normalizedUsername) return apiError(res, 400, 'REDZONE_CHAT_INVALID_MUTE', 'Player is required');
+        const expiresAt = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+        const { error } = await supabase.from('redzone_chat_mutes').insert({
+          target_username: targetUsername,
+          normalized_username: normalizedUsername,
+          muted_by: profile.id,
+          expires_at: expiresAt
+        });
+        if (error) throw error;
+        return res.json({ success: true, command: 'mute', target_username: targetUsername, expires_at: expiresAt });
+      }
+
+      const term = blacklistCommand[1].trim();
+      const normalizedTerm = redzoneNormalize(term);
+      if (!normalizedTerm || normalizedTerm.length < 2) {
+        return apiError(res, 400, 'REDZONE_CHAT_INVALID_BLACKLIST', 'Word is required');
+      }
+      const { error } = await supabase.from('redzone_chat_blacklist').upsert({
+        term,
+        normalized_term: normalizedTerm,
+        created_by: profile.id
+      }, { onConflict: 'normalized_term' });
+      if (error) throw error;
+      return res.json({ success: true, command: 'blacklist', term });
+    }
+
+    const activeMute = await redzoneActiveMute(profile);
+    if (activeMute) {
+      return apiError(res, 403, 'REDZONE_CHAT_MUTED', 'You are muted until ' + new Date(activeMute.expires_at).toLocaleTimeString());
+    }
+
+    const dynamicTerms = await redzoneBlacklistTerms();
+    if (redzoneBlockedByTerm(message, dynamicTerms)) {
+      return apiError(res, 400, 'REDZONE_CHAT_BLOCKED', 'That message cannot be posted');
+    }
+
+    const { data, error } = await supabase
+      .from('redzone_chat_messages')
+      .insert({
+        profile_id: profile.id,
+        roblox_user_id: profile.roblox_user_id ? String(profile.roblox_user_id) : null,
+        roblox_username: profile.roblox_username || 'OFL User',
+        avatar_url: profile.avatar_url || null,
+        message
+      })
+      .select('id,roblox_username,avatar_url,message,created_at')
+      .single();
+    if (error) throw error;
+    res.json({ success: true, message: redzonePublicMessage(data) });
+  } catch (error) {
+    if (redzoneSchemaError(error)) {
+      return apiError(res, 500, 'REDZONE_CHAT_SCHEMA_MISSING', 'Run supabase/2026-06-22_redzone_chat.sql before using chat');
+    }
+    return apiError(res, 500, 'REDZONE_CHAT_SEND_FAILED', error.message || 'Could not send message');
+  }
+});
+
 function withTimeout(promise, ms, code, message) {
   return Promise.race([
     promise,
