@@ -245,6 +245,13 @@ function normalizeImportedPosition(value) {
   return String(value || '').trim().toUpperCase();
 }
 
+function defaultPositionForStatSection(sectionOrCategory) {
+  const key = String(sectionOrCategory || '').trim().toUpperCase();
+  if (key === 'PASSING') return 'QB';
+  if (key === 'BLOCKING') return 'C';
+  return '';
+}
+
 const OFFENSIVE_POSITIONS = ['QB', 'RB', 'FB', 'WR', 'TE', 'OL', 'C', 'G', 'OG', 'T', 'OT', 'LT', 'RT', 'LG', 'RG', 'K', 'P', 'ATH', ''];
 const DEFENSIVE_POSITIONS = ['DL', 'DE', 'DT', 'NT', 'EDGE', 'LB', 'OLB', 'MLB', 'ILB', 'CB', 'DB', 'DCB', 'S', 'FS', 'SS', 'SAF', 'ATH', ''];
 const DB_OFFENSIVE_POSITION_MAP = {
@@ -378,7 +385,10 @@ function parseCategoryCSV(text, category) {
     if (Object.values(CATEGORY_DEFS).some(c => c.section === upper) || upper.startsWith('USERNAME')) continue;
     const stats = {};
     for (const [idx, key] of Object.entries(idxToKey)) stats[key] = normFloatVal(row[idx]);
-    out.push({ username, position: posIdx == null ? '' : normalizeImportedPosition(row[posIdx]), stats });
+    const position = posIdx == null
+      ? defaultPositionForStatSection(def.section)
+      : normalizeImportedPosition(row[posIdx]) || defaultPositionForStatSection(def.section);
+    out.push({ username, position, stats });
   }
   return out;
 }
@@ -469,7 +479,10 @@ function parseTeamBlock(rows, c0, c1, r0) {
         if (KNOWN_SECTIONS.includes(nextLabel) || nextLabel === 'QB THROWAWAYS') break;
         const username = (pr[usernameCol] || '').trim();
         if (username) {
-          if (posCol != null) addPosition(username, pr[posCol], section);
+          const importedPosition = posCol == null
+            ? defaultPositionForStatSection(section)
+            : normalizeImportedPosition(pr[posCol]) || defaultPositionForStatSection(section);
+          if (importedPosition) addPosition(username, importedPosition, section);
           for (const [colIdx, key] of Object.entries(idxToKey)) {
             addStat(username, key, pr[colIdx]);
           }
