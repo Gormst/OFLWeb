@@ -118,7 +118,6 @@ export function SharedHeader() {
     <>
       <style>{`
         .ofl-shared-header{position:sticky;top:0;z-index:1000;background:var(--paper,#ECE4CF);border-bottom:1px solid var(--navy,#15233E);color:var(--navy,#15233E);}
-        body[data-theme="dark"] .ofl-shared-header{background:#111827;border-bottom-color:rgba(142,164,201,.45);color:#F3F6FB;}
         .ofl-shared-header .wrap.nav{display:flex;align-items:center;justify-content:flex-start;gap:clamp(16px,2vw,28px);height:78px;width:100%;max-width:none;min-width:0;margin:0;padding:0 clamp(18px,2vw,28px) 0 18px;box-sizing:border-box;}
         .ofl-shared-header .brand{display:flex;align-items:center;gap:0;flex:0 0 auto;}
         .ofl-shared-header .brand img{height:44px;width:44px;object-fit:contain;display:block;}
@@ -130,20 +129,15 @@ export function SharedHeader() {
         .ofl-shared-header nav.links a:hover::after,.ofl-shared-header nav.links a.active::after{width:100%;}
         .ofl-shared-header .connect-btn{background:var(--navy,#15233E);color:var(--paper,#ECE4CF);font-family:'Oswald';font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:2px;padding:14px 24px;transition:background .2s;text-decoration:none;white-space:nowrap;}
         .ofl-shared-header .connect-btn:hover{background:var(--red,#9F3622);}
-        body[data-theme="dark"] .ofl-shared-header .connect-btn{background:#F3F6FB;color:#111827;}
-        body[data-theme="dark"] .ofl-shared-header .connect-btn:hover{background:var(--red,#ff654f);color:#F3F6FB;}
         .ofl-shared-header .account-wrap{position:relative;margin-left:0;margin-right:0;flex:0 0 auto;}
         .ofl-shared-header .account{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;background:transparent;border:0;padding:0;margin:0;color:inherit;font:inherit;}
-        .ofl-shared-header .account img{width:38px;height:38px;border-radius:50%;border:2px solid var(--navy,#15233E);object-fit:cover;}
-        body[data-theme="dark"] .ofl-shared-header .account img{border-color:#E8EDF7;}
+        .ofl-shared-header .account img{width:38px;height:38px;border-radius:50%;border:2px solid var(--line-strong,#15233E);object-fit:cover;}
         .ofl-shared-header .account .uname{font-family:'Oswald';font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:1px;white-space:nowrap;}
         .ofl-shared-header .account .chev{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:6px solid currentColor;transition:transform .2s;}
         .ofl-shared-header .account-wrap.open .chev{transform:rotate(180deg);}
         .ofl-shared-header .dropdown{position:absolute;top:calc(100% + 12px);right:0;min-width:190px;background:var(--paper,#ECE4CF);border:1px solid var(--navy,#15233E);opacity:0;visibility:hidden;transform:translateY(-6px);transition:all .18s ease;box-shadow:0 14px 30px rgba(21,35,62,.16);}
-        body[data-theme="dark"] .ofl-shared-header .dropdown{background:#111827;border-color:rgba(142,164,201,.55);}
         .ofl-shared-header .account-wrap.open .dropdown{opacity:1;visibility:visible;transform:none;}
-        .ofl-shared-header .dropdown a{display:block;font-family:'Oswald';font-weight:500;font-size:14px;text-transform:uppercase;letter-spacing:1px;padding:14px 18px;border-bottom:1px solid rgba(21,35,62,.14);color:inherit;text-decoration:none;}
-        body[data-theme="dark"] .ofl-shared-header .dropdown a{border-bottom-color:rgba(142,164,201,.22);}
+        .ofl-shared-header .dropdown a{display:block;font-family:'Oswald';font-weight:500;font-size:14px;text-transform:uppercase;letter-spacing:1px;padding:14px 18px;border-bottom:1px solid var(--line);color:inherit;text-decoration:none;}
         .ofl-shared-header .dropdown a:last-child{border-bottom:none;}
         .ofl-shared-header .dropdown a:hover{background:var(--navy,#15233E);color:var(--paper,#ECE4CF);}
         .ofl-shared-header .dropdown a.admin,.ofl-shared-header .dropdown a.logout{color:var(--red,#9F3622);}

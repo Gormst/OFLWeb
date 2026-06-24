@@ -4,27 +4,14 @@ const page = {
   file: 'box-score.html',
   title: 'Box Score - OFL',
   styles: `
-  :root{
-    --paper:#ECE4CF;--paper-2:#E4DAC0;--navy:#15233E;--red:#9F3622;--muted:#6B6253;
-    --line:rgba(21,35,62,.16);--line-strong:rgba(21,35,62,.32);
-  }
   html,body,#root,.ofl-app-shell,.ofl-page-shell{background:var(--paper);}
   body{margin:0;background:var(--paper);color:var(--navy);overflow-x:hidden;}
-  body.theme-dark,
-  body[data-theme="dark"]{
-    --paper:#101827;--paper-2:#172236;--navy:#f4f7fb;--red:#ff654f;--muted:#9fb0c8;
-    --line:rgba(255,255,255,.1);--line-strong:rgba(255,255,255,.22);
-    background:#101827;
-  }
-  body[data-theme="dark"] #root,
-  body[data-theme="dark"] .ofl-app-shell,
-  body[data-theme="dark"] .ofl-page-shell{background:#101827;}
   *{box-sizing:border-box;}
   img,svg,video,canvas,iframe{max-width:100%;}
   a{color:inherit;text-decoration:none;}
   .wrap{width:min(1320px,calc(100% - clamp(28px,4vw,72px)));margin:0 auto;min-width:0;}
   .page{padding:44px 0 86px;background:var(--paper);color:var(--navy);min-height:calc(100vh - 78px);width:100%;overflow-x:hidden;}
-  .crumb{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:18px;}
+  .crumb{font-family:'Space Mono';font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:18px;}
   .crumb a{border-bottom:1px solid var(--red);}
   .hero{border:1px solid var(--line-strong);background:var(--paper-2);overflow:hidden;}
   .score-head{display:grid;grid-template-columns:1fr auto 1fr;align-items:stretch;}
@@ -36,9 +23,11 @@ const page = {
   .team-rec{font-family:'Space Mono';font-size:12px;letter-spacing:1px;text-transform:uppercase;opacity:.78;margin-top:8px;}
   .score-box{min-width:220px;background:var(--paper);border-left:1px solid var(--line-strong);border-right:1px solid var(--line-strong);display:flex;align-items:center;justify-content:center;gap:18px;padding:20px;color:var(--navy);}
   .score-num{font-family:'Anton';font-size:58px;line-height:1;}
-  .score-mid{font-family:'Space Mono';font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);text-align:center;}
-  .hero-meta{display:flex;justify-content:space-between;gap:18px;border-top:1px solid var(--line-strong);padding:14px clamp(18px,3vw,34px);font-family:'Space Mono';font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);flex-wrap:wrap;}
+  .score-mid{font-family:'Space Mono';font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);text-align:center;}
+  .hero-meta{display:flex;position:relative;justify-content:space-between;gap:18px;border-top:1px solid var(--line-strong);padding:14px clamp(18px,3vw,34px);font-family:'Space Mono';font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);flex-wrap:wrap;}
   .hero-meta strong{color:var(--navy);}
+  .hero-meta-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;}
+  @media(max-width:640px){.hero-meta-center{position:static;left:auto;top:auto;transform:none;width:100%;text-align:center;order:3;}}
 
   .content-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(260px,320px);gap:24px;margin-top:24px;align-items:start;min-width:0;}
   .main-stack,.side-stack{display:grid;gap:18px;align-items:start;}
@@ -53,11 +42,13 @@ const page = {
   .highlight-frame{position:relative;aspect-ratio:16/9;background:#05070b;}
   .highlight-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0;}
   .highlight-title{font-family:'Oswald';font-weight:700;text-transform:uppercase;font-size:18px;}
-  .highlight-meta{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-top:4px;}
+  .highlight-meta{font-family:'Space Mono';font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-top:4px;}
 
   .hero-pickem{display:grid;gap:10px;border-top:1px solid var(--line-strong);padding:14px clamp(18px,3vw,34px);background:rgba(255,255,255,.16);}
   body.theme-dark .hero-pickem,body[data-theme="dark"] .hero-pickem{background:rgba(255,255,255,.04);}
-  .hero-pickem-top{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
+  .hero-pickem-top{display:flex;position:relative;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
+  .hero-pickem-top .hero-meta-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);white-space:nowrap;}
+  @media(max-width:640px){.hero-pickem-top .hero-meta-center{position:static;left:auto;top:auto;transform:none;width:100%;text-align:center;order:3;}}
   .hero-pickem-title,.hero-pickem-line{color:var(--navy);}
   .hero-pickem-line{font-size:14px;}
   .hero-pickem-bar{height:12px;background:rgba(21,35,62,.12);display:grid;grid-template-columns:var(--away-pct,50%) 1fr;overflow:hidden;}
@@ -66,13 +57,27 @@ const page = {
   .hero-pickem-bar span:last-child{background:var(--home-color);}
   .hero-pickem-sides{display:grid;grid-template-columns:1fr 1fr;gap:16px;font-family:'Oswald';font-weight:700;font-size:17px;line-height:1;text-transform:uppercase;color:var(--navy);}
   .hero-pickem-sides span:last-child{text-align:right;}
-  .pregame-note{border:1px solid var(--line-strong);background:var(--paper-2);padding:22px;font-family:'Space Mono';font-weight:700;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
+
+  /* pregame season-comparison module */
+  .preview-groups{display:grid;}
+  .preview-group{padding:24px clamp(16px,2.4vw,30px);border-top:1px solid var(--line-strong);}
+  .preview-group:first-child{border-top:none;}
+  .preview-group-title{font-family:'Oswald';font-weight:700;font-size:18px;letter-spacing:1px;text-transform:uppercase;color:var(--red);margin-bottom:20px;}
+  .preview-row{margin-bottom:28px;}
+  .preview-row:last-child{margin-bottom:0;}
+  .preview-label{text-align:center;font-family:'Space Mono';font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:12px;}
+  .preview-line{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;}
+  .preview-val{font-family:'Anton';font-size:30px;color:var(--muted);text-align:right;}
+  .preview-val.right{text-align:left;}
+  .preview-val.lead{font-weight:700;}
+  .preview-bar{height:8px;background:var(--line-strong);border-radius:4px;display:grid;overflow:hidden;}
+  .preview-bar span{display:block;}
 
   .team-comparison{display:grid;grid-template-columns:1fr;gap:0;}
   .compare-row{display:grid;grid-template-columns:82px minmax(120px,1fr) 82px;align-items:center;gap:14px;padding:13px 18px;border-bottom:1px solid var(--line);}
   .compare-row:last-child{border-bottom:none;}
   .compare-val{font-family:'Anton';font-size:26px;text-align:center;}
-  .compare-label{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-align:center;text-transform:uppercase;color:var(--muted);}
+  .compare-label{font-family:'Space Mono';font-size:12px;letter-spacing:1px;text-align:center;text-transform:uppercase;color:var(--muted);}
   .bar{height:8px;background:rgba(21,35,62,.12);display:grid;grid-template-columns:var(--away-pct) 1fr;overflow:hidden;}
   body.theme-dark .bar,body[data-theme="dark"] .bar{background:rgba(255,255,255,.1);}
   .bar span:first-child{background:var(--away-color);}
@@ -118,8 +123,8 @@ const page = {
   .comparison-side{min-width:0;}
   .comparison-side.home{text-align:right;}
   .comparison-value{font-family:'Anton';font-size:24px;line-height:1;color:var(--navy);}
-  .comparison-rank{font-family:'Space Mono';font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin-top:4px;}
-  .comparison-label{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);text-align:center;min-width:78px;}
+  .comparison-rank{font-family:'Space Mono';font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin-top:4px;}
+  .comparison-label{font-family:'Space Mono';font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);text-align:center;min-width:78px;}
   .back-link{display:inline-flex;margin-top:18px;font-family:'Space Mono';font-size:12px;letter-spacing:1px;text-transform:uppercase;border-bottom:2px solid var(--red);color:var(--navy);}
 
   @media(max-width:1000px){
@@ -188,13 +193,72 @@ const page = {
     return '<section class="panel highlight-panel"><div class="panel-head"><div><h2>Game Highlight</h2><div class="highlight-meta">'+esc(meta||'OFL Media')+'</div></div><div class="highlight-title">'+esc(highlight.title||'Highlight')+'</div></div><div class="highlight-frame"><iframe src="'+esc(youtubeEmbed(highlight.youtube_id))+'" title="'+esc(highlight.title||'Game highlight')+'" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div></section>';
   }
   function teamAbbr(team){ return (team&&(team.abbreviation||(team.name||'').slice(0,3).toUpperCase()))||'TBD'; }
+  function teamSeasonTotals(teamId, players){
+    const rows=(players||[]).filter(p=>String(p.team_id)===String(teamId));
+    const sum=key=>rows.reduce((t,p)=>t+num(p[key]),0);
+    const pass_yards=sum('pass_yards'), rush_yards=sum('rush_yards'), rec_yards=sum('rec_yards');
+    return {
+      pass_yards, rush_yards,
+      totalYards: pass_yards+rush_yards+rec_yards,
+      totalTd: sum('pass_td')+sum('rush_td')+sum('rec_td')+sum('pr_td')+sum('cov_td'),
+      pr_sacks: sum('pr_sacks'),
+      pr_tfl: sum('pr_tfl'),
+      cov_int: sum('cov_int')
+    };
+  }
+  function previewRow(label, aVal, hVal, fmt, awayColor, homeColor){
+    const total=aVal+hVal;
+    const leftPct=total>0?(aVal/total)*100:50;
+    const aWins=aVal>hVal, hWins=hVal>aVal;
+    return '<div class="preview-row">'+
+      '<div class="preview-label">'+esc(label)+'</div>'+
+      '<div class="preview-line">'+
+        '<span class="preview-val'+(aWins?' lead':'')+'"'+(aWins?' style="color:'+esc(awayColor)+'"':'')+'>'+fmt(aVal)+'</span>'+
+        '<div class="preview-bar" style="grid-template-columns:'+leftPct+'% 1fr;">'+
+          '<span style="background:'+(aWins?esc(awayColor):'transparent')+'"></span>'+
+          '<span style="background:'+(hWins?esc(homeColor):'transparent')+'"></span>'+
+        '</div>'+
+        '<span class="preview-val right'+(hWins?' lead':'')+'"'+(hWins?' style="color:'+esc(homeColor)+'"':'')+'>'+fmt(hVal)+'</span>'+
+      '</div>'+
+    '</div>';
+  }
+  function pregamePreviewModule(away, home, standings, players, awayColor, homeColor){
+    const aStand=(standings||[]).find(r=>String(r.team_id)===String(away.id))||{};
+    const hStand=(standings||[]).find(r=>String(r.team_id)===String(home.id))||{};
+    const winPct=s=>{ const w=num(s.w), l=num(s.l); return (w+l)>0?(w/(w+l))*100:0; };
+    const aTot=teamSeasonTotals(away.id, players), hTot=teamSeasonTotals(home.id, players);
+    const intFmt=v=>v.toLocaleString();
+    const groups=[
+      {title:'Season', rows:[
+        ['Win %', winPct(aStand), winPct(hStand), v=>v.toFixed(1)+'%'],
+        ['Point Differential', num(aStand.net), num(hStand.net), v=>(v>=0?'+':'')+v],
+        ['Tier Points', num(aStand.pts), num(hStand.pts), v=>v%1===0?String(v):v.toFixed(1)]
+      ]},
+      {title:'Offense', rows:[
+        ['Total Yards', aTot.totalYards, hTot.totalYards, intFmt],
+        ['Passing Yards', aTot.pass_yards, hTot.pass_yards, intFmt],
+        ['Rushing Yards', aTot.rush_yards, hTot.rush_yards, intFmt],
+        ['Total Touchdowns', aTot.totalTd, hTot.totalTd, intFmt]
+      ]},
+      {title:'Defense', rows:[
+        ['Sacks', aTot.pr_sacks, hTot.pr_sacks, intFmt],
+        ['TFL', aTot.pr_tfl, hTot.pr_tfl, intFmt],
+        ['Interceptions', aTot.cov_int, hTot.cov_int, intFmt]
+      ]}
+    ];
+    return '<div class="preview-groups">'+groups.map(g=>
+      '<div class="preview-group"><div class="preview-group-title">'+esc(g.title)+'</div>'+
+      g.rows.map(([label,aVal,hVal,fmt])=>previewRow(label,aVal,hVal,fmt,awayColor,homeColor)).join('')+
+      '</div>'
+    ).join('')+'</div>';
+  }
   function pickemHero(pickem, away, home){
     const p=pickem||{}, total=num(p.total), awayPct=num(p.away_pct), homePct=num(p.home_pct);
     const hasScorePrediction=total&&p.avg_away_score!=null&&p.avg_home_score!=null&&p.avg_spread!=null;
     const spread=hasScorePrediction?Number(p.avg_spread):null;
     const line=!total?'No community picks yet':(!hasScorePrediction?'Spread pending':(spread===0?'Pick-em':(spread>0?teamAbbr(home):teamAbbr(away))+' -'+Math.abs(spread).toFixed(1)));
     return '<div class="hero-pickem" style="--away-pct:'+awayPct+'%;--away-color:'+esc(teamColor(away))+';--home-color:'+esc(teamColor(home))+'">'+
-      '<div class="hero-pickem-top"><span class="hero-pickem-title">Community Pick-Ems</span><span>'+total+' picks</span><span class="hero-pickem-line">'+esc(line)+'</span></div>'+
+      '<div class="hero-pickem-top"><span class="hero-pickem-title">Community Pick-Ems</span><span class="hero-meta-center">'+total+' picks</span><span class="hero-pickem-line">'+esc(line)+'</span></div>'+
       '<div class="hero-pickem-bar"><span></span><span></span></div>'+
       '<div class="hero-pickem-sides"><span>'+esc(teamAbbr(away))+' '+awayPct+'%</span><span>'+esc(teamAbbr(home))+' '+homePct+'%</span></div>'+
     '</div>';
@@ -268,6 +332,14 @@ const page = {
     if(!res.ok) throw new Error((data&&data.error)||text.slice(0,220)||res.statusText);
     const game=(data.games||[]).find(g=>String(g.id)===String(id));
     if(!game) throw new Error('[GAME_NOT_FOUND] Game not found');
+    let previewStandings=[], previewPlayers=[];
+    try{
+      const [sr,pr]=await Promise.all([fetch('/api/standings'),fetch('/api/players')]);
+      const sj=await sr.json().catch(()=>({overall:[]}));
+      const pj=await pr.json().catch(()=>({players:[]}));
+      previewStandings=sj.overall||[];
+      previewPlayers=pj.players||[];
+    }catch(e){}
     return {
       game,
       box_score:null,
@@ -275,7 +347,9 @@ const page = {
       highlight:null,
       comparison:null,
       pickem:game.pickem||null,
-      stats_available:false
+      stats_available:false,
+      preview_standings:previewStandings,
+      preview_players:previewPlayers
     };
   }
   async function load(){
@@ -303,9 +377,10 @@ const page = {
           '<div class="team-pane away" style="--team-color:'+esc(awayColor)+'">'+logo(away,'team-logo')+'<div><div class="team-name">'+esc(away.name||'Away Team')+'</div><div class="team-rec">'+esc(away.abbreviation||'Away')+'</div></div></div>'+
           '<div class="score-box"><div class="score-num">'+score(game,'away')+'</div><div class="score-mid">'+(box?'Final':'Pregame')+'<br>Box Score</div><div class="score-num">'+score(game,'home')+'</div></div>'+
           '<div class="team-pane home" style="--team-color:'+esc(homeColor)+'"><div><div class="team-name">'+esc(home.name||'Home Team')+'</div><div class="team-rec">'+esc(home.abbreviation||'Home')+'</div></div>'+logo(home,'team-logo')+'</div>'+
-        '</div><div class="hero-meta"><span><strong>'+esc(game.week?'Week '+game.week:'Schedule')+'</strong></span><span>'+esc(fmtDate(game.game_date))+(game.game_time?' / '+esc(game.game_time):'')+'</span><span>'+(box?'Imported '+esc(new Date(box.created_at).toLocaleString()):'Stats pending')+'</span></div>'+pickemHero(pickem,away,home)+'</section>';
+        '</div><div class="hero-meta"><span><strong>'+esc(game.week?'Week '+game.week:'Schedule')+'</strong></span><span class="hero-meta-center">'+esc(fmtDate(game.game_date))+(game.game_time?' / '+esc(game.game_time):'')+'</span><span>'+(box?'Imported '+esc(new Date(box.created_at).toLocaleString()):'Stats pending')+'</span></div>'+pickemHero(pickem,away,home)+'</section>';
       if(!box){
-        root.innerHTML = heroHtml + '<div class="content-grid"><div class="main-stack"><div class="pregame-note">Box score stats will populate here after the game stats are imported.</div></div><aside class="side-stack"><section class="panel"><div class="panel-head"><h2>Game Leaders</h2></div><p class="note">No leaders before kickoff.</p></section></aside></div>';
+        const previewHtml=pregamePreviewModule(away,home,data.preview_standings||[],data.preview_players||[],awayColor,homeColor);
+        root.innerHTML = heroHtml + '<div class="main-stack" style="margin-top:24px;"><section class="panel"><div class="panel-head"><h2>Season Comparison</h2></div>'+previewHtml+'</section></div>';
         return;
       }
       const slotAway=String(box.team1_id||'')===String(game.away_team_id)?box.data.team1:box.data.team2;

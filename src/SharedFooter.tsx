@@ -25,20 +25,20 @@ export function SharedFooter() {
   return (
     <>
       <style>{`
-        .ofl-shared-footer{flex:0 0 auto;background:#05070b;color:#fff;border-top:1px solid rgba(255,255,255,.12);padding:46px 0 34px;margin-top:34px;}
+        .ofl-shared-footer{flex:0 0 auto;background:var(--paper-2,#E4DAC0);color:var(--navy,#15233E);border-top:1px solid var(--line-strong);padding:46px 0 34px;margin-top:34px;}
         .ofl-shared-footer .wrap.footer-inner{width:min(1800px,calc(100% - clamp(28px,4vw,80px)));max-width:1800px;min-width:0;margin:0 auto;padding:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:28px;align-items:center;}
         .ofl-shared-footer .footer-brand{display:flex;align-items:center;gap:16px;min-width:0;}
         .ofl-shared-footer .footer-brand img{width:44px;height:44px;object-fit:contain;flex:0 0 auto;}
         .ofl-shared-footer .footer-title{font-family:'Oswald';font-weight:700;font-size:20px;text-transform:uppercase;letter-spacing:.8px;line-height:1;}
-        .ofl-shared-footer .footer-copy{font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.52);margin-top:7px;}
+        .ofl-shared-footer .footer-copy{font-family:'Space Mono';font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-top:7px;}
         .ofl-shared-footer .footer-social{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap;}
-        .ofl-shared-footer .footer-social-link{width:44px;height:44px;border:1px solid rgba(255,255,255,.26);display:flex;align-items:center;justify-content:center;color:#fff;background:transparent;transition:background .16s,border-color .16s,color .16s;}
+        .ofl-shared-footer .footer-social-link{width:44px;height:44px;border:1px solid var(--line-strong);display:flex;align-items:center;justify-content:center;color:var(--navy);background:transparent;transition:background .16s,border-color .16s,color .16s;}
         .ofl-shared-footer .footer-social-link:hover{background:var(--red,#9F3622);border-color:var(--red,#9F3622);color:#fff;}
         .ofl-shared-footer .footer-social-link svg{width:23px;height:23px;}
         .ofl-shared-footer .footer-social-link img{width:24px;height:24px;object-fit:contain;display:block;}
-        .ofl-shared-footer .footer-links{grid-column:1/-1;display:flex;gap:18px;flex-wrap:wrap;padding-top:18px;border-top:1px solid rgba(255,255,255,.1);font-family:'Space Mono';font-size:10px;letter-spacing:1px;text-transform:uppercase;color:rgba(255,255,255,.62);}
+        .ofl-shared-footer .footer-links{grid-column:1/-1;display:flex;gap:18px;flex-wrap:wrap;padding-top:18px;border-top:1px solid var(--line);font-family:'Space Mono';font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
         .ofl-shared-footer .footer-links a{color:inherit;text-decoration:none;}
-        .ofl-shared-footer .footer-links a:hover{color:#fff;}
+        .ofl-shared-footer .footer-links a:hover{color:var(--red);}
         @media(max-width:700px){.ofl-shared-footer .wrap.footer-inner{grid-template-columns:1fr;}.ofl-shared-footer .footer-social{justify-content:flex-start;}.ofl-shared-footer .footer-links{gap:12px;}}
       `}</style>
       <footer className="ofl-shared-footer">

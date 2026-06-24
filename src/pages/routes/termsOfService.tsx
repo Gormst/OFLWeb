@@ -8,13 +8,12 @@ export default function TermsOfServicePage() {
   return (
     <>
       <style>{`
-        :root{--paper:#ECE4CF;--paper-2:#E4DAC0;--navy:#15233E;--red:#9F3622;--muted:#6B6253;--line:rgba(21,35,62,.16);--line-strong:rgba(21,35,62,.32);}
         *{box-sizing:border-box;}
         body{background:var(--paper);color:var(--navy);font-family:'Spectral',Georgia,serif;min-height:100vh;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.035'/%3E%3C/svg%3E");}
         .legal-page{width:min(980px,calc(100% - clamp(28px,4vw,80px)));margin:0 auto;padding:70px 0 86px;}
         .legal-eyebrow{font-family:'Space Mono';font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--red);margin-bottom:12px;}
         .legal-page h1{font-family:'Oswald';font-weight:700;font-size:clamp(40px,6vw,68px);text-transform:uppercase;line-height:.95;margin:0 0 12px;}
-        .legal-updated{font-family:'Space Mono';font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:38px;}
+        .legal-updated{font-family:'Space Mono';font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:38px;}
         .legal-intro{font-size:19px;line-height:1.65;color:var(--navy);max-width:780px;margin:0 0 36px;}
         .legal-section{border-top:1px solid var(--line-strong);padding:28px 0;}
         .legal-section h2{font-family:'Oswald';font-weight:700;font-size:25px;text-transform:uppercase;line-height:1;margin:0 0 12px;}
