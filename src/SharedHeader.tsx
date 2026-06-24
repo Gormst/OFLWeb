@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type MouseEvent } from 'react';
 
 const navItems = [
   ['/', 'Home'],
@@ -50,12 +50,36 @@ function getStoredToken() {
   }
 }
 
+function currentTheme() {
+  return localStorage.getItem('ofl_theme') === 'dark' ? 'dark' : 'light';
+}
+
 export function SharedHeader() {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountVisible, setAccountVisible] = useState(false);
   const [profile, setProfile] = useState<HeaderProfile | null>(null);
+  const [theme, setTheme] = useState<'light' | 'dark'>(currentTheme);
   const accountRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function syncTheme() {
+      setTheme(currentTheme());
+    }
+    window.addEventListener('storage', syncTheme);
+    return () => window.removeEventListener('storage', syncTheme);
+  }, []);
+
+  function toggleTheme(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    const next = theme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('ofl_theme', next);
+    const applyOflTheme = (window as unknown as { applyOflTheme?: () => void }).applyOflTheme;
+    if (applyOflTheme) applyOflTheme();
+    else document.body.dataset.theme = next;
+    setTheme(next);
+  }
 
   useEffect(() => {
     const logoutBtn = document.getElementById('logoutBtn');
@@ -140,6 +164,8 @@ export function SharedHeader() {
         .ofl-shared-header .dropdown a{display:block;font-family:'Oswald';font-weight:500;font-size:14px;text-transform:uppercase;letter-spacing:1px;padding:14px 18px;border-bottom:1px solid var(--line);color:inherit;text-decoration:none;}
         .ofl-shared-header .dropdown a:last-child{border-bottom:none;}
         .ofl-shared-header .dropdown a:hover{background:var(--navy,#15233E);color:var(--paper,#ECE4CF);}
+        .ofl-shared-header .theme-toggle{display:flex;align-items:center;justify-content:center;width:100%;appearance:none;border:0;border-bottom:1px solid var(--line);background:transparent;color:inherit;font-size:18px;line-height:1;padding:12px 18px;cursor:pointer;}
+        .ofl-shared-header .theme-toggle:hover{background:var(--navy,#15233E);color:var(--paper,#ECE4CF);}
         .ofl-shared-header .dropdown a.admin,.ofl-shared-header .dropdown a.logout{color:var(--red,#9F3622);}
         .ofl-shared-header .dropdown a.admin:hover,.ofl-shared-header .dropdown a.logout:hover{background:var(--red,#9F3622);color:var(--paper,#ECE4CF);}
         .ofl-shared-header .menu-toggle{display:none;background:none;border:none;cursor:pointer;margin-left:auto;color:inherit;}
@@ -188,6 +214,9 @@ export function SharedHeader() {
               <a href="/profile?tab=settings">Settings</a>
               <a href="/media/editor" id="mediaEditorLink" style={{ display: (profile?.admin_tabs || []).includes('media') ? undefined : 'none' }}>Media Editor</a>
               <a href="/admin" className="admin" id="adminLink" style={{ display: profile?.is_admin ? undefined : 'none' }}>Admin</a>
+              <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label="Toggle dark mode">
+                {theme === 'dark' ? '☀' : '☾'}
+              </button>
               <a href="#" className="logout" id="logoutBtn">Log Out</a>
             </div>
           </div>

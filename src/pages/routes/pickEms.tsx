@@ -125,12 +125,6 @@ function gameLabel(game: Game) {
   return `${teamAbbr(game.away_team)} @ ${teamAbbr(game.home_team)}`;
 }
 
-function pickScoreText(item: ViewerPick) {
-  const pick = item.pick;
-  if (!pick || pick.predicted_away_score == null || pick.predicted_home_score == null) return '';
-  return `${pick.predicted_away_score}-${pick.predicted_home_score}`;
-}
-
 function scoreValue(value?: number | null) {
   return value == null ? '-' : String(value);
 }
@@ -186,10 +180,10 @@ export default function PickEmsPage() {
         .leader-callout{border:1px solid var(--line-strong);background:var(--navy);color:var(--paper);display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:18px;padding:20px 22px;margin-bottom:24px;}
         .leader-avatar,.player-avatar{width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center;overflow:hidden;font-family:'Anton';flex:0 0 auto;}
         .leader-avatar img,.player-avatar img{width:100%;height:100%;object-fit:cover;display:block;}
-        .leader-kicker{font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1.8px;text-transform:uppercase;color:rgba(255,255,255,.62);margin-bottom:5px;}
+        .leader-kicker{font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1.8px;text-transform:uppercase;color:var(--paper);opacity:.62;margin-bottom:5px;}
         .leader-name{font-family:'Oswald';font-weight:700;font-size:28px;text-transform:uppercase;line-height:1;}
         .leader-points{font-family:'Anton';font-size:42px;line-height:1;text-align:right;}
-        .leader-points span{display:block;font-family:'Space Mono';font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:rgba(255,255,255,.62);margin-top:5px;}
+        .leader-points span{display:block;font-family:'Space Mono';font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--paper);opacity:.62;margin-top:5px;}
         .leaderboard-card{border:1px solid var(--line-strong);background:var(--paper-2);overflow:hidden;}
         .pickems-content{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,420px);gap:24px;align-items:start;}
         .leaderboard-column{min-width:0;}
@@ -198,25 +192,16 @@ export default function PickEmsPage() {
         .viewer-title{font-family:'Oswald';font-weight:700;font-size:24px;text-transform:uppercase;line-height:1;margin:0;}
         .viewer-week{font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);}
         .viewer-list{display:flex;flex-direction:column;}
-        .pick-row{display:block;padding:14px 16px;border-bottom:1px solid var(--line);color:inherit;text-decoration:none;}
-        .pick-row:last-child{border-bottom:0;}
-        .pick-matchup{display:flex;align-items:center;gap:10px;min-width:0;margin-bottom:12px;}
         .mini-logo{width:30px;height:30px;object-fit:contain;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;flex:0 0 auto;color:#fff;font-family:'Anton';font-size:12px;}
-        .pick-game-copy{min-width:0;}
-        .pick-game{font-family:'Oswald';font-weight:700;font-size:17px;text-transform:uppercase;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        .pick-sub{font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);margin-top:5px;}
-        .pick-sub.correct{color:var(--green);}
-        .pick-sub.incorrect{color:var(--red);}
-        .score-compare{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
-        .score-box{border:1px solid var(--line);background:rgba(255,255,255,.035);padding:10px 11px;}
-        .score-label{font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1.3px;text-transform:uppercase;color:var(--muted);margin-bottom:8px;}
-        .score-line{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;font-family:'Oswald';font-weight:700;font-size:16px;text-transform:uppercase;line-height:1.15;margin-top:6px;}
-        .score-line.picked{color:var(--red);}
-        .score-line span:first-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-        .score-num{font-family:'Anton';font-size:17px;letter-spacing:.2px;color:var(--navy);line-height:1;}
-        .score-line.picked .score-num{color:var(--red);}
-        .pick-score{font-family:'Space Mono';font-weight:700;font-size:12px;color:var(--muted);margin-top:5px;}
-        .pick-missing{color:var(--muted);font-family:'Space Mono';font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.8px;}
+        .pick-row-compact{display:grid;grid-template-columns:30px 1fr auto 1fr 30px;align-items:center;gap:10px;padding:8px 14px;border-left:3px solid var(--line-strong);border-bottom:1px solid var(--line);text-decoration:none;color:inherit;}
+        .pick-row-compact:last-child{border-bottom:0;}
+        .pick-row-compact.correct{border-left-color:var(--green);background:var(--promote);}
+        .pick-row-compact.incorrect{border-left-color:var(--red);background:var(--demote);}
+        .pick-compact-group{display:flex;align-items:center;justify-content:center;gap:6px;}
+        .pick-compact-divider{width:1px;height:18px;background:var(--line-strong);}
+        .pick-compact-score{font-family:'Anton';font-weight:400;font-size:18px;color:var(--navy);min-width:18px;text-align:center;}
+        .pick-compact-sep{font-family:'Anton';font-weight:400;font-size:13px;color:var(--muted);}
+        .pick-compact-group.pred .pick-compact-score{font-size:14px;color:var(--muted);}
         .empty-row{font-size:17px;color:var(--muted);font-style:italic;text-align:left;padding:24px 18px;}
         .table-wrap{overflow-x:auto;}
         table{width:100%;border-collapse:collapse;min-width:760px;}
@@ -225,10 +210,10 @@ export default function PickEmsPage() {
         td{padding:15px 18px;border-bottom:1px solid var(--line);text-align:right;font-family:'Oswald';font-weight:700;font-size:18px;white-space:nowrap;}
         tr:last-child td{border-bottom:0;}
         td.left{text-align:left;}
-        .rank-cell{font-family:'Space Mono';font-size:14px;color:var(--muted);}
+        .rank-cell{font-family:'Anton';font-weight:400;font-size:22px;color:var(--navy);}
         .player-cell{display:flex;align-items:center;gap:12px;min-width:0;color:inherit;text-decoration:none;}
         .player-name{font-family:'Oswald';font-weight:700;font-size:19px;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;}
-        .points-cell,.metric-cell{font-family:'Anton';font-size:21px;color:var(--navy);line-height:1;letter-spacing:.2px;}
+        .points-cell,.metric-cell{font-family:'Anton';font-weight:400;font-size:21px;color:var(--navy);line-height:1;letter-spacing:.2px;}
         .empty,.error{border:1px solid var(--line-strong);background:var(--paper-2);padding:26px;font-size:17px;color:var(--muted);font-style:italic;}
         .error{color:var(--red);}
         @media(max-width:1100px){.pickems-content{grid-template-columns:1fr;}.viewer-card{position:static;}}
@@ -309,50 +294,22 @@ export default function PickEmsPage() {
                 ) : viewerPicks.length ? (
                   <div className="viewer-list">
                     {viewerPicks.map(item => {
-                      const score = pickScoreText(item);
-                      const pickedAway = item.pick?.selected_team_id && String(item.pick.selected_team_id) === String(item.game.away_team_id);
-                      const pickedHome = item.pick?.selected_team_id && String(item.pick.selected_team_id) === String(item.game.home_team_id);
-                      const status = scoreStatus(item);
+                      const status = scoreStatus(item).toLowerCase();
                       return (
-                        <a className="pick-row" href={`/box-score/${item.game.id}`} key={item.game.id}>
-                          <div className="pick-matchup">
-                            {teamLogo(item.game.away_team)}
-                            {teamLogo(item.game.home_team)}
-                            <div className="pick-game-copy">
-                              <div className="pick-game">{gameLabel(item.game)}</div>
-                              {status ? <div className={`pick-sub ${status.toLowerCase()}`}>{status}</div> : null}
-                            </div>
-                          </div>
-                          <div className="score-compare">
-                            <div className="score-box">
-                              <div className="score-label">Score</div>
-                              <div className="score-line">
-                                <span>{teamAbbr(item.game.away_team)}</span>
-                                <strong className="score-num">{scoreValue(item.game.away_score)}</strong>
-                              </div>
-                              <div className="score-line">
-                                <span>{teamAbbr(item.game.home_team)}</span>
-                                <strong className="score-num">{scoreValue(item.game.home_score)}</strong>
-                              </div>
-                            </div>
-                            <div className="score-box">
-                              <div className="score-label">Prediction</div>
-                              {item.pick ? (
-                                <>
-                                  <div className={`score-line ${pickedAway ? 'picked' : ''}`}>
-                                    <span>{teamAbbr(item.game.away_team)}</span>
-                                    <strong className="score-num">{scoreValue(item.pick.predicted_away_score)}</strong>
-                                  </div>
-                                  <div className={`score-line ${pickedHome ? 'picked' : ''}`}>
-                                    <span>{teamAbbr(item.game.home_team)}</span>
-                                    <strong className="score-num">{scoreValue(item.pick.predicted_home_score)}</strong>
-                                  </div>
-                                </>
-                              ) : (
-                                <span className="pick-missing">No Pick</span>
-                              )}
-                            </div>
-                          </div>
+                        <a className={`pick-row-compact ${status}`} href={`/box-score/${item.game.id}`} key={item.game.id} title={gameLabel(item.game)}>
+                          {teamLogo(item.game.away_team)}
+                          <span className="pick-compact-group real">
+                            <span className="pick-compact-score">{scoreValue(item.game.away_score)}</span>
+                            <span className="pick-compact-sep">–</span>
+                            <span className="pick-compact-score">{scoreValue(item.game.home_score)}</span>
+                          </span>
+                          <span className="pick-compact-divider" />
+                          <span className="pick-compact-group pred">
+                            <span className="pick-compact-score">{scoreValue(item.pick?.predicted_away_score)}</span>
+                            <span className="pick-compact-sep">–</span>
+                            <span className="pick-compact-score">{scoreValue(item.pick?.predicted_home_score)}</span>
+                          </span>
+                          {teamLogo(item.game.home_team)}
                         </a>
                       );
                     })}

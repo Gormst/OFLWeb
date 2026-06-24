@@ -153,28 +153,28 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
   return createPortal(
     <aside className="redzone-chat" aria-label="OFL Redzone Chat">
       <style>{`
-        .redzone-chat{display:flex;flex-direction:column;min-width:0;min-height:420px;height:100%;max-height:760px;overflow:hidden;background:var(--paper);color:var(--navy);border-left:1px solid var(--line-strong);}
-        .redzone-chat__head{flex:0 0 auto;padding:18px 18px 14px;border-bottom:1px solid var(--line-strong);font-family:'Oswald',sans-serif;font-weight:700;font-size:22px;line-height:1;text-transform:uppercase;letter-spacing:.7px;}
-        .redzone-chat__messages{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:14px 14px 8px;display:flex;flex-direction:column;gap:12px;scrollbar-width:thin;scrollbar-color:var(--red) var(--paper-2);}
+        .redzone-chat{display:flex;flex-direction:column;min-width:0;height:100%;overflow:hidden;background:#000;color:#F8FAFC;border-left:1px solid rgba(224,21,26,.4);}
+        .redzone-chat__head{flex:0 0 auto;padding:18px 18px 14px;border-bottom:1px solid rgba(224,21,26,.3);font-family:'Oswald',sans-serif;font-weight:700;font-size:22px;line-height:1;text-transform:uppercase;letter-spacing:.7px;color:#fff;}
+        .redzone-chat__messages{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:14px 14px 8px;display:flex;flex-direction:column;gap:12px;scrollbar-width:thin;scrollbar-color:#E0151A #0a0a0a;}
         .redzone-chat__messages::-webkit-scrollbar{width:8px;}
-        .redzone-chat__messages::-webkit-scrollbar-track{background:var(--paper-2);}
-        .redzone-chat__messages::-webkit-scrollbar-thumb{background:var(--red);border-radius:4px;}
+        .redzone-chat__messages::-webkit-scrollbar-track{background:#0a0a0a;}
+        .redzone-chat__messages::-webkit-scrollbar-thumb{background:#E0151A;border-radius:4px;}
         .redzone-chat__message{display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;align-items:start;}
-        .redzone-chat__avatar{width:34px;height:34px;border-radius:50%;object-fit:cover;background:var(--paper-2);flex:0 0 auto;}
-        .redzone-chat__avatar--blank{width:34px;height:34px;border-radius:50%;background:var(--paper-2);border:1px solid var(--line-strong);}
+        .redzone-chat__avatar{width:34px;height:34px;border-radius:50%;object-fit:cover;background:#0a0a0a;flex:0 0 auto;}
+        .redzone-chat__avatar--blank{width:34px;height:34px;border-radius:50%;background:#0a0a0a;border:1px solid rgba(224,21,26,.4);}
         .redzone-chat__row{min-width:0;}
         .redzone-chat__meta{display:flex;align-items:baseline;gap:8px;min-width:0;}
-        .redzone-chat__name{font-family:'Oswald',sans-serif;font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--navy);}
-        .redzone-chat__time{font-family:'Space Mono',monospace;font-size:12px;color:var(--muted);white-space:nowrap;}
-        .redzone-chat__text{font-family:'Spectral',Georgia,serif;font-size:16px;line-height:1.4;color:var(--navy);overflow-wrap:anywhere;white-space:pre-wrap;}
-        .redzone-chat__status{flex:0 0 auto;min-height:18px;padding:0 14px 8px;font-family:'Space Mono',monospace;font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:var(--red);}
-        .redzone-chat__form{flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:12px 14px 14px;border-top:1px solid var(--line-strong);background:var(--paper-2);}
-        .redzone-chat__input{width:100%;height:44px;resize:none;border:1px solid var(--line-strong);background:var(--paper);color:var(--navy);padding:12px;font:600 14px/1.25 'Oswald',sans-serif;letter-spacing:.4px;outline:none;}
-        .redzone-chat__input:focus{border-color:var(--red);box-shadow:0 0 0 1px rgba(242,106,79,.25);}
-        .redzone-chat__send{appearance:none;border:1px solid var(--red);background:var(--red);color:#fff;font-family:'Oswald',sans-serif;font-weight:700;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;padding:0 16px;cursor:pointer;}
+        .redzone-chat__name{font-family:'Oswald',sans-serif;font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;}
+        .redzone-chat__time{font-family:'Space Mono',monospace;font-size:12px;color:rgba(255,255,255,.55);white-space:nowrap;}
+        .redzone-chat__text{font-family:'Spectral',Georgia,serif;font-size:16px;line-height:1.4;color:#F1F1F1;overflow-wrap:anywhere;white-space:pre-wrap;}
+        .redzone-chat__status{flex:0 0 auto;min-height:18px;padding:0 14px 8px;font-family:'Space Mono',monospace;font-size:12px;letter-spacing:.8px;text-transform:uppercase;color:#FF3B3B;}
+        .redzone-chat__form{flex:0 0 auto;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:12px 14px 14px;border-top:1px solid rgba(224,21,26,.3);background:#0a0a0a;}
+        .redzone-chat__input{width:100%;height:44px;resize:none;border:1px solid rgba(224,21,26,.4);background:#000;color:#F8FAFC;padding:12px;font:600 14px/1.25 'Oswald',sans-serif;letter-spacing:.4px;outline:none;}
+        .redzone-chat__input:focus{border-color:#FF3B3B;box-shadow:0 0 0 1px rgba(224,21,26,.3);}
+        .redzone-chat__send{appearance:none;border:1px solid #E0151A;background:#E0151A;color:#fff;font-family:'Oswald',sans-serif;font-weight:700;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;padding:0 16px;cursor:pointer;}
         .redzone-chat__send:disabled{cursor:not-allowed;opacity:.45;}
         .live-game-spot.on.is-docked #redzoneChatMount{display:none;}
-        @media(max-width:1200px){.redzone-chat{min-height:360px;border-left:0;border-top:1px solid rgba(148,163,184,.26);}.redzone-chat__messages{min-height:190px;}}
+        @media(max-width:1200px){.redzone-chat{min-height:360px;border-left:0;border-top:1px solid rgba(224,21,26,.3);}.redzone-chat__messages{min-height:190px;}}
       `}</style>
       <div className="redzone-chat__head">OFL Redzone Chat</div>
       <div ref={listRef} className="redzone-chat__messages">

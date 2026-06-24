@@ -229,9 +229,20 @@ export function GlobalLiveMiniViewer({ pathname }: GlobalLiveMiniViewerProps) {
     [games, activeId, viewState.activeId]
   );
 
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    if (!activeGame) return;
+    setHidden(localStorage.getItem('ofl_mini_viewer_hidden') === activeGame.id);
+  }, [activeGame?.id]);
+
+  function hideViewer() {
+    if (activeGame) localStorage.setItem('ofl_mini_viewer_hidden', activeGame.id);
+    setHidden(true);
+  }
+
   const activeChannel = twitchChannelFromUrl(activeGame?.twitch_url);
   const onHome = (pathname.replace(/\/+$/, '') || '/') === '/';
-  if (onHome || !activeGame || !activeChannel) return null;
+  if (onHome || !activeGame || !activeChannel || hidden) return null;
 
   const quadGames = (viewState.slotIds || [])
     .map((id) => id ? games.find((game) => game.id === id) || null : null)
@@ -250,6 +261,8 @@ export function GlobalLiveMiniViewer({ pathname }: GlobalLiveMiniViewerProps) {
         .global-live-mini-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;}
         .global-live-mini button{appearance:none;border:1px solid var(--line-strong);background:var(--paper-2);color:var(--navy);font-family:'Space Mono';font-weight:700;font-size:12px;line-height:1;padding:8px 9px;cursor:pointer;}
         .global-live-mini button:hover{background:var(--red,#9F3622);border-color:var(--red,#9F3622);color:#fff;}
+        .global-live-mini-close{border:0!important;background:none!important;color:var(--red,#9F3622)!important;font-size:14px!important;padding:8px!important;}
+        .global-live-mini-close:hover{color:#fff!important;background:var(--red,#9F3622)!important;}
         .global-live-mini-tabs{display:flex;gap:6px;overflow-x:auto;background:var(--paper-2);padding:8px 10px;border-bottom:1px solid var(--line-strong);}
         .global-live-mini-tab{white-space:nowrap;}
         .global-live-mini-tab.active{background:#6441a5;border-color:#9146ff;color:#fff;}
@@ -272,7 +285,8 @@ export function GlobalLiveMiniViewer({ pathname }: GlobalLiveMiniViewerProps) {
             <span className="global-live-mini-matchup">{showQuad ? 'OFL QUAD BOX' : matchup(activeGame)}</span>
           </div>
           <div className="global-live-mini-actions">
-            <button type="button" onClick={() => setCollapsed((value) => !value)}>{collapsed ? 'SHOW' : 'HIDE'}</button>
+            <button type="button" onClick={() => setCollapsed((value) => !value)}>{collapsed ? 'EXPAND' : 'COLLAPSE'}</button>
+            <button type="button" className="global-live-mini-close" onClick={hideViewer} aria-label="Hide live viewer">✕</button>
           </div>
         </div>
         {games.length > 1 && (

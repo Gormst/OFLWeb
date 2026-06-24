@@ -5,6 +5,7 @@ import { LegacyPage } from './LegacyPage';
 import { pageLoaders, type PageKey } from './pages/manifest';
 import { isLegacyPageData } from './pages/types';
 import { RedzoneChat } from './RedzoneChat';
+import { RedzonePickEms } from './RedzonePickEms';
 import { SharedFooter } from './SharedFooter';
 import { SharedHeader } from './SharedHeader';
 
@@ -125,6 +126,7 @@ export function App() {
           </div>
           <SharedFooter />
           <RedzoneChat pathname={pathname} />
+          <RedzonePickEms pathname={pathname} />
           <GlobalLiveMiniViewer pathname={pathname} />
           <style>{`
             body,
