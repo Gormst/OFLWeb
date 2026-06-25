@@ -157,7 +157,6 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
     <aside className="redzone-chat" aria-label="OFL Redzone Chat">
       <style>{`
         .redzone-chat{display:flex;flex-direction:column;min-width:0;height:100%;overflow:hidden;background:#000;color:#F8FAFC;border-left:1px solid rgba(224,21,26,.4);}
-        .redzone-chat__head{flex:0 0 auto;padding:18px 18px 14px;border-bottom:1px solid rgba(224,21,26,.3);font-family:'Oswald',sans-serif;font-weight:700;font-size:22px;line-height:1;text-transform:uppercase;letter-spacing:.7px;color:#fff;}
         .redzone-chat__messages{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:14px 14px 8px;display:flex;flex-direction:column;gap:12px;scrollbar-width:thin;scrollbar-color:#E0151A #0a0a0a;}
         .redzone-chat__messages::-webkit-scrollbar{width:8px;}
         .redzone-chat__messages::-webkit-scrollbar-track{background:#0a0a0a;}
@@ -179,7 +178,6 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
         .live-game-spot.on.is-docked #redzoneChatMount{display:none;}
         @media(max-width:1200px){.redzone-chat{min-height:360px;border-left:0;border-top:1px solid rgba(224,21,26,.3);}.redzone-chat__messages{min-height:190px;}}
       `}</style>
-      <div className="redzone-chat__head">OFL Redzone Chat</div>
       <div ref={listRef} className="redzone-chat__messages">
         {messages.map(message => (
           <article className="redzone-chat__message" key={message.id}>
