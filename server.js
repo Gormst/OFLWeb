@@ -681,12 +681,13 @@ function effectiveTabs(profile) {
   return { tabs, isSuper, isAdmin: isSuper || tabs.length > 0 };
 }
 
-// Require the requester to have a given admin tab
+// Require the requester to have a given admin tab (or any one of several, if an array is passed)
 async function requireAdmin(req, res, tab) {
   const profile = await getRequester(req);
   if (!profile) { res.status(401).json({ error: 'Not authenticated' }); return null; }
   const { tabs, isAdmin } = effectiveTabs(profile);
-  if (!isAdmin || (tab && !tabs.includes(tab))) {
+  const tabOk = !tab || (Array.isArray(tab) ? tab.some(t => tabs.includes(t)) : tabs.includes(tab));
+  if (!isAdmin || !tabOk) {
     res.status(403).json({ error: 'No admin access' });
     return null;
   }
@@ -4534,7 +4535,7 @@ async function fetchAll(query) {
 
 // admin — manually add a player to a team
 app.post('/api/admin/roster/add', async (req, res) => {
-  const me = await requireAdmin(req, res, 'teams');
+  const me = await requireAdmin(req, res, ['teams', 'schedule']);
   if (!me) return;
   try {
     const { team_id, username } = req.body;
