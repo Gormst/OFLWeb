@@ -121,7 +121,7 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
     setMessages(prev => [...prev.slice(-79), optimisticMessage]);
 
     const now = Date.now();
-    sendTimestampsRef.current.push(now);
+    sendTimestampsRef.current = [...sendTimestampsRef.current, now].filter(t => now - t < 60000);
     if (sendTimestampsRef.current.length >= 10) {
       sendTimestampsRef.current = [];
       setCooldownEndsAt(now + 15000);
