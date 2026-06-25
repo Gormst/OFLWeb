@@ -77,10 +77,6 @@ function TeamLogo({ team, className }: { team?: Team | null; className: string }
   );
 }
 
-function isLocalhost() {
-  return location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-}
-
 export function RedzonePickEms({ pathname }: RedzonePickEmsProps) {
   const [target, setTarget] = useState<HTMLElement | null>(null);
   const [picks, setPicks] = useState<ViewerPick[]>([]);
@@ -88,7 +84,7 @@ export function RedzonePickEms({ pathname }: RedzonePickEmsProps) {
   const isHome = pathname === '/' || pathname === '/index';
 
   useEffect(() => {
-    if (!isHome || !isLocalhost()) {
+    if (!isHome) {
       setTarget(null);
       return;
     }

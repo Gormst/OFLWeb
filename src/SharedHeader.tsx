@@ -164,8 +164,9 @@ export function SharedHeader() {
         .ofl-shared-header .dropdown a{display:block;font-family:'Oswald';font-weight:500;font-size:14px;text-transform:uppercase;letter-spacing:1px;padding:14px 18px;border-bottom:1px solid var(--line);color:inherit;text-decoration:none;}
         .ofl-shared-header .dropdown a:last-child{border-bottom:none;}
         .ofl-shared-header .dropdown a:hover{background:var(--navy,#15233E);color:var(--paper,#ECE4CF);}
-        .ofl-shared-header .theme-toggle{display:flex;align-items:center;justify-content:center;width:100%;appearance:none;border:0;border-bottom:1px solid var(--line);background:transparent;color:inherit;font-size:18px;line-height:1;padding:12px 18px;cursor:pointer;}
-        .ofl-shared-header .theme-toggle:hover{background:var(--navy,#15233E);color:var(--paper,#ECE4CF);}
+        .ofl-shared-header .theme-toggle-standalone{display:flex;align-items:center;justify-content:center;width:40px;height:40px;flex:0 0 auto;appearance:none;border-radius:50%;border:1px solid var(--line-strong,#15233E);background:transparent;color:inherit;cursor:pointer;}
+        .ofl-shared-header .theme-toggle-standalone svg{width:20px;height:20px;display:block;}
+        .ofl-shared-header .theme-toggle-standalone:hover{background:var(--navy,#15233E);color:var(--paper,#ECE4CF);}
         .ofl-shared-header .dropdown a.admin,.ofl-shared-header .dropdown a.logout{color:var(--red,#9F3622);}
         .ofl-shared-header .dropdown a.admin:hover,.ofl-shared-header .dropdown a.logout:hover{background:var(--red,#9F3622);color:var(--paper,#ECE4CF);}
         .ofl-shared-header .menu-toggle{display:none;background:none;border:none;cursor:pointer;margin-left:auto;color:inherit;}
@@ -192,6 +193,18 @@ export function SharedHeader() {
             ))}
           </nav>
           <a href="/connect" className="connect-btn" id="connectBtn" style={{ display: accountVisible ? 'none' : undefined }}>Connect Account</a>
+          <button type="button" className="theme-toggle-standalone" onClick={toggleTheme} aria-label="Toggle dark mode">
+            {theme === 'dark' ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+                <circle cx="12" cy="12" r="4.6" fill="currentColor" stroke="none" />
+                <path d="M12 2v2.6M12 19.4V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.6M19.4 12H22M4.2 19.8l1.8-1.8M18 6l1.8-1.8" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M20.6 14.7A8.6 8.6 0 0 1 9.3 3.4a.8.8 0 0 0-1-1A10.2 10.2 0 1 0 21.6 15.7a.8.8 0 0 0-1-1Z" />
+              </svg>
+            )}
+          </button>
           <div ref={accountRef} className={`account-wrap${accountOpen ? ' open' : ''}`} id="accountWrap" style={{ display: accountVisible ? undefined : 'none' }}>
             <button
               className="account"
@@ -214,9 +227,6 @@ export function SharedHeader() {
               <a href="/profile?tab=settings">Settings</a>
               <a href="/media/editor" id="mediaEditorLink" style={{ display: (profile?.admin_tabs || []).includes('media') ? undefined : 'none' }}>Media Editor</a>
               <a href="/admin" className="admin" id="adminLink" style={{ display: profile?.is_admin ? undefined : 'none' }}>Admin</a>
-              <button type="button" className="theme-toggle" onClick={toggleTheme} aria-label="Toggle dark mode">
-                {theme === 'dark' ? '☀' : '☾'}
-              </button>
               <a href="#" className="logout" id="logoutBtn">Log Out</a>
             </div>
           </div>

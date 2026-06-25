@@ -33,6 +33,7 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
   const [cooldownSecondsLeft, setCooldownSecondsLeft] = useState(0);
   const sendTimestampsRef = useRef<number[]>([]);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef = useRef(true);
   const isHome = pathname === '/' || pathname === '/index';
 
   useEffect(() => {
@@ -83,7 +84,26 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
 
   useEffect(() => {
     const list = listRef.current;
-    if (list) list.scrollTop = list.scrollHeight;
+    if (!list) return;
+    function handleScroll() {
+      const node = listRef.current;
+      if (!node) return;
+      const threshold = 80;
+      stickToBottomRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < threshold;
+    }
+    list.addEventListener('scroll', handleScroll, { passive: true });
+    return () => list.removeEventListener('scroll', handleScroll);
+  }, [target]);
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const list = listRef.current;
+    if (!list) return;
+    list.scrollTop = list.scrollHeight;
+    const raf = requestAnimationFrame(() => {
+      if (stickToBottomRef.current) list.scrollTop = list.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
   }, [messages.length]);
 
   useEffect(() => {
@@ -122,6 +142,7 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
       message,
       created_at: new Date().toISOString()
     };
+    stickToBottomRef.current = true;
     setMessages(prev => [...prev.slice(-79), optimisticMessage]);
 
     const now = Date.now();
@@ -182,7 +203,14 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
         {messages.map(message => (
           <article className="redzone-chat__message" key={message.id}>
             {message.avatar_url ? (
-              <img className="redzone-chat__avatar" src={message.avatar_url} alt="" />
+              <img
+                className="redzone-chat__avatar"
+                src={message.avatar_url}
+                alt=""
+                onLoad={() => {
+                  if (stickToBottomRef.current && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+                }}
+              />
             ) : (
               <span className="redzone-chat__avatar--blank" aria-hidden="true" />
             )}
