@@ -61,7 +61,11 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
         const payload = await response.json().catch(() => null);
         if (!response.ok) throw new Error(payload?.error || 'Could not load chat');
         if (!cancelled) {
-          setMessages(Array.isArray(payload?.messages) ? payload.messages : []);
+          const serverMessages = Array.isArray(payload?.messages) ? payload.messages : [];
+          setMessages(prev => {
+            const pending = prev.filter(m => m.id.startsWith('temp-'));
+            return [...serverMessages, ...pending];
+          });
           setStatus('');
         }
       } catch (error) {
