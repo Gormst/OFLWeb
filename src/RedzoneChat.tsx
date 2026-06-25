@@ -34,10 +34,9 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
   const sendTimestampsRef = useRef<number[]>([]);
   const listRef = useRef<HTMLDivElement | null>(null);
   const isHome = pathname === '/' || pathname === '/index';
-  const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
 
   useEffect(() => {
-    if (!isHome || !isLocalhost) {
+    if (!isHome) {
       setTarget(null);
       return;
     }
@@ -50,7 +49,7 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
     const observer = new MutationObserver(syncTarget);
     observer.observe(document.body, { childList: true, subtree: true });
     return () => observer.disconnect();
-  }, [isHome, isLocalhost]);
+  }, [isHome]);
 
   useEffect(() => {
     if (!target) return;
@@ -148,7 +147,7 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
     }
   }
 
-  if (!target || !isLocalhost) return null;
+  if (!target) return null;
 
   return createPortal(
     <aside className="redzone-chat" aria-label="OFL Redzone Chat">
