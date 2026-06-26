@@ -7,6 +7,7 @@ type LeaderboardRow = {
   avatar_url: string | null;
   points: number;
   correct: number;
+  perfect: number;
   submitted: number;
   accuracy: number;
 };
@@ -138,6 +139,14 @@ function scoreStatus(item: ViewerPick) {
   return String(item.pick.selected_team_id) === String(winnerId) ? 'Correct' : 'Incorrect';
 }
 
+function isPerfectPick(item: ViewerPick) {
+  if (!item.final || !item.pick) return false;
+  const predAway = item.pick.predicted_away_score;
+  const predHome = item.pick.predicted_home_score;
+  if (predAway == null || predHome == null) return false;
+  return Number(predAway) === Number(item.game.away_score) && Number(predHome) === Number(item.game.home_score);
+}
+
 export default function PickEmsPage() {
   const [data, setData] = useState<LeaderboardResponse | null>(null);
   const [error, setError] = useState('');
@@ -193,27 +202,42 @@ export default function PickEmsPage() {
         .viewer-week{font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);}
         .viewer-list{display:flex;flex-direction:column;}
         .mini-logo{width:30px;height:30px;object-fit:contain;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;flex:0 0 auto;color:#fff;font-family:'Anton';font-size:12px;}
-        .pick-row-compact{display:grid;grid-template-columns:30px 1fr auto 1fr 30px;align-items:center;gap:10px;padding:8px 14px;border-left:3px solid var(--line-strong);border-bottom:1px solid var(--line);text-decoration:none;color:inherit;}
+        .pick-row-compact{display:flex;flex-direction:column;gap:5px;padding:8px 14px;border-left:3px solid var(--line-strong);border-bottom:1px solid var(--line);text-decoration:none;color:inherit;}
         .pick-row-compact:last-child{border-bottom:0;}
         .pick-row-compact.correct{border-left-color:var(--green);background:var(--promote);}
         .pick-row-compact.incorrect{border-left-color:var(--red);background:var(--demote);}
-        .pick-compact-group{display:flex;align-items:center;justify-content:center;gap:6px;}
-        .pick-compact-divider{width:1px;height:18px;background:var(--line-strong);}
-        .pick-compact-score{font-family:'Anton';font-weight:400;font-size:18px;color:var(--navy);min-width:18px;text-align:center;}
-        .pick-compact-sep{font-family:'Anton';font-weight:400;font-size:13px;color:var(--muted);}
-        .pick-compact-group.pred .pick-compact-score{font-size:14px;color:var(--muted);}
+        .pick-row-compact.perfect{border-left-color:#caa14a;}
+        .pick-row-head{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+        .pick-matchup{display:flex;align-items:center;gap:6px;min-width:0;}
+        .pick-team{display:flex;align-items:center;gap:5px;padding:2px 6px;border-radius:4px;opacity:.45;transition:opacity .15s;}
+        .pick-team .mini-logo{width:18px;height:18px;font-size:8px;}
+        .pick-team.picked{opacity:1;background:rgba(21,35,62,.07);}
+        .pick-team-abbr{font-family:'Oswald';font-weight:700;font-size:12px;letter-spacing:.4px;text-transform:uppercase;}
+        .pick-chip{font-family:'Space Mono';font-weight:700;font-size:8px;letter-spacing:.6px;text-transform:uppercase;background:var(--navy);color:var(--paper);padding:1px 5px;border-radius:3px;}
+        .pick-at{font-family:'Anton';font-size:12px;color:var(--muted);}
+        .pick-scorelines{display:flex;align-items:center;gap:16px;}
+        .pick-scoreline{display:flex;align-items:baseline;gap:6px;}
+        .pick-scoreline-label{font-family:'Space Mono';font-weight:700;font-size:9px;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);}
+        .pick-scoreline-value{font-family:'Anton';font-weight:400;font-size:16px;color:var(--navy);letter-spacing:.5px;}
+        .pick-scoreline-value.pred{font-size:14px;color:var(--muted);}
+        .pick-result-badge{flex:0 0 auto;font-family:'Space Mono';font-weight:700;font-size:9px;letter-spacing:1.1px;text-transform:uppercase;padding:2px 8px;border-radius:3px;}
+        .pick-result-badge.correct{background:var(--green);color:#fff;}
+        .pick-result-badge.incorrect{background:var(--red);color:#fff;}
+        .pick-result-badge.perfect{background:linear-gradient(100deg,#caa14a,#ffd700,#caa14a);color:#2a2102;}
         .empty-row{font-size:17px;color:var(--muted);font-style:italic;text-align:left;padding:24px 18px;}
         .table-wrap{overflow-x:auto;}
         table{width:100%;border-collapse:collapse;min-width:760px;}
-        th{font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);text-align:right;padding:14px 18px;border-bottom:2px solid var(--navy);white-space:nowrap;}
+        th{font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);text-align:center;padding:14px 18px;border-bottom:2px solid var(--navy);white-space:nowrap;}
         th.left{text-align:left;}
-        td{padding:15px 18px;border-bottom:1px solid var(--line);text-align:right;font-family:'Oswald';font-weight:700;font-size:18px;white-space:nowrap;}
+        td{padding:15px 18px;border-bottom:1px solid var(--line);text-align:center;font-family:'Oswald';font-weight:700;font-size:18px;white-space:nowrap;}
         tr:last-child td{border-bottom:0;}
         td.left{text-align:left;}
         .rank-cell{font-family:'Anton';font-weight:400;font-size:22px;color:var(--navy);}
         .player-cell{display:flex;align-items:center;gap:12px;min-width:0;color:inherit;text-decoration:none;}
         .player-name{font-family:'Oswald';font-weight:700;font-size:19px;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;}
         .points-cell,.metric-cell{font-family:'Anton';font-weight:400;font-size:21px;color:var(--navy);line-height:1;letter-spacing:.2px;}
+        .perfect-pick-gold{position:relative;background:linear-gradient(100deg,#caa14a 0%,#fff3c4 22%,#ffd700 45%,#fff8dd 60%,#caa14a 100%);background-size:250% auto;-webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:0 0 12px rgba(255,215,0,.6);animation:perfectPickShine 2.4s linear infinite;}
+        @keyframes perfectPickShine{0%{background-position:0% 50%;}100%{background-position:250% 50%;}}
         .empty,.error{border:1px solid var(--line-strong);background:var(--paper-2);padding:26px;font-size:17px;color:var(--muted);font-style:italic;}
         .error{color:var(--red);}
         @media(max-width:1100px){.pickems-content{grid-template-columns:1fr;}.viewer-card{position:static;}}
@@ -256,6 +280,7 @@ export default function PickEmsPage() {
                           <th className="left">Player</th>
                           <th>PTS</th>
                           <th>Correct</th>
+                          <th>Perfect Picks</th>
                           <th>Picks</th>
                           <th>Accuracy</th>
                         </tr>
@@ -272,11 +297,12 @@ export default function PickEmsPage() {
                             </td>
                             <td className="points-cell">{row.points}</td>
                             <td className="metric-cell">{row.correct}</td>
+                            <td className={`metric-cell${row.perfect > 0 ? ' perfect-pick-gold' : ''}`}>{row.perfect}</td>
                             <td className="metric-cell">{row.submitted}</td>
                             <td className="metric-cell">{row.accuracy}%</td>
                           </tr>
                         )) : (
-                          <tr><td colSpan={6} className="empty-row">No scored Pick-Ems yet.</td></tr>
+                          <tr><td colSpan={7} className="empty-row">No scored Pick-Ems yet.</td></tr>
                         )}
                       </tbody>
                     </table>
@@ -295,21 +321,39 @@ export default function PickEmsPage() {
                   <div className="viewer-list">
                     {viewerPicks.map(item => {
                       const status = scoreStatus(item).toLowerCase();
+                      const perfect = isPerfectPick(item);
+                      const awayPicked = !!item.pick && String(item.pick.selected_team_id) === String(item.game.away_team_id);
+                      const homePicked = !!item.pick && String(item.pick.selected_team_id) === String(item.game.home_team_id);
+                      const badgeLabel = perfect ? 'Perfect' : scoreStatus(item);
+                      const badgeClass = perfect ? 'perfect' : status;
                       return (
-                        <a className={`pick-row-compact ${status}`} href={`/box-score/${item.game.id}`} key={item.game.id} title={gameLabel(item.game)}>
-                          {teamLogo(item.game.away_team)}
-                          <span className="pick-compact-group real">
-                            <span className="pick-compact-score">{scoreValue(item.game.away_score)}</span>
-                            <span className="pick-compact-sep">–</span>
-                            <span className="pick-compact-score">{scoreValue(item.game.home_score)}</span>
-                          </span>
-                          <span className="pick-compact-divider" />
-                          <span className="pick-compact-group pred">
-                            <span className="pick-compact-score">{scoreValue(item.pick?.predicted_away_score)}</span>
-                            <span className="pick-compact-sep">–</span>
-                            <span className="pick-compact-score">{scoreValue(item.pick?.predicted_home_score)}</span>
-                          </span>
-                          {teamLogo(item.game.home_team)}
+                        <a className={`pick-row-compact ${status}${perfect ? ' perfect' : ''}`} href={`/box-score/${item.game.id}`} key={item.game.id} title={gameLabel(item.game)}>
+                          <div className="pick-row-head">
+                            <div className="pick-matchup">
+                              <div className={`pick-team${awayPicked ? ' picked' : ''}`}>
+                                {teamLogo(item.game.away_team)}
+                                <span className="pick-team-abbr">{teamAbbr(item.game.away_team)}</span>
+                                {awayPicked && <span className="pick-chip">Pick</span>}
+                              </div>
+                              <span className="pick-at">@</span>
+                              <div className={`pick-team${homePicked ? ' picked' : ''}`}>
+                                {teamLogo(item.game.home_team)}
+                                <span className="pick-team-abbr">{teamAbbr(item.game.home_team)}</span>
+                                {homePicked && <span className="pick-chip">Pick</span>}
+                              </div>
+                            </div>
+                            {badgeLabel && <span className={`pick-result-badge ${badgeClass}`}>{badgeLabel}</span>}
+                          </div>
+                          <div className="pick-scorelines">
+                            <div className="pick-scoreline">
+                              <span className="pick-scoreline-label">Final</span>
+                              <span className="pick-scoreline-value">{scoreValue(item.game.away_score)} – {scoreValue(item.game.home_score)}</span>
+                            </div>
+                            <div className="pick-scoreline">
+                              <span className="pick-scoreline-label">Your Pick</span>
+                              <span className={`pick-scoreline-value pred${perfect ? ' perfect-pick-gold' : ''}`}>{scoreValue(item.pick?.predicted_away_score)} – {scoreValue(item.pick?.predicted_home_score)}</span>
+                            </div>
+                          </div>
                         </a>
                       );
                     })}

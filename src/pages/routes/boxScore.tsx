@@ -290,6 +290,17 @@ const page = {
     const totals = visible.length ? '<tr class="total-row"><td class="left">Team Total</td>'+cat.cols.map(([key])=>'<td>'+sumStats(visible,key)+'</td>').join('')+'</tr>' : '';
     return '<div class="team-table"><div class="table-team-head">'+logo(team,'mini-logo')+'<span>'+esc(team?team.name:'Team')+'</span></div><div class="table-wrap"><table><thead><tr><th class="left">Player</th>'+cat.cols.map(([,label])=>'<th>'+label+'</th>').join('')+'</tr></thead><tbody>'+body+totals+'</tbody></table></div></div>';
   }
+  function rosterOnlyPlayers(rows){
+    return (rows||[]).filter(p=>!CATS.some(cat=>cat.has(p)));
+  }
+  function rosterOnlyTable(team, extra){
+    if(!extra.length) return '';
+    const body=extra.map(p=>{
+      const sub=positionText(p.profile);
+      return '<tr><td class="left"><a class="player-cell" href="/players/'+playerSlug(p.username)+'">'+avatar(p.username,p.profile)+'<span>'+esc(p.username)+(sub?'<span class="player-sub">'+esc(sub)+'</span>':'')+'</span></a></td><td>No stats recorded</td></tr>';
+    }).join('');
+    return '<div class="team-table"><div class="table-team-head">'+logo(team,'mini-logo')+'<span>'+esc(team?team.name:'Team')+'</span></div><div class="table-wrap"><table><thead><tr><th class="left">Player</th><th>Status</th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
+  }
   function compareRows(awayRows, homeRows, awayColor, homeColor){
     const defs=[
       ['pass_yards','Pass Yards'],['rush_yards','Rush Yards'],['rec_yards','Receiving Yards'],
@@ -394,7 +405,7 @@ const page = {
           highlightPanel(highlight)+
           '<section class="panel"><div class="panel-head"><h2>Team Stats</h2></div><div class="team-comparison">'+compareRows(awayRows,homeRows,awayColor,homeColor)+'</div></section>'+
           CATS.map(cat=>'<section class="stat-section"><div class="section-title">'+cat.label+'</div><div class="tables-two">'+tableFor(away,awayRows,cat)+tableFor(home,homeRows,cat)+'</div></section>').join('')+
-        '</div><aside class="side-stack"><section class="panel"><div class="panel-head"><h2>Game Leaders</h2></div><div class="leader-list">'+leaders(allRows)+'</div></section><section class="panel"><div class="panel-head"><h2>Team Comparisons</h2></div>'+teamComparisons(comparison)+'</section></aside></div>'+
+          (function(){\n            const awayExtra=rosterOnlyPlayers(awayRows), homeExtra=rosterOnlyPlayers(homeRows);\n            if(!awayExtra.length&&!homeExtra.length) return '';\n            return '<section class="stat-section"><div class="section-title">Other Players</div><div class="tables-two">'+rosterOnlyTable(away,awayExtra)+rosterOnlyTable(home,homeExtra)+'</div></section>';\n          })()+\n        '</div><aside class="side-stack"><section class="panel"><div class="panel-head"><h2>Game Leaders</h2></div><div class="leader-list">'+leaders(allRows)+'</div></section><section class="panel"><div class="panel-head"><h2>Team Comparisons</h2></div>'+teamComparisons(comparison)+'</section></aside></div>'+
         '';
     }catch(e){
       root.innerHTML='<div class="panel"><p class="note">'+esc(e&&e.message?e.message:e)+'</p></div>';

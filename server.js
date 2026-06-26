@@ -1164,8 +1164,22 @@ function redzoneSchemaError(error) {
   return /redzone_chat_|schema cache|relation .* does not exist/i.test(message);
 }
 
+async function isRedzoneActive() {
+  const { data: games, error } = await supabase
+    .from('games')
+    .select('twitch_url, home_score, away_score, game_date, game_time');
+  if (error) return true; // fail open — don't wipe chat if we can't confirm it's inactive
+  return (games || []).some(game => game.twitch_url && !gameHasFinalScore(game) && gameIsLiveOrPlayed(game));
+}
+
+async function clearRedzoneChatIfInactive() {
+  if (await isRedzoneActive()) return;
+  await supabase.from('redzone_chat_messages').delete().gte('created_at', '1970-01-01T00:00:00Z');
+}
+
 app.get('/api/redzone-chat', async (req, res) => {
   try {
+    await clearRedzoneChatIfInactive();
     const limit = Math.max(1, Math.min(parseInt(req.query.limit, 10) || 80, 120));
     const { data, error } = await supabase
       .from('redzone_chat_messages')
@@ -3101,7 +3115,7 @@ app.get('/api/pickems/leaderboard', async (req, res) => {
 
     const { data: picks, error: picksError } = await supabase
       .from('pickem_picks')
-      .select('game_id, profile_id, selected_team_id')
+      .select('game_id, profile_id, selected_team_id, predicted_home_score, predicted_away_score')
       .in('game_id', allGameIds);
     if (isMissingPickemsTable(picksError)) {
       return res.json({
@@ -3128,6 +3142,10 @@ app.get('/api/pickems/leaderboard', async (req, res) => {
       game.id,
       Number(game.home_score) > Number(game.away_score) ? game.home_team_id : game.away_team_id
     ]));
+    const finalGameById = Object.fromEntries((games || [])
+      .filter(game => game.home_score !== null && game.home_score !== undefined && game.away_score !== null && game.away_score !== undefined)
+      .map(game => [game.id, game]));
+    const PERFECT_PICK_BONUS = 4;
     const rowsByProfile = {};
     (picks || []).forEach(pick => {
       const profileId = pick.profile_id;
@@ -3138,6 +3156,7 @@ app.get('/api/pickems/leaderboard', async (req, res) => {
         avatar_url: profileById[profileId]?.avatar_url || null,
         points: 0,
         correct: 0,
+        perfect: 0,
         submitted: 0,
         scored_submitted: 0
       };
@@ -3148,6 +3167,17 @@ app.get('/api/pickems/leaderboard', async (req, res) => {
       if (winnerByGame[pick.game_id] && String(pick.selected_team_id) === String(winnerByGame[pick.game_id])) {
         row.points += 1;
         row.correct += 1;
+      }
+      const finalGame = finalGameById[pick.game_id];
+      if (
+        finalGame &&
+        pick.predicted_home_score !== null && pick.predicted_home_score !== undefined &&
+        pick.predicted_away_score !== null && pick.predicted_away_score !== undefined &&
+        Number(pick.predicted_home_score) === Number(finalGame.home_score) &&
+        Number(pick.predicted_away_score) === Number(finalGame.away_score)
+      ) {
+        row.points += PERFECT_PICK_BONUS;
+        row.perfect += 1;
       }
       rowsByProfile[profileId] = row;
     });
