@@ -3007,7 +3007,11 @@ app.get('/api/pickems', async (req, res) => {
       .select('*')
       .order('game_date', { ascending: true });
     if (gamesError) throw gamesError;
-    const openGames = (games || []).filter(gameIsPickable);
+    const activeWeek = await getLeagueSetting('active_week');
+    const pickableGames = (games || []).filter(gameIsPickable);
+    const openGames = activeWeek == null
+      ? pickableGames
+      : pickableGames.filter(game => pickemWeekKey(game.week) === pickemWeekKey(activeWeek));
     const { data: teams, error: teamsError } = await supabase.from('teams').select('*');
     if (teamsError) throw teamsError;
     const withTeams = attachTeams(openGames, teams || []);
@@ -3030,6 +3034,7 @@ app.get('/api/pickems', async (req, res) => {
     picks.forEach(pick => { pickByGame[pick.game_id] = pick; });
     res.json({
       auth_required: false,
+      active_week: activeWeek,
       games: withTeams.map(game => ({ ...game, pickem: stats[game.id] || emptyPickemStats(game), user_pick: pickByGame[game.id] || null })),
       picks: pickByGame,
       stats
@@ -3052,7 +3057,11 @@ app.get('/api/pickems/leaderboard', async (req, res) => {
     if (teamsError) throw teamsError;
 
     const activeWeek = await getLeagueSetting('active_week');
-    const currentWeek = activeWeek || (games || []).find(gameIsPickable)?.week || (games || [])[0]?.week || null;
+    const defaultWeek = activeWeek || (games || []).find(gameIsPickable)?.week || (games || [])[0]?.week || null;
+    const requestedWeek = typeof req.query.week === 'string' && req.query.week.trim() !== '' ? req.query.week.trim() : null;
+    const availableWeeks = [...new Set((games || []).map(game => String(game.week ?? '').trim()).filter(Boolean))]
+      .sort((a, b) => (Number(a) || 0) - (Number(b) || 0));
+    const currentWeek = requestedWeek ?? defaultWeek;
     const weekGames = currentWeek == null
       ? (games || [])
       : (games || []).filter(game => pickemWeekKey(game.week) === pickemWeekKey(currentWeek));
@@ -3070,7 +3079,7 @@ app.get('/api/pickems/leaderboard', async (req, res) => {
           setup_required: true,
           leaderboard: [],
           summary: { scored_games: 0, total_picks: 0, pickers: 0, top_score: 0 },
-          viewer: { auth_required: false, week: currentWeek, picks: [] }
+          viewer: { auth_required: false, week: currentWeek, active_week: defaultWeek, available_weeks: availableWeeks, picks: [] }
         });
       }
       if (pickResult.error) throw pickResult.error;
@@ -3080,6 +3089,8 @@ app.get('/api/pickems/leaderboard', async (req, res) => {
     const viewer = {
       auth_required: !profile,
       week: currentWeek,
+      active_week: defaultWeek,
+      available_weeks: availableWeeks,
       picks: attachTeams(weekGames, teams || []).map(game => {
         const pick = viewerPickByGame[String(game.id)] || null;
         const selectedTeam = pick ? teamById[String(pick.selected_team_id)] || null : null;
@@ -3227,23 +3238,24 @@ app.post('/api/pickems/:gameId', async (req, res) => {
     const { data: game, error: gameError } = await supabase.from('games').select('*').eq('id', req.params.gameId).single();
     if (gameError || !game) return apiError(res, 404, 'GAME_NOT_FOUND', 'Game not found');
     if (!gameIsPickable(game)) return apiError(res, 409, 'PICKEM_LOCKED', 'Pick-ems are locked for this game');
-    const selectedTeamId = String(req.body?.selected_team_id || '').trim();
-    if (![String(game.home_team_id), String(game.away_team_id)].includes(selectedTeamId)) {
-      return apiError(res, 400, 'TEAM_REQUIRED', 'Pick either team in this game');
-    }
     const homeScoreRaw = req.body?.predicted_home_score;
     const awayScoreRaw = req.body?.predicted_away_score;
     const hasHomeScore = homeScoreRaw !== null && homeScoreRaw !== undefined && String(homeScoreRaw).trim() !== '';
     const hasAwayScore = awayScoreRaw !== null && awayScoreRaw !== undefined && String(awayScoreRaw).trim() !== '';
-    if (hasHomeScore !== hasAwayScore) {
-      return apiError(res, 400, 'SCORE_PAIR_REQUIRED', 'Enter both predicted scores or leave both blank');
+    if (!hasHomeScore || !hasAwayScore) {
+      return apiError(res, 400, 'SCORES_REQUIRED', 'Enter a predicted score for both teams to make a pick');
     }
-    const predictedHomeScore = hasHomeScore ? Number.parseInt(homeScoreRaw, 10) : null;
-    const predictedAwayScore = hasAwayScore ? Number.parseInt(awayScoreRaw, 10) : null;
-    if ((predictedHomeScore !== null && (!Number.isInteger(predictedHomeScore) || predictedHomeScore < 0 || predictedHomeScore > 255)) ||
-        (predictedAwayScore !== null && (!Number.isInteger(predictedAwayScore) || predictedAwayScore < 0 || predictedAwayScore > 255))) {
-      return apiError(res, 400, 'SCORE_INVALID', 'Enter valid predicted scores or leave them blank');
+    const predictedHomeScore = Number.parseInt(homeScoreRaw, 10);
+    const predictedAwayScore = Number.parseInt(awayScoreRaw, 10);
+    if (!Number.isInteger(predictedHomeScore) || predictedHomeScore < 0 || predictedHomeScore > 255 ||
+        !Number.isInteger(predictedAwayScore) || predictedAwayScore < 0 || predictedAwayScore > 255) {
+      return apiError(res, 400, 'SCORE_INVALID', 'Enter valid predicted scores for both teams');
     }
+    if (predictedHomeScore === predictedAwayScore) {
+      return apiError(res, 400, 'SCORE_TIE', 'Predicted scores can’t tie — one team must have the higher score');
+    }
+    // The winner is always whichever team has the higher predicted score — not a separate client-chosen value.
+    const selectedTeamId = predictedHomeScore > predictedAwayScore ? String(game.home_team_id) : String(game.away_team_id);
     const row = {
       game_id: game.id,
       profile_id: profile.id,

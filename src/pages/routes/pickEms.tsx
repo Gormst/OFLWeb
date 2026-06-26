@@ -24,6 +24,8 @@ type LeaderboardResponse = {
   viewer?: {
     auth_required: boolean;
     week: string | number | null;
+    active_week?: string | number | null;
+    available_weeks?: (string | number)[];
     picks: ViewerPick[];
   };
   error?: string;
@@ -150,11 +152,13 @@ function isPerfectPick(item: ViewerPick) {
 export default function PickEmsPage() {
   const [data, setData] = useState<LeaderboardResponse | null>(null);
   const [error, setError] = useState('');
+  const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     document.title = 'Pick-Ems - OFL';
-    fetch(apiUrl('/api/pickems/leaderboard'), { credentials: 'include', cache: 'no-store', headers: authHeaders() })
+    const url = selectedWeek ? `/api/pickems/leaderboard?week=${encodeURIComponent(selectedWeek)}` : '/api/pickems/leaderboard';
+    fetch(apiUrl(url), { credentials: 'include', cache: 'no-store', headers: authHeaders() })
       .then(async response => {
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(payload.error || `Pick-Ems returned ${response.status}`);
@@ -169,12 +173,13 @@ export default function PickEmsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedWeek]);
 
   const rows = data?.leaderboard || [];
   const leader = useMemo(() => rows[0] || null, [rows]);
   const viewer = data?.viewer || null;
   const viewerPicks = viewer?.picks || [];
+  const availableWeeks = viewer?.available_weeks || [];
 
   return (
     <main className="pickems-page">
@@ -200,6 +205,7 @@ export default function PickEmsPage() {
         .viewer-head{flex:0 0 auto;padding:18px 20px;border-bottom:2px solid var(--navy);display:flex;align-items:flex-end;justify-content:space-between;gap:12px;}
         .viewer-title{font-family:'Oswald';font-weight:700;font-size:24px;text-transform:uppercase;line-height:1;margin:0;}
         .viewer-week{font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);}
+        .viewer-week-select{font-family:'Space Mono';font-weight:700;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:var(--navy);background:var(--paper);border:1px solid var(--line-strong);padding:6px 8px;cursor:pointer;}
         .viewer-list{display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow-y:auto;}
         .mini-logo{width:30px;height:30px;object-fit:contain;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;flex:0 0 auto;color:#fff;font-family:'Anton';font-size:12px;}
         .pick-row-compact{display:flex;flex-direction:column;gap:5px;padding:8px 14px;border-left:3px solid var(--line-strong);border-bottom:1px solid var(--line);text-decoration:none;color:inherit;}
@@ -313,7 +319,21 @@ export default function PickEmsPage() {
               <aside className="viewer-card">
                 <div className="viewer-head">
                   <h2 className="viewer-title">Your Picks</h2>
-                  <span className="viewer-week">{viewer?.week ? `Week ${viewer.week}` : 'This Week'}</span>
+                  {availableWeeks.length ? (
+                    <select
+                      className="viewer-week-select"
+                      value={selectedWeek ?? String(viewer?.week ?? '')}
+                      onChange={event => setSelectedWeek(event.target.value)}
+                    >
+                      {availableWeeks.map(week => (
+                        <option key={week} value={String(week)}>
+                          Week {week}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="viewer-week">{viewer?.week ? `Week ${viewer.week}` : 'This Week'}</span>
+                  )}
                 </div>
                 {viewer?.auth_required ? (
                   <div className="empty-row">Sign in to view your weekly picks.</div>
