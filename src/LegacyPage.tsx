@@ -305,20 +305,6 @@ function stripLegacyHeader(html: string) {
     .replace(/^\s*<header\b[\s\S]*?<\/header>\s*/i, '');
 }
 
-function bindSharedMobileMenu() {
-  const toggle = document.querySelector('.ofl-shared-header .menu-toggle') as HTMLButtonElement | null;
-  const links = document.querySelector('.ofl-shared-header nav.links') as HTMLElement | null;
-  if (!toggle || !links || toggle.dataset.sharedMenuBound) return;
-  toggle.dataset.sharedMenuBound = '1';
-  toggle.addEventListener('click', () => {
-    const open = links.dataset.mobileOpen === '1';
-    links.dataset.mobileOpen = open ? '0' : '1';
-    links.style.cssText = open
-      ? ''
-      : 'display:flex;position:absolute;top:78px;left:0;right:0;background:var(--paper,#ECE4CF);flex-direction:column;padding:20px 22px;gap:18px;border-bottom:1px solid var(--navy,#15233E);';
-  });
-}
-
 export function LegacyPage({ page }: LegacyPageProps) {
   useEffect(() => {
     let cancelled = false;
@@ -327,7 +313,6 @@ export function LegacyPage({ page }: LegacyPageProps) {
 
     document.title = page.title;
     bindSharedHeader();
-    bindSharedMobileMenu();
     bootstrapPlayersPage();
 
     async function runScripts() {
@@ -338,7 +323,6 @@ export function LegacyPage({ page }: LegacyPageProps) {
       }
       if (!cancelled) {
         bindSharedHeader();
-        bindSharedMobileMenu();
       }
     }
 

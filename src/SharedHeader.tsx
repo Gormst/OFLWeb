@@ -60,7 +60,13 @@ export function SharedHeader() {
   const [accountVisible, setAccountVisible] = useState(false);
   const [profile, setProfile] = useState<HeaderProfile | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>(currentTheme);
+  const [navOpen, setNavOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement | null>(null);
+  const navRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [path]);
 
   useEffect(() => {
     function syncTheme() {
@@ -101,8 +107,8 @@ export function SharedHeader() {
 
     function onDocumentPointerDown(event: PointerEvent) {
       const target = event.target as Node | null;
-      if (target && accountRef.current?.contains(target)) return;
-      setAccountOpen(false);
+      if (!(target && accountRef.current?.contains(target))) setAccountOpen(false);
+      if (!(target && navRef.current?.contains(target))) setNavOpen(false);
     }
 
     function onLogoutClick(event: MouseEvent) {
@@ -185,7 +191,22 @@ export function SharedHeader() {
               }}
             />
           </a>
-          <nav className="links">
+          <nav
+            ref={navRef}
+            className="links"
+            style={navOpen ? {
+              display: 'flex',
+              position: 'absolute',
+              top: 78,
+              left: 0,
+              right: 0,
+              background: 'var(--paper,#ECE4CF)',
+              flexDirection: 'column',
+              padding: '20px 22px',
+              gap: 18,
+              borderBottom: '1px solid var(--navy,#15233E)'
+            } : undefined}
+          >
             {navItems.map(([href, label]) => (
               <a key={href} href={href} className={isActive(path, href) ? 'active' : ''}>
                 {label}
@@ -230,7 +251,17 @@ export function SharedHeader() {
               <a href="#" className="logout" id="logoutBtn">Log Out</a>
             </div>
           </div>
-          <button className="menu-toggle" aria-label="Menu" type="button">
+          <button
+            className="menu-toggle"
+            aria-label="Menu"
+            aria-expanded={navOpen}
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setNavOpen(open => !open);
+            }}
+          >
             <span></span><span></span><span></span>
           </button>
         </div>

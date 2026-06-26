@@ -3475,6 +3475,7 @@ function buildTierStandings(teams = [], games = []) {
       secondary_color: s.team.secondary_color,
       logo_url: s.team.logo_url,
       tier: s.team.tier || null,
+      tier_rank: s.team.tier_rank ?? null,
       pts: s.pts,
       w: s.w,
       l: s.l,
@@ -3497,12 +3498,15 @@ function buildTierStandings(teams = [], games = []) {
   });
 
   Object.keys(byTier).forEach(key => {
-    byTier[key].sort((a, b) =>
-      b.w - a.w ||
-      b.pd - a.pd ||
-      b.pts - a.pts ||
-      (a.name || '').localeCompare(b.name || '')
-    );
+    byTier[key].sort((a, b) => {
+      if (a.tier_rank != null && b.tier_rank != null) return a.tier_rank - b.tier_rank;
+      if (a.tier_rank != null) return -1;
+      if (b.tier_rank != null) return 1;
+      return b.w - a.w ||
+        b.pd - a.pd ||
+        b.pts - a.pts ||
+        (a.name || '').localeCompare(b.name || '');
+    });
   });
 
   return { rows, byTier };
@@ -3539,8 +3543,15 @@ app.post('/api/admin/teams/tiers', async (req, res) => {
     for (const row of updates) {
       const tier = row.tier === null || row.tier === '' || row.tier === undefined ? null : parseInt(row.tier, 10);
       const cleanTier = tier >= 1 && tier <= 5 ? tier : null;
-      const { error } = await supabase.from('teams').update({ tier: cleanTier }).eq('id', row.id);
-      if (error) throw error;
+      const tierRank = row.tier_rank === null || row.tier_rank === '' || row.tier_rank === undefined ? null : parseInt(row.tier_rank, 10);
+      const cleanTierRank = Number.isInteger(tierRank) && tierRank >= 1 ? tierRank : null;
+      const { error } = await supabase.from('teams').update({ tier: cleanTier, tier_rank: cleanTierRank }).eq('id', row.id);
+      if (error) {
+        if (/column .*tier_rank.* does not exist/i.test(error.message || '')) {
+          return apiError(res, 500, 'DB_MISSING_TIER_RANK', 'Database setup needed: run supabase/2026-06-26_team_tier_rank.sql in the Supabase SQL editor.');
+        }
+        throw error;
+      }
     }
     res.json({ success: true, updated: updates.length });
   } catch (err) {
@@ -3549,15 +3560,27 @@ app.post('/api/admin/teams/tiers', async (req, res) => {
 });
 
 // admin — create a game
+async function resolveGameTier(tierInput, homeTeamId, awayTeamId) {
+  if (tierInput !== undefined && tierInput !== null && String(tierInput).trim() !== '') {
+    const t = parseInt(tierInput, 10);
+    return (t >= 1 && t <= 5) ? t : null;
+  }
+  const { data: pair } = await supabase.from('teams').select('id,tier').in('id', [homeTeamId, awayTeamId]);
+  const homeTier = (pair || []).find(t => String(t.id) === String(homeTeamId))?.tier ?? null;
+  const awayTier = (pair || []).find(t => String(t.id) === String(awayTeamId))?.tier ?? null;
+  return (homeTier && awayTier && homeTier === awayTier) ? homeTier : null;
+}
+
 app.post('/api/admin/games', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
   try {
-    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score, point_value, twitch_url } = req.body;
+    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score, point_value, twitch_url, tier } = req.body;
     if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
     if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
     const hs = normScore(home_score), as = normScore(away_score);
     const pv = (point_value !== undefined && point_value !== '' && point_value !== null) ? Number(point_value) : null;
+    const resolvedTier = await resolveGameTier(tier, home_team_id, away_team_id);
     const { data, error } = await supabase.from('games').insert({
       week: (week !== undefined && week !== null && String(week).trim() !== '') ? String(week).trim() : null,
       game_date: game_date || null,
@@ -3565,7 +3588,8 @@ app.post('/api/admin/games', async (req, res) => {
       home_team_id, away_team_id,
       home_score: hs, away_score: as,
       point_value: pv,
-      twitch_url: (twitch_url || '').trim() || null
+      twitch_url: (twitch_url || '').trim() || null,
+      tier: resolvedTier
     }).select().single();
     if (error) throw error;
     res.json({ success: true, game: data });
@@ -3579,11 +3603,12 @@ app.put('/api/admin/games/:id', async (req, res) => {
   const me = await requireAdmin(req, res, 'schedule');
   if (!me) return;
   try {
-    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score, point_value, twitch_url } = req.body;
+    const { week, game_date, game_time, home_team_id, away_team_id, home_score, away_score, point_value, twitch_url, tier } = req.body;
     if (!home_team_id || !away_team_id) return res.status(400).json({ error: 'Both teams are required' });
     if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
     const hs = normScore(home_score), as = normScore(away_score);
     const pv = (point_value !== undefined && point_value !== '' && point_value !== null) ? Number(point_value) : null;
+    const resolvedTier = await resolveGameTier(tier, home_team_id, away_team_id);
     const { data, error } = await supabase.from('games').update({
       week: (week !== undefined && week !== null && String(week).trim() !== '') ? String(week).trim() : null,
       game_date: game_date || null,
@@ -3591,7 +3616,8 @@ app.put('/api/admin/games/:id', async (req, res) => {
       home_team_id, away_team_id,
       home_score: hs, away_score: as,
       point_value: pv,
-      twitch_url: (twitch_url || '').trim() || null
+      twitch_url: (twitch_url || '').trim() || null,
+      tier: resolvedTier
     }).eq('id', req.params.id).select().single();
     if (error) throw error;
     res.json({ success: true, game: data });
@@ -3731,7 +3757,7 @@ app.post('/api/admin/games/import-csv', async (req, res) => {
       });
     }
 
-    const { data: teams, error: teamsError } = await supabase.from('teams').select('id,name');
+    const { data: teams, error: teamsError } = await supabase.from('teams').select('id,name,tier');
     if (teamsError) throw teamsError;
     const rows = [];
     const missing = [];
@@ -3754,7 +3780,8 @@ app.post('/api/admin/games/import-csv', async (req, res) => {
         game_time: null,
         home_score: null,
         away_score: null,
-        point_value: null
+        point_value: null,
+        tier: (home.tier && away.tier && home.tier === away.tier) ? home.tier : null
       });
     }
 
