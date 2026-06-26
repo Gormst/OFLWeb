@@ -63,6 +63,7 @@ export function SharedHeader() {
   const [navOpen, setNavOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement | null>(null);
   const navRef = useRef<HTMLElement | null>(null);
+  const navToggleRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     setNavOpen(false);
@@ -108,7 +109,8 @@ export function SharedHeader() {
     function onDocumentPointerDown(event: PointerEvent) {
       const target = event.target as Node | null;
       if (!(target && accountRef.current?.contains(target))) setAccountOpen(false);
-      if (!(target && navRef.current?.contains(target))) setNavOpen(false);
+      const insideNav = target && (navRef.current?.contains(target) || navToggleRef.current?.contains(target));
+      if (!insideNav) setNavOpen(false);
     }
 
     function onLogoutClick(event: MouseEvent) {
@@ -252,6 +254,7 @@ export function SharedHeader() {
             </div>
           </div>
           <button
+            ref={navToggleRef}
             className="menu-toggle"
             aria-label="Menu"
             aria-expanded={navOpen}

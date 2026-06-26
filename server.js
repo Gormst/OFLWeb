@@ -3288,6 +3288,20 @@ function weekType(weekStr) {
   return 'series';
 }
 
+// Tiers are re-shuffled every two weeks. Week 1 is placement (no tier period
+// yet — the imported ranking is all there is). Week 10 is play-up/play-down,
+// which uses whatever tiers the 8-9 period produced rather than starting a
+// new period of its own.
+const TIER_PERIODS = [['2', '3'], ['4', '5'], ['6', '7'], ['8', '9']];
+
+function currentTierPeriodWeeks(activeWeek) {
+  const w = String(activeWeek || '').trim();
+  const period = TIER_PERIODS.find(p => p.includes(w));
+  if (period) return period;
+  if (w === '10') return TIER_PERIODS[TIER_PERIODS.length - 1];
+  return null; // week 1, unset, or anything outside the tiered season
+}
+
 function calcPoints(game, winnerTeam) {
   // Week 10: play-up/down scoring by current assigned tiers.
   const wt = weekType(game.week);
@@ -3304,72 +3318,106 @@ function calcPoints(game, winnerTeam) {
   return tier ? (TIER_WIN_PTS[tier] || 0) : 0;
 }
 
+function accumulateTeamGameStats(teams, games, teamMap) {
+  const stats = {};
+  (teams || []).forEach(t => {
+    stats[t.id] = { team: t, pts: 0, w: 0, l: 0, pf: 0, pa: 0 };
+  });
+
+  for (const g of (games || [])) {
+    const hs = g.home_score, as = g.away_score;
+    if (hs === null || hs === undefined || as === null || as === undefined) continue;
+    if (hs === as) continue; // no ties
+    const homeTeam = teamMap[g.home_team_id];
+    const awayTeam = teamMap[g.away_team_id];
+    if (!homeTeam || !awayTeam) continue;
+    if (!stats[g.home_team_id]) continue;
+    if (!stats[g.away_team_id]) continue;
+
+    const homeWon = hs > as;
+    const winnerTeam = homeWon ? homeTeam : awayTeam;
+    const pts = calcPoints({ ...g, __teamMap: teamMap }, winnerTeam);
+
+    if (homeWon) {
+      stats[g.home_team_id].w++;
+      stats[g.home_team_id].pts += pts;
+      stats[g.away_team_id].l++;
+    } else {
+      stats[g.away_team_id].w++;
+      stats[g.away_team_id].pts += pts;
+      stats[g.home_team_id].l++;
+    }
+    stats[g.home_team_id].pf += hs; stats[g.home_team_id].pa += as;
+    stats[g.away_team_id].pf += as; stats[g.away_team_id].pa += hs;
+  }
+  return stats;
+}
+
+function teamRowsFromStats(stats) {
+  return Object.values(stats).map(s => ({
+    team_id: s.team.id,
+    name: s.team.name,
+    abbreviation: s.team.abbreviation,
+    primary_color: s.team.primary_color,
+    logo_url: s.team.logo_url,
+    tier: s.team.tier || null,
+    tier_rank: s.team.tier_rank ?? null,
+    pts: s.pts,
+    w: s.w,
+    l: s.l,
+    pf: s.pf,
+    pa: s.pa,
+    net: s.pf - s.pa,
+    slug: slugify(s.team.name)
+  }));
+}
+
+function sortTierGroup(rows) {
+  // The imported tier_rank is the hard-set order until the team has actually
+  // played a game within the current tier period — then real performance
+  // (pts/net) for that period takes over. Teams that haven't played yet but
+  // also have no rank fall back into the performance group (sorted 0-0).
+  const sortKey = r => {
+    const played = (r.w + r.l) > 0;
+    return (!played && r.tier_rank != null)
+      ? [0, r.tier_rank, 0, 0]
+      : [1, 0, -r.pts, -r.net];
+  };
+  rows.sort((a, b) => {
+    const ka = sortKey(a), kb = sortKey(b);
+    for (let i = 0; i < ka.length; i++) {
+      if (ka[i] !== kb[i]) return ka[i] - kb[i];
+    }
+    return (a.name || '').localeCompare(b.name || '');
+  });
+  return rows;
+}
+
 app.get('/api/standings', async (req, res) => {
   try {
     const { data: teams } = await supabase.from('teams').select('*').order('name');
     const { data: games } = await supabase.from('games').select('*');
+    const activeWeek = await getLeagueSetting('active_week');
+    const periodWeeks = currentTierPeriodWeeks(activeWeek);
 
-    // build team map
     const teamMap = {};
     (teams || []).forEach(t => teamMap[t.id] = t);
 
-    // accumulate points, wins, losses per team
-    const stats = {};
-    (teams || []).forEach(t => {
-      stats[t.id] = { team: t, pts: 0, w: 0, l: 0, pf: 0, pa: 0 };
-    });
+    // overall (full season, cumulative) — unaffected by tier periods
+    const overallStats = accumulateTeamGameStats(teams, games, teamMap);
+    const overall = teamRowsFromStats(overallStats).sort((a, b) => b.pts - a.pts || b.net - a.net);
 
-    for (const g of (games || [])) {
-      const hs = g.home_score, as = g.away_score;
-      if (hs === null || hs === undefined || as === null || as === undefined) continue;
-      if (hs === as) continue; // no ties
-      const homeTeam = teamMap[g.home_team_id];
-      const awayTeam = teamMap[g.away_team_id];
-      if (!homeTeam || !awayTeam) continue;
-      if (!stats[g.home_team_id]) continue;
-      if (!stats[g.away_team_id]) continue;
+    // by tier — resets each tier period; if there's no active period (week 1,
+    // or nothing set yet) every team shows as having played 0 games, so the
+    // imported tier_rank governs entirely.
+    const periodGames = periodWeeks ? (games || []).filter(g => periodWeeks.includes(String(g.week || '').trim())) : [];
+    const periodStats = accumulateTeamGameStats(teams, periodGames, teamMap);
+    const periodRows = teamRowsFromStats(periodStats);
 
-      const homeWon = hs > as;
-      const winnerTeam = homeWon ? homeTeam : awayTeam;
-      const pts = calcPoints({ ...g, __teamMap: teamMap }, winnerTeam);
-
-      if (homeWon) {
-        stats[g.home_team_id].w++;
-        stats[g.home_team_id].pts += pts;
-        stats[g.away_team_id].l++;
-      } else {
-        stats[g.away_team_id].w++;
-        stats[g.away_team_id].pts += pts;
-        stats[g.home_team_id].l++;
-      }
-      stats[g.home_team_id].pf += hs; stats[g.home_team_id].pa += as;
-      stats[g.away_team_id].pf += as; stats[g.away_team_id].pa += hs;
-    }
-
-    const rows = Object.values(stats).map(s => ({
-      team_id: s.team.id,
-      name: s.team.name,
-      abbreviation: s.team.abbreviation,
-      primary_color: s.team.primary_color,
-      logo_url: s.team.logo_url,
-      tier: s.team.tier || null,
-      pts: s.pts,
-      w: s.w,
-      l: s.l,
-      pf: s.pf,
-      pa: s.pa,
-      net: s.pf - s.pa,
-      slug: slugify(s.team.name)
-    }));
-
-    // overall: sorted by pts desc, then net
-    const overall = [...rows].sort((a, b) => b.pts - a.pts || b.net - a.net);
-
-    // by tier: group, sort within tier by pts
     const byTier = {};
     for (let t = 1; t <= 5; t++) byTier[t] = [];
-    rows.forEach(r => { if (r.tier >= 1 && r.tier <= 5) byTier[r.tier].push(r); });
-    for (let t = 1; t <= 5; t++) byTier[t].sort((a, b) => b.pts - a.pts || b.net - a.net);
+    periodRows.forEach(r => { if (r.tier >= 1 && r.tier <= 5) byTier[r.tier].push(r); });
+    for (let t = 1; t <= 5; t++) sortTierGroup(byTier[t]);
 
     res.json({ overall, byTier });
   } catch (err) {
@@ -3499,13 +3547,14 @@ function buildTierStandings(teams = [], games = []) {
 
   Object.keys(byTier).forEach(key => {
     byTier[key].sort((a, b) => {
-      if (a.tier_rank != null && b.tier_rank != null) return a.tier_rank - b.tier_rank;
-      if (a.tier_rank != null) return -1;
-      if (b.tier_rank != null) return 1;
-      return b.w - a.w ||
-        b.pd - a.pd ||
-        b.pts - a.pts ||
-        (a.name || '').localeCompare(b.name || '');
+      const aPlayed = (a.w + a.l) > 0;
+      const bPlayed = (b.w + b.l) > 0;
+      const ka = (!aPlayed && a.tier_rank != null) ? [0, a.tier_rank, 0, 0, 0] : [1, 0, -a.w, -a.pd, -a.pts];
+      const kb = (!bPlayed && b.tier_rank != null) ? [0, b.tier_rank, 0, 0, 0] : [1, 0, -b.w, -b.pd, -b.pts];
+      for (let i = 0; i < ka.length; i++) {
+        if (ka[i] !== kb[i]) return ka[i] - kb[i];
+      }
+      return (a.name || '').localeCompare(b.name || '');
     });
   });
 
@@ -3520,9 +3569,13 @@ app.get('/api/admin/teams/tier-standings', async (req, res) => {
     if (teamError) throw teamError;
     const { data: games, error: gameError } = await supabase.from('games').select('*');
     if (gameError) throw gameError;
-    const standings = buildTierStandings(teams || [], games || []);
+    const activeWeek = await getLeagueSetting('active_week');
+    const periodWeeks = currentTierPeriodWeeks(activeWeek);
+    const periodGames = periodWeeks ? (games || []).filter(g => periodWeeks.includes(String(g.week || '').trim())) : [];
+    const standings = buildTierStandings(teams || [], periodGames);
     res.json({
       ...standings,
+      tier_period_weeks: periodWeeks,
       point_rules: {
         placement: 2,
         tier_win: TIER_WIN_PTS,
