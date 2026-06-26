@@ -4519,6 +4519,45 @@ app.post('/api/admin/players/combine', async (req, res) => {
   }
 });
 
+// admin/registry — rename a player's Roblox username; their old username becomes
+// an alias so previously imported box scores/stats still roll up under the new name
+app.post('/api/admin/players/rename', async (req, res) => {
+  const me = await requireAdmin(req, res, 'registry');
+  if (!me) return;
+  try {
+    const oldUsername = displayUsername(req.body.old_username || req.body.username);
+    const newUsername = displayUsername(req.body.new_username);
+    if (!oldUsername || !newUsername) return apiError(res, 400, 'PLAYER_RENAME_FIELDS_REQUIRED', 'old_username and new_username are required');
+    if (usernameKey(oldUsername) === usernameKey(newUsername)) return apiError(res, 400, 'PLAYER_RENAME_SELF_REFERENCE', 'New username must be different');
+
+    const { data: player } = await supabase.from('players').select('*').ilike('roblox_username', oldUsername).maybeSingle();
+    if (!player) return apiError(res, 404, 'PLAYER_NOT_FOUND', 'No player found with that username');
+
+    const { data: clash } = await supabase.from('players').select('id').ilike('roblox_username', newUsername).neq('id', player.id).maybeSingle();
+    if (clash) return apiError(res, 409, 'PLAYER_RENAME_USERNAME_TAKEN', 'Another player already has that username');
+
+    let update = { roblox_username: newUsername };
+    const ru = await getRobloxUser(newUsername);
+    if (ru) { update.roblox_username = ru.name; update.roblox_user_id = String(ru.id); update.avatar_url = await getRobloxAvatar(ru.id); }
+
+    const { data: updated, error } = await supabase.from('players').update(update).eq('id', player.id).select().single();
+    if (error) throw error;
+
+    const { error: aliasError } = await supabase
+      .from('player_aliases')
+      .upsert({
+        canonical_username: updated.roblox_username,
+        alias_username: player.roblox_username,
+        note: req.body.note || 'Formerly known as'
+      }, { onConflict: 'alias_key' });
+    if (aliasError && !isMissingSupabaseTable(aliasError, 'player_aliases')) throw aliasError;
+
+    res.json({ success: true, player: updated });
+  } catch (err) {
+    apiError(res, err.statusCode || 500, err.code || 'PLAYER_RENAME_FAILED', err.message);
+  }
+});
+
 async function fetchAll(query) {
   const PAGE = 1000;
   let page = 0, all = [];
