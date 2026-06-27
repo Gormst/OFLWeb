@@ -96,14 +96,23 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
   }, [target]);
 
   useEffect(() => {
-    if (!stickToBottomRef.current) return;
     const list = listRef.current;
     if (!list) return;
-    list.scrollTop = list.scrollHeight;
-    const raf = requestAnimationFrame(() => {
-      if (stickToBottomRef.current) list.scrollTop = list.scrollHeight;
-    });
-    return () => cancelAnimationFrame(raf);
+    function scrollToBottomIfStuck() {
+      const node = listRef.current;
+      if (!node || !stickToBottomRef.current) return;
+      node.scrollTop = node.scrollHeight;
+    }
+    scrollToBottomIfStuck();
+    const observer = new ResizeObserver(scrollToBottomIfStuck);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [target]);
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const list = listRef.current;
+    if (list) list.scrollTop = list.scrollHeight;
   }, [messages.length]);
 
   useEffect(() => {
@@ -178,7 +187,7 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
     <aside className="redzone-chat" aria-label="OFL Redzone Chat">
       <style>{`
         .redzone-chat{display:flex;flex-direction:column;min-width:0;height:100%;overflow:hidden;background:#000;color:#F8FAFC;border-left:1px solid rgba(224,21,26,.4);}
-        .redzone-chat__messages{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:14px 14px 8px;display:flex;flex-direction:column;gap:12px;scrollbar-width:thin;scrollbar-color:#E0151A #0a0a0a;}
+        .redzone-chat__messages{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding:14px 14px 8px;display:flex;flex-direction:column;justify-content:flex-end;gap:12px;scrollbar-width:thin;scrollbar-color:#E0151A #0a0a0a;}
         .redzone-chat__messages::-webkit-scrollbar{width:8px;}
         .redzone-chat__messages::-webkit-scrollbar-track{background:#0a0a0a;}
         .redzone-chat__messages::-webkit-scrollbar-thumb{background:#E0151A;border-radius:4px;}
@@ -203,14 +212,8 @@ export function RedzoneChat({ pathname }: RedzoneChatProps) {
         {messages.map(message => (
           <article className="redzone-chat__message" key={message.id}>
             {message.avatar_url ? (
-              <img
-                className="redzone-chat__avatar"
-                src={message.avatar_url}
-                alt=""
-                onLoad={() => {
-                  if (stickToBottomRef.current && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-                }}
-              />
+              <img className="redzone-chat__avatar" src={message.avatar_url} alt="" />
+
             ) : (
               <span className="redzone-chat__avatar--blank" aria-hidden="true" />
             )}

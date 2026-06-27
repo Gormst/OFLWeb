@@ -253,7 +253,7 @@ function defaultPositionForStatSection(sectionOrCategory) {
 }
 
 const OFFENSIVE_POSITIONS = ['QB', 'RB', 'FB', 'WR', 'TE', 'OL', 'C', 'G', 'OG', 'T', 'OT', 'LT', 'RT', 'LG', 'RG', 'K', 'P', 'ATH', ''];
-const DEFENSIVE_POSITIONS = ['DL', 'DE', 'DT', 'NT', 'EDGE', 'LB', 'OLB', 'MLB', 'ILB', 'CB', 'DB', 'DCB', 'S', 'FS', 'SS', 'SAF', 'ATH', ''];
+const DEFENSIVE_POSITIONS = ['DL', 'DE', 'DT', 'NT', 'EDGE', 'LB', 'OLB', 'MLB', 'ILB', 'CB', 'DB', 'DCB', 'SCB', 'S', 'FS', 'SS', 'SAF', 'ATH', ''];
 const DB_OFFENSIVE_POSITION_MAP = {
   QB: 'QB',
   RB: 'RB',
@@ -287,6 +287,7 @@ const DB_DEFENSIVE_POSITION_MAP = {
   CB: 'CB',
   DB: 'CB',
   DCB: 'CB',
+  SCB: 'CB',
   S: 'S',
   FS: 'S',
   SS: 'S',
@@ -312,6 +313,15 @@ function dbOffensivePosition(value) {
 function dbDefensivePosition(value) {
   const position = normalizeImportedPosition(value);
   return DB_DEFENSIVE_POSITION_MAP[position] || '';
+}
+
+// which CB-family breakout bucket a row's defensive position belongs to, for per-game coverage splitting
+function coverageSubPosition(value) {
+  const position = normalizeImportedPosition(value);
+  if (position === 'SCB') return 'scb';
+  if (['DCB', 'CB', 'DB'].includes(position)) return 'dcb';
+  if (['LB', 'OLB', 'MLB', 'ILB'].includes(position)) return 'lb';
+  return '';
 }
 
 function hasAnyStats(stats, keys) {
@@ -2374,6 +2384,25 @@ function boxScoreRows(box) {
 function boxScoreCountsForStats(box) {
   const meta = asBoxData(box?.data)?.meta || {};
   return meta.finalized === true && meta.updates_player_totals !== false;
+}
+
+// per-game coverage (INT/TD) totals split by the exact position recorded for that game,
+// so a player who plays SCB one week and DCB the next gets attributed correctly to each
+async function computeCoverageBreakdownByKey(aliasToCanonical) {
+  const breakdown = {};
+  const boxes = await fetchAll(supabase.from('box_scores').select('id, team1_id, team2_id, data, created_at').order('created_at', { ascending: true }));
+  (boxes || []).filter(boxScoreCountsForStats).forEach(box => {
+    boxScoreRows(box).forEach(row => {
+      const bucket = coverageSubPosition(row.defensive_position || (isDefensivePosition(row.position) ? row.position : ''));
+      if (!bucket) return;
+      const key = canonicalUsernameKey(displayUsername(row.username), aliasToCanonical);
+      if (!key) return;
+      if (!breakdown[key]) breakdown[key] = { scb: { int: 0, td: 0 }, dcb: { int: 0, td: 0 }, lb: { int: 0, td: 0 } };
+      breakdown[key][bucket].int += Number(row.stats?.cov_int || 0);
+      breakdown[key][bucket].td += Number(row.stats?.cov_td || 0);
+    });
+  });
+  return breakdown;
 }
 
 function buildBoxDataFromRows(rows, team1Name, team2Name) {
@@ -4536,14 +4565,22 @@ app.get('/api/players', async (req, res) => {
       }
       (registryRows || []).forEach(row => { registryMap[canonicalUsernameKey(row.roblox_username, aliasToCanonical)] = row; });
     }
+    const coverageBreakdown = await computeCoverageBreakdownByKey(aliasToCanonical);
     res.json({
       players: players.map(p => {
         const reg = registryMap[canonicalUsernameKey(p.roblox_username, aliasToCanonical)] || null;
+        const cov = coverageBreakdown[canonicalUsernameKey(p.roblox_username, aliasToCanonical)] || { scb: { int: 0, td: 0 }, dcb: { int: 0, td: 0 }, lb: { int: 0, td: 0 } };
         return withTeamStaffRoles(withOauthConnected({
           ...p,
           eligibility: reg ? reg.eligibility : null,
           position_tag: reg ? reg.position_tag : p.position,
           cap_value: reg ? Number(reg.cap_value || p.cap_value || 0) : Number(p.cap_value || 0),
+          cov_int_scb: cov.scb.int,
+          cov_td_scb: cov.scb.td,
+          cov_int_dcb: cov.dcb.int,
+          cov_td_dcb: cov.dcb.td,
+          cov_int_lb: cov.lb.int,
+          cov_td_lb: cov.lb.td,
           team: p.team_id ? (map[p.team_id] || null) : null
         }, oauthConnections, aliases), teams, aliases);
       }),

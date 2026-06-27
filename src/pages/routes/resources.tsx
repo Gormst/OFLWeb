@@ -72,8 +72,8 @@ export default function ResourcesPage() {
         .dfo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;}
         .dfo-card{border:1px solid var(--line-strong);background:var(--paper-2);padding:18px;}
         .dfo-card-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
-        .dfo-logo{width:40px;height:40px;border-radius:8px;object-fit:cover;flex:0 0 auto;}
-        .dfo-logo-fallback{display:flex;align-items:center;justify-content:center;color:#fff;font-family:'Anton';font-size:12px;}
+        .dfo-logo{width:44px;height:44px;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;color:#fff;font-family:'Anton';font-size:13px;flex:0 0 auto;}
+        .dfo-logo img{width:100%;height:100%;object-fit:contain;}
         .dfo-card-name{font-family:'Oswald';font-weight:700;font-size:17px;text-transform:uppercase;}
         .dfo-dpp-tag{font-family:'Space Mono';font-weight:700;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
         .dfo-stat-row{margin-bottom:10px;}
@@ -99,13 +99,20 @@ export default function ResourcesPage() {
               {teams.map(team => (
                 <div className="dfo-card" key={team.team_id}>
                   <div className="dfo-card-head">
-                    {team.logo_url ? (
-                      <img className="dfo-logo" src={team.logo_url} alt="" />
-                    ) : (
-                      <span className="dfo-logo dfo-logo-fallback" style={{ background: team.primary_color || '#15233E' }}>
-                        {teamInitials(team)}
-                      </span>
-                    )}
+                    <span className="dfo-logo" style={{ background: team.primary_color || '#15233E' }}>
+                      {team.logo_url ? (
+                        <img
+                          src={team.logo_url}
+                          alt=""
+                          onError={event => {
+                            event.currentTarget.style.display = 'none';
+                            event.currentTarget.parentElement!.textContent = teamInitials(team);
+                          }}
+                        />
+                      ) : (
+                        teamInitials(team)
+                      )}
+                    </span>
                     <div>
                       <div className="dfo-card-name">{team.name}</div>
                       <div className="dfo-dpp-tag">{team.is_dpp ? 'DPP' : 'Non-DPP'}</div>
