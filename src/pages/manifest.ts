@@ -1,6 +1,6 @@
 import type { PageModule } from './types';
 
-export type PageKey = 'admin' | 'article' | 'authRedirect' | 'boxScore' | 'connect' | 'home' | 'mediaEditor' | 'media' | 'pickEms' | 'players' | 'privacyPolicy' | 'profile' | 'schedule' | 'standings' | 'stats' | 'teams' | 'termsOfService';
+export type PageKey = 'admin' | 'article' | 'authRedirect' | 'boxScore' | 'connect' | 'home' | 'mediaEditor' | 'media' | 'pickEms' | 'players' | 'privacyPolicy' | 'profile' | 'resources' | 'schedule' | 'standings' | 'stats' | 'teams' | 'termsOfService';
 
 export const pageLoaders: Record<PageKey, () => Promise<{ default: PageModule }>> = {
   admin: () => import('./routes/admin'),
@@ -15,6 +15,7 @@ export const pageLoaders: Record<PageKey, () => Promise<{ default: PageModule }>
   players: () => import('./routes/players'),
   privacyPolicy: () => import('./routes/privacyPolicy'),
   profile: () => import('./routes/profile'),
+  resources: () => import('./routes/resources'),
   schedule: () => import('./routes/schedule'),
   standings: () => import('./routes/standings'),
   stats: () => import('./routes/stats'),

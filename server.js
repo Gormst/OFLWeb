@@ -113,7 +113,7 @@ function encryptOauthToken(value) {
 const SUPERUSERS = new Set(['famouskai12', 'adxamn', 'treasonusa']);
 
 // All admin tabs that can be granted
-const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'requests', 'registry', 'media'];
+const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'requests', 'registry', 'media', 'dfo'];
 
 // raw stat columns that can be set on a player (no derived stats stored)
 const STAT_KEYS = [
@@ -3673,7 +3673,17 @@ app.put('/api/admin/games/:id', async (req, res) => {
     if (home_team_id === away_team_id) return res.status(400).json({ error: 'Home and away teams must differ' });
     const hs = normScore(home_score), as = normScore(away_score);
     const pv = (point_value !== undefined && point_value !== '' && point_value !== null) ? Number(point_value) : null;
-    const resolvedTier = await resolveGameTier(tier, home_team_id, away_team_id);
+    const { data: existingGame, error: existingGameError } = await supabase.from('games').select('tier,home_team_id,away_team_id').eq('id', req.params.id).single();
+    if (existingGameError) throw existingGameError;
+    const tierExplicit = tier !== undefined && tier !== null && String(tier).trim() !== '';
+    const matchupUnchanged = String(existingGame.home_team_id) === String(home_team_id) && String(existingGame.away_team_id) === String(away_team_id);
+    // A game's tier is a historical snapshot — once set, it must not drift if a team's tier changes later.
+    // Only re-derive from the teams when the tier isn't explicitly given AND there's no existing tier to preserve, or the matchup itself changed.
+    const resolvedTier = tierExplicit
+      ? await resolveGameTier(tier, home_team_id, away_team_id)
+      : (existingGame.tier != null && matchupUnchanged)
+        ? existingGame.tier
+        : await resolveGameTier(tier, home_team_id, away_team_id);
     const { data, error } = await supabase.from('games').update({
       week: (week !== undefined && week !== null && String(week).trim() !== '') ? String(week).trim() : null,
       game_date: game_date || null,
@@ -4893,6 +4903,107 @@ app.delete('/api/admin/registry/:id', async (req, res) => {
   try {
     await supabase.from('league_players').delete().eq('id', req.params.id);
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+//  DFO LOG
+// ─────────────────────────────────────────────
+
+function dfoRequirements(team) {
+  return { graphics: team.is_dpp ? 12 : 15, statements: 2 };
+}
+
+// admin — list every team with their DFO graphics/statements progress
+app.get('/api/admin/dfo-log', async (req, res) => {
+  const me = await requireAdmin(req, res, 'dfo');
+  if (!me) return;
+  try {
+    const { data: teams, error } = await supabase.from('teams').select('*').order('name');
+    if (error) throw error;
+    const rows = (teams || []).map(team => {
+      const requirement = dfoRequirements(team);
+      return {
+        team_id: team.id,
+        name: team.name,
+        abbreviation: team.abbreviation,
+        logo_url: team.logo_url,
+        primary_color: team.primary_color,
+        is_dpp: !!team.is_dpp,
+        graphics_posted: team.dfo_graphics_posted || 0,
+        graphics_required: requirement.graphics,
+        statements_posted: team.dfo_statements_posted || 0,
+        statements_required: requirement.statements
+      };
+    });
+    res.json({ teams: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// public — read-only DFO graphics/statements progress for all teams
+app.get('/api/dfo-log', async (req, res) => {
+  try {
+    const { data: teams, error } = await supabase.from('teams').select('*').order('name');
+    if (error) throw error;
+    const rows = (teams || []).map(team => {
+      const requirement = dfoRequirements(team);
+      return {
+        team_id: team.id,
+        name: team.name,
+        abbreviation: team.abbreviation,
+        logo_url: team.logo_url,
+        primary_color: team.primary_color,
+        is_dpp: !!team.is_dpp,
+        graphics_posted: team.dfo_graphics_posted || 0,
+        graphics_required: requirement.graphics,
+        statements_posted: team.dfo_statements_posted || 0,
+        statements_required: requirement.statements
+      };
+    });
+    res.json({ teams: rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+async function bumpDfoCount(req, res, column, requirementKey) {
+  const me = await requireAdmin(req, res, 'dfo');
+  if (!me) return;
+  try {
+    const { data: team, error: teamError } = await supabase.from('teams').select('*').eq('id', req.params.teamId).single();
+    if (teamError || !team) return res.status(404).json({ error: 'Team not found' });
+    const requirement = dfoRequirements(team)[requirementKey];
+    const current = team[column] || 0;
+    const delta = req.body && req.body.delta === -1 ? -1 : 1;
+    const next = Math.max(0, Math.min(requirement, current + delta));
+    const { data: updated, error } = await supabase.from('teams').update({ [column]: next }).eq('id', team.id).select().single();
+    if (error) throw error;
+    res.json({ success: true, team_id: updated.id, [column]: updated[column] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}
+
+app.post('/api/admin/dfo-log/:teamId/graphics', (req, res) => bumpDfoCount(req, res, 'dfo_graphics_posted', 'graphics'));
+app.post('/api/admin/dfo-log/:teamId/statements', (req, res) => bumpDfoCount(req, res, 'dfo_statements_posted', 'statements'));
+
+// admin — reset a team's DFO progress back to zero
+app.post('/api/admin/dfo-log/:teamId/reset', async (req, res) => {
+  const me = await requireAdmin(req, res, 'dfo');
+  if (!me) return;
+  try {
+    const { data: updated, error } = await supabase
+      .from('teams')
+      .update({ dfo_graphics_posted: 0, dfo_statements_posted: 0 })
+      .eq('id', req.params.teamId)
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ success: true, team_id: updated.id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

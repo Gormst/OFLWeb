@@ -8,7 +8,8 @@ const navItems = [
   ['/pick-ems', 'Pick-Ems'],
   ['/teams', 'Teams'],
   ['/players', 'Players'],
-  ['/media', 'Media']
+  ['/media', 'Media'],
+  ['/resources', 'Resources']
 ] as const;
 
 type HeaderProfile = {
