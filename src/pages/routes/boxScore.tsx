@@ -160,7 +160,7 @@ const page = {
     {key:'passing', label:'Passing', cols:[['pass_comp','COMP'],['pass_att','ATT'],['pass_yards','YDS'],['pass_td','TD'],['pass_int','INT']], has:p=>num(p.pass_att)>0||num(p.pass_yards)>0},
     {key:'rushing', label:'Rushing', cols:[['rush_att','RUSH'],['rush_yards','YDS'],['rush_td','TD']], has:p=>num(p.rush_att)>0||num(p.rush_yards)>0},
     {key:'receiving', label:'Receiving', cols:[['targets','TGT'],['receptions','REC'],['rec_yards','YDS'],['rec_td','TD']], has:p=>num(p.targets)>0||num(p.receptions)>0||num(p.rec_yards)>0},
-    {key:'blocking', label:'Blocking', cols:[['snaps_played','SNAP'],['tfls_allowed','TFL A'],['sacks_allowed','SCK A'],['pressures_allowed','PRES A'],['games_played','GP']], has:p=>num(p.snaps_played)>0||num(p.games_played)>0||num(p.sacks_allowed)>0||num(p.tfls_allowed)>0||num(p.pressures_allowed)>0},
+    {key:'blocking', label:'Blocking', cols:[['snaps_played','SNAP'],['tfls_allowed','TFL A'],['sacks_allowed','SCK A'],['pressures_allowed','PRES A']], has:p=>num(p.snaps_played)>0||num(p.sacks_allowed)>0||num(p.tfls_allowed)>0||num(p.pressures_allowed)>0},
     {key:'passrush', label:'Pass Rush', cols:[['pr_pressures','PRESS'],['pr_tfl','TFL'],['pr_sacks','SACKS'],['pr_safeties','SAFETY'],['pr_swats','SWATS'],['pr_td','TD']], has:p=>num(p.pr_pressures)>0||num(p.pr_tfl)>0||num(p.pr_sacks)>0||num(p.pr_safeties)>0||num(p.pr_swats)>0||num(p.pr_td)>0},
     {key:'coverage', label:'Coverage', cols:[['cov_int','INT'],['cov_td','TD']], has:p=>num(p.cov_int)>0||num(p.cov_td)>0}
   ];

@@ -216,8 +216,8 @@ const CATEGORY_DEFS = {
                keys:{RUSH:'rush_att',YDS:'rush_yards',TD:'rush_td'} },
   receiving: { section:'RECEIVING', cols:['USERNAME','TRGT','REC','YDS','TD','CATCH%','YPT'],
                keys:{TRGT:'targets',REC:'receptions',YDS:'rec_yards',TD:'rec_td'} },
-  blocking:  { section:'BLOCKING',  cols:['USERNAME','SNAP','TFL A','SCK A','PRES A','GP'],
-               keys:{SNAP:'snaps_played','TFL A':'tfls_allowed','SCK A':'sacks_allowed','PRES A':'pressures_allowed',GP:'games_played'} },
+  blocking:  { section:'BLOCKING',  cols:['USERNAME','SNAP','TFL A','SCK A','PRES A'],
+               keys:{SNAP:'snaps_played','TFL A':'tfls_allowed','SCK A':'sacks_allowed','PRES A':'pressures_allowed'} },
   passrush:  { section:'DEFENSE',   cols:['USERNAME','PRESS','TFL','SACKS','SAFETY','SWATS'],
                keys:{PRESS:'pr_pressures',TFL:'pr_tfl',SACKS:'pr_sacks',SAFETY:'pr_safeties',SWATS:'pr_swats'} },
   coverage:  { section:'DEFENSE',   cols:['USERNAME','INT','TD'],
@@ -228,7 +228,7 @@ const CATEGORY_STAT_KEYS = {
   passing: ['pass_comp','pass_att','pass_yards','pass_td','pass_int'],
   rushing: ['rush_att','rush_yards','rush_td'],
   receiving: ['targets','receptions','rec_yards','rec_td'],
-  blocking: ['snaps_played','tfls_allowed','sacks_allowed','pressures_allowed','games_played'],
+  blocking: ['snaps_played','tfls_allowed','sacks_allowed','pressures_allowed'],
   passrush: ['pr_pressures','pr_tfl','pr_sacks','pr_safeties','pr_swats'],
   coverage: ['cov_int','cov_td']
 };
@@ -321,7 +321,12 @@ function coverageSubPosition(value) {
   if (position === 'SCB') return 'scb';
   if (['DCB', 'CB', 'DB'].includes(position)) return 'dcb';
   if (['LB', 'OLB', 'MLB', 'ILB'].includes(position)) return 'lb';
+  if (['FS', 'SS', 'S', 'SAF'].includes(position)) return 'fs';
   return '';
+}
+
+function emptyCoverageBreakdown() {
+  return { scb: { int: 0, td: 0 }, dcb: { int: 0, td: 0 }, lb: { int: 0, td: 0 }, fs: { int: 0, td: 0 } };
 }
 
 function hasAnyStats(stats, keys) {
@@ -2410,7 +2415,7 @@ async function computeCoverageBreakdownByKey(aliasToCanonical) {
       if (!bucket) return;
       const key = canonicalUsernameKey(displayUsername(row.username), aliasToCanonical);
       if (!key) return;
-      if (!breakdown[key]) breakdown[key] = { scb: { int: 0, td: 0 }, dcb: { int: 0, td: 0 }, lb: { int: 0, td: 0 } };
+      if (!breakdown[key]) breakdown[key] = emptyCoverageBreakdown();
       breakdown[key][bucket].int += Number(row.stats?.cov_int || 0);
       breakdown[key][bucket].td += Number(row.stats?.cov_td || 0);
     });
@@ -2437,7 +2442,7 @@ async function computeFilteredPlayerStats(aliasToCanonical, { tierPeriod, tiers,
     } else if (periodWeeks && !periodWeeks.includes(info.week)) {
       return false;
     }
-    if (tiers && tiers.length && (info.tier == null || !tiers.includes(info.tier))) return false;
+    if (!isPlacement && tiers && tiers.length && (info.tier == null || !tiers.includes(info.tier))) return false;
     return true;
   }
 
@@ -2457,10 +2462,10 @@ async function computeFilteredPlayerStats(aliasToCanonical, { tierPeriod, tiers,
       const key = canonicalUsernameKey(displayUsername(row.username), aliasToCanonical);
       if (!key) return;
       const totals = statTotalsFor(key);
-      STAT_KEYS.forEach(k => { totals[k] += Number(row.stats?.[k] || 0); });
+      STAT_KEYS.forEach(k => { totals[k] += k === 'games_played' ? 1 : Number(row.stats?.[k] || 0); });
       const bucket = coverageSubPosition(row.defensive_position || (isDefensivePosition(row.position) ? row.position : ''));
       if (bucket) {
-        if (!coverageByKey[key]) coverageByKey[key] = { scb: { int: 0, td: 0 }, dcb: { int: 0, td: 0 }, lb: { int: 0, td: 0 } };
+        if (!coverageByKey[key]) coverageByKey[key] = emptyCoverageBreakdown();
         coverageByKey[key][bucket].int += Number(row.stats?.cov_int || 0);
         coverageByKey[key][bucket].td += Number(row.stats?.cov_td || 0);
       }
@@ -2583,6 +2588,7 @@ async function adjustPlayerTotalsForRows(rows, direction = 1, { updateTeam = fal
     const key = canonicalUsernameKey(username, aliasToCanonical);
     const player = byUsername[key];
     const deltas = pickStats(row.stats || {});
+    deltas.games_played = 1; // one box-score row = one game appearance, not an imported value
 
     if (!player) continue;
 
@@ -3409,6 +3415,7 @@ function weekType(weekStr) {
 // which uses whatever tiers the 8-9 period produced rather than starting a
 // new period of its own.
 const TIER_PERIODS = [['2', '3'], ['4', '5'], ['6', '7'], ['8', '9']];
+const ALL_TIER_LEVELS = [1, 2, 3, 4, 5];
 
 function currentTierPeriodWeeks(activeWeek) {
   const w = String(activeWeek || '').trim();
@@ -4484,7 +4491,7 @@ app.get('/api/stats', async (_req, res) => {
           STAT_KEYS.forEach(statKey => { totalsByKey[key][statKey] = 0; });
         }
         STAT_KEYS.forEach(statKey => {
-          totalsByKey[key][statKey] += Number(row.stats?.[statKey] || 0);
+          totalsByKey[key][statKey] += statKey === 'games_played' ? 1 : Number(row.stats?.[statKey] || 0);
         });
         if (!playersByKey[key]?.team_id && row.team_id) totalsByKey[key].team_id = row.team_id;
         const rowPosition = normalizeImportedPosition(row.position);
@@ -4642,7 +4649,9 @@ app.get('/api/players', async (req, res) => {
     }
     const tierPeriodParam = Number.parseInt(req.query.tier_period, 10);
     const tierPeriod = Number.isInteger(tierPeriodParam) && tierPeriodParam >= 1 && tierPeriodParam <= TIER_PERIODS.length ? tierPeriodParam : null;
-    const tiers = String(req.query.tiers || '').split(',').map(s => Number.parseInt(s.trim(), 10)).filter(n => Number.isInteger(n));
+    const tiersRaw = String(req.query.tiers || '').split(',').map(s => Number.parseInt(s.trim(), 10)).filter(n => Number.isInteger(n));
+    // selecting every tier (the default, "no filter" state) is equivalent to selecting none
+    const tiers = tiersRaw.length > 0 && tiersRaw.length < ALL_TIER_LEVELS.length ? tiersRaw : [];
     const includePlacement = String(req.query.include_placement || '') === '1';
     const hasTierFilter = tierPeriod != null || tiers.length > 0;
 
@@ -4658,7 +4667,7 @@ app.get('/api/players', async (req, res) => {
       players: players.map(p => {
         const key = canonicalUsernameKey(p.roblox_username, aliasToCanonical);
         const reg = registryMap[key] || null;
-        const cov = coverageByKey[key] || { scb: { int: 0, td: 0 }, dcb: { int: 0, td: 0 }, lb: { int: 0, td: 0 } };
+        const cov = coverageByKey[key] || emptyCoverageBreakdown();
         const statOverrides = statTotalsByKey ? (statTotalsByKey[key] || Object.fromEntries(STAT_KEYS.map(k => [k, 0]))) : null;
         return withTeamStaffRoles(withOauthConnected({
           ...p,
@@ -4672,6 +4681,8 @@ app.get('/api/players', async (req, res) => {
           cov_td_dcb: cov.dcb.td,
           cov_int_lb: cov.lb.int,
           cov_td_lb: cov.lb.td,
+          cov_int_fs: cov.fs.int,
+          cov_td_fs: cov.fs.td,
           team: p.team_id ? (map[p.team_id] || null) : null
         }, oauthConnections, aliases), teams, aliases);
       }),
