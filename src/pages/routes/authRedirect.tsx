@@ -60,6 +60,7 @@ export default function AuthRedirectPage() {
 
   useEffect(() => {
     if (status.kind !== 'success') return;
+    const successStatus = status;
 
     let cancelled = false;
     async function exchangeCode() {
@@ -72,10 +73,10 @@ export default function AuthRedirectPage() {
 
         const tokenParams = new URLSearchParams({
           grant_type: 'authorization_code',
-          code: status.code,
-          redirect_uri: status.redirectUri,
+          code: successStatus.code,
+          redirect_uri: successStatus.redirectUri,
           client_id: clientId,
-          code_verifier: status.codeVerifier
+          code_verifier: successStatus.codeVerifier
         });
         const robloxResponse = await fetch('https://apis.roblox.com/oauth/v1/token', {
           method: 'POST',

@@ -45,7 +45,7 @@ function apiUrl(url: string) {
   return localWeb && url.startsWith('/api/') ? `http://localhost:3000${url}` : url;
 }
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('ofl_token') || '';
   return token ? { Authorization: `Bearer ${token}` } : {};
 }

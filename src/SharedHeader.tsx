@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 
 const navItems = [
   ['/', 'Home'],
@@ -78,7 +78,7 @@ export function SharedHeader() {
     return () => window.removeEventListener('storage', syncTheme);
   }, []);
 
-  function toggleTheme(event: MouseEvent) {
+  function toggleTheme(event: ReactMouseEvent) {
     event.preventDefault();
     event.stopPropagation();
     const next = theme === 'dark' ? 'light' : 'dark';

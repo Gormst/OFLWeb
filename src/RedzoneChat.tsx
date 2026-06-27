@@ -13,7 +13,7 @@ type RedzoneChatProps = {
   pathname: string;
 };
 
-function authHeaders() {
+function authHeaders(): Record<string, string> {
   const token = localStorage.getItem('ofl_token') || '';
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
