@@ -4976,10 +4976,9 @@ async function bumpDfoCount(req, res, column, requirementKey) {
   try {
     const { data: team, error: teamError } = await supabase.from('teams').select('*').eq('id', req.params.teamId).single();
     if (teamError || !team) return res.status(404).json({ error: 'Team not found' });
-    const requirement = dfoRequirements(team)[requirementKey];
     const current = team[column] || 0;
     const delta = req.body && req.body.delta === -1 ? -1 : 1;
-    const next = Math.max(0, Math.min(requirement, current + delta));
+    const next = Math.max(0, current + delta);
     const { data: updated, error } = await supabase.from('teams').update({ [column]: next }).eq('id', team.id).select().single();
     if (error) throw error;
     res.json({ success: true, team_id: updated.id, [column]: updated[column] });

@@ -25,10 +25,10 @@ function teamInitials(team: DfoTeam) {
 }
 
 function statBar(posted: number, required: number) {
-  const pct = required > 0 ? Math.min(100, Math.round((posted / required) * 100)) : 0;
+  const pct = required > 0 ? Math.round((posted / required) * 100) : 0;
   return (
     <div className="dfo-bar-track">
-      <div className="dfo-bar-fill" style={{ width: `${pct}%` }} />
+      <div className={`dfo-bar-fill${pct > 100 ? ' over' : ''}`} style={{ width: `${Math.min(100, pct)}%` }} />
     </div>
   );
 }
@@ -81,6 +81,7 @@ export default function ResourcesPage() {
         .dfo-stat-head{display:flex;justify-content:space-between;font-family:'Space Mono';font-weight:700;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:5px;}
         .dfo-bar-track{height:8px;background:var(--line);border-radius:4px;overflow:hidden;}
         .dfo-bar-fill{height:100%;background:var(--red);}
+        .dfo-bar-fill.over{background:#caa14a;}
         .empty,.error{border:1px solid var(--line-strong);background:var(--paper-2);padding:26px;font-size:17px;color:var(--muted);font-style:italic;}
         .error{color:var(--red);}
       `}</style>
