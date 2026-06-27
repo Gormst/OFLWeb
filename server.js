@@ -1886,9 +1886,22 @@ function slugify(name) {
 
 app.get('/api/teams', async (req, res) => {
   try {
-    const { data } = await supabase
-      .from('teams').select('*').order('name');
-    res.json({ teams: (data || []).map(t => ({ ...t, slug: slugify(t.name) })) });
+    const TEAM_CAP = 100_000_000;
+    const [{ data }, players] = await Promise.all([
+      supabase.from('teams').select('*').order('name'),
+      fetchAll(supabase.from('players').select('team_id, cap_value'))
+    ]);
+    const usedByTeam = {};
+    (players || []).forEach(p => {
+      if (!p.team_id) return;
+      usedByTeam[p.team_id] = (usedByTeam[p.team_id] || 0) + (p.cap_value || 0);
+    });
+    res.json({
+      teams: (data || []).map(t => {
+        const used = usedByTeam[t.id] || 0;
+        return { ...t, slug: slugify(t.name), cap: { total: TEAM_CAP, used, remaining: TEAM_CAP - used } };
+      })
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2403,6 +2416,57 @@ async function computeCoverageBreakdownByKey(aliasToCanonical) {
     });
   });
   return breakdown;
+}
+
+// season totals (incl. coverage breakout) recomputed from only the games that match a
+// tier-period and/or tier filter. Placement (week 1) games are excluded unless includePlacement is set.
+async function computeFilteredPlayerStats(aliasToCanonical, { tierPeriod, tiers, includePlacement } = {}) {
+  const games = await fetchAll(supabase.from('games').select('id, week, tier'));
+  const gameInfoById = {};
+  (games || []).forEach(game => {
+    gameInfoById[game.id] = { week: String(game.week || '').trim(), tier: game.tier == null ? null : Number(game.tier) };
+  });
+
+  const periodWeeks = tierPeriod ? TIER_PERIODS[tierPeriod - 1] : null;
+  function gameQualifies(gameId) {
+    const info = gameInfoById[gameId];
+    if (!info) return false;
+    const isPlacement = info.week === '1';
+    if (isPlacement) {
+      if (!includePlacement || periodWeeks) return false;
+    } else if (periodWeeks && !periodWeeks.includes(info.week)) {
+      return false;
+    }
+    if (tiers && tiers.length && (info.tier == null || !tiers.includes(info.tier))) return false;
+    return true;
+  }
+
+  const statTotalsByKey = {};
+  const coverageByKey = {};
+  function statTotalsFor(key) {
+    if (!statTotalsByKey[key]) {
+      statTotalsByKey[key] = {};
+      STAT_KEYS.forEach(k => { statTotalsByKey[key][k] = 0; });
+    }
+    return statTotalsByKey[key];
+  }
+
+  const boxes = await fetchAll(supabase.from('box_scores').select('id, game_id, team1_id, team2_id, data, created_at').order('created_at', { ascending: true }));
+  (boxes || []).filter(boxScoreCountsForStats).filter(box => gameQualifies(box.game_id)).forEach(box => {
+    boxScoreRows(box).forEach(row => {
+      const key = canonicalUsernameKey(displayUsername(row.username), aliasToCanonical);
+      if (!key) return;
+      const totals = statTotalsFor(key);
+      STAT_KEYS.forEach(k => { totals[k] += Number(row.stats?.[k] || 0); });
+      const bucket = coverageSubPosition(row.defensive_position || (isDefensivePosition(row.position) ? row.position : ''));
+      if (bucket) {
+        if (!coverageByKey[key]) coverageByKey[key] = { scb: { int: 0, td: 0 }, dcb: { int: 0, td: 0 }, lb: { int: 0, td: 0 } };
+        coverageByKey[key][bucket].int += Number(row.stats?.cov_int || 0);
+        coverageByKey[key][bucket].td += Number(row.stats?.cov_td || 0);
+      }
+    });
+  });
+  return { statTotalsByKey, coverageByKey };
 }
 
 function buildBoxDataFromRows(rows, team1Name, team2Name) {
@@ -3271,20 +3335,31 @@ app.post('/api/pickems/:gameId', async (req, res) => {
     const awayScoreRaw = req.body?.predicted_away_score;
     const hasHomeScore = homeScoreRaw !== null && homeScoreRaw !== undefined && String(homeScoreRaw).trim() !== '';
     const hasAwayScore = awayScoreRaw !== null && awayScoreRaw !== undefined && String(awayScoreRaw).trim() !== '';
-    if (!hasHomeScore || !hasAwayScore) {
-      return apiError(res, 400, 'SCORES_REQUIRED', 'Enter a predicted score for both teams to make a pick');
+
+    let selectedTeamId, predictedHomeScore = null, predictedAwayScore = null;
+    if (hasHomeScore || hasAwayScore) {
+      if (!hasHomeScore || !hasAwayScore) {
+        return apiError(res, 400, 'SCORES_REQUIRED', 'Enter a predicted score for both teams to make a pick');
+      }
+      predictedHomeScore = Number.parseInt(homeScoreRaw, 10);
+      predictedAwayScore = Number.parseInt(awayScoreRaw, 10);
+      if (!Number.isInteger(predictedHomeScore) || predictedHomeScore < 0 || predictedHomeScore > 255 ||
+          !Number.isInteger(predictedAwayScore) || predictedAwayScore < 0 || predictedAwayScore > 255) {
+        return apiError(res, 400, 'SCORE_INVALID', 'Enter valid predicted scores for both teams');
+      }
+      if (predictedHomeScore === predictedAwayScore) {
+        return apiError(res, 400, 'SCORE_TIE', 'Predicted scores can’t tie — one team must have the higher score');
+      }
+      // The winner is always whichever team has the higher predicted score — not a separate client-chosen value.
+      selectedTeamId = predictedHomeScore > predictedAwayScore ? String(game.home_team_id) : String(game.away_team_id);
+    } else {
+      // Winner-only pick: no predicted score, just a straight team selection.
+      const rawTeamId = String(req.body?.selected_team_id || '').trim();
+      if (rawTeamId !== String(game.home_team_id) && rawTeamId !== String(game.away_team_id)) {
+        return apiError(res, 400, 'TEAM_REQUIRED', 'Pick a winner for this game');
+      }
+      selectedTeamId = rawTeamId;
     }
-    const predictedHomeScore = Number.parseInt(homeScoreRaw, 10);
-    const predictedAwayScore = Number.parseInt(awayScoreRaw, 10);
-    if (!Number.isInteger(predictedHomeScore) || predictedHomeScore < 0 || predictedHomeScore > 255 ||
-        !Number.isInteger(predictedAwayScore) || predictedAwayScore < 0 || predictedAwayScore > 255) {
-      return apiError(res, 400, 'SCORE_INVALID', 'Enter valid predicted scores for both teams');
-    }
-    if (predictedHomeScore === predictedAwayScore) {
-      return apiError(res, 400, 'SCORE_TIE', 'Predicted scores can’t tie — one team must have the higher score');
-    }
-    // The winner is always whichever team has the higher predicted score — not a separate client-chosen value.
-    const selectedTeamId = predictedHomeScore > predictedAwayScore ? String(game.home_team_id) : String(game.away_team_id);
     const row = {
       game_id: game.id,
       profile_id: profile.id,
@@ -4565,13 +4640,29 @@ app.get('/api/players', async (req, res) => {
       }
       (registryRows || []).forEach(row => { registryMap[canonicalUsernameKey(row.roblox_username, aliasToCanonical)] = row; });
     }
-    const coverageBreakdown = await computeCoverageBreakdownByKey(aliasToCanonical);
+    const tierPeriodParam = Number.parseInt(req.query.tier_period, 10);
+    const tierPeriod = Number.isInteger(tierPeriodParam) && tierPeriodParam >= 1 && tierPeriodParam <= TIER_PERIODS.length ? tierPeriodParam : null;
+    const tiers = String(req.query.tiers || '').split(',').map(s => Number.parseInt(s.trim(), 10)).filter(n => Number.isInteger(n));
+    const includePlacement = String(req.query.include_placement || '') === '1';
+    const hasTierFilter = tierPeriod != null || tiers.length > 0;
+
+    let statTotalsByKey = null;
+    let coverageByKey;
+    if (hasTierFilter) {
+      ({ statTotalsByKey, coverageByKey } = await computeFilteredPlayerStats(aliasToCanonical, { tierPeriod, tiers, includePlacement }));
+    } else {
+      coverageByKey = await computeCoverageBreakdownByKey(aliasToCanonical);
+    }
+
     res.json({
       players: players.map(p => {
-        const reg = registryMap[canonicalUsernameKey(p.roblox_username, aliasToCanonical)] || null;
-        const cov = coverageBreakdown[canonicalUsernameKey(p.roblox_username, aliasToCanonical)] || { scb: { int: 0, td: 0 }, dcb: { int: 0, td: 0 }, lb: { int: 0, td: 0 } };
+        const key = canonicalUsernameKey(p.roblox_username, aliasToCanonical);
+        const reg = registryMap[key] || null;
+        const cov = coverageByKey[key] || { scb: { int: 0, td: 0 }, dcb: { int: 0, td: 0 }, lb: { int: 0, td: 0 } };
+        const statOverrides = statTotalsByKey ? (statTotalsByKey[key] || Object.fromEntries(STAT_KEYS.map(k => [k, 0]))) : null;
         return withTeamStaffRoles(withOauthConnected({
           ...p,
+          ...(statOverrides || {}),
           eligibility: reg ? reg.eligibility : null,
           position_tag: reg ? reg.position_tag : p.position,
           cap_value: reg ? Number(reg.cap_value || p.cap_value || 0) : Number(p.cap_value || 0),
