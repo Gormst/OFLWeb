@@ -1,11 +1,12 @@
 import type { PageModule } from './types';
 
-export type PageKey = 'admin' | 'article' | 'authRedirect' | 'boxScore' | 'connect' | 'home' | 'mediaEditor' | 'media' | 'pickEms' | 'players' | 'privacyPolicy' | 'profile' | 'resources' | 'schedule' | 'standings' | 'stats' | 'teams' | 'termsOfService';
+export type PageKey = 'admin' | 'article' | 'authRedirect' | 'awards' | 'boxScore' | 'connect' | 'home' | 'mediaEditor' | 'media' | 'pickEms' | 'players' | 'privacyPolicy' | 'profile' | 'resources' | 'schedule' | 'standings' | 'stats' | 'teams' | 'termsOfService';
 
 export const pageLoaders: Record<PageKey, () => Promise<{ default: PageModule }>> = {
   admin: () => import('./routes/admin'),
   article: () => import('./routes/article'),
   authRedirect: () => import('./routes/authRedirect'),
+  awards: () => import('./routes/awards'),
   boxScore: () => import('./routes/boxScore'),
   connect: () => import('./routes/connect'),
   home: () => import('./routes/home'),

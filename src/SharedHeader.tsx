@@ -8,6 +8,7 @@ const navItems = [
   ['/pick-ems', 'Pick-Ems'],
   ['/teams', 'Teams'],
   ['/players', 'Players'],
+  ['/awards', 'Awards'],
   ['/media', 'Media'],
   ['/resources', 'Resources']
 ] as const;

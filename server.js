@@ -113,7 +113,7 @@ function encryptOauthToken(value) {
 const SUPERUSERS = new Set(['famouskai12', 'adxamn', 'treasonusa']);
 
 // All admin tabs that can be granted
-const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'requests', 'registry', 'media', 'dfo'];
+const ALL_ADMIN_TABS = ['access', 'teams', 'schedule', 'requests', 'registry', 'media', 'dfo', 'awards'];
 
 // raw stat columns that can be set on a player (no derived stats stored)
 const STAT_KEYS = [
@@ -684,15 +684,15 @@ async function getRequester(req) {
 }
 
 // Compute a profile's effective admin tabs.
-// Superusers can be permanent by username or stored in admin_tabs. Saved non-empty
-// admin_tabs can narrow the admin panel tabs they see. Empty tabs falls back to
-// full access for legacy superuser rows.
+// Superusers can be permanent by username or stored in admin_tabs. Superusers always
+// get every tab in ALL_ADMIN_TABS, so newly added admin tabs (like a future feature's
+// admin panel) show up automatically without needing to update any saved admin_tabs rows.
+// Non-superuser admins are restricted to whatever tabs were explicitly granted to them.
 function effectiveTabs(profile) {
   const savedTabs = Array.isArray(profile.admin_tabs) ? profile.admin_tabs.slice() : [];
   const isStoredSuper = savedTabs.includes('superuser');
   const isSuper = SUPERUSERS.has((profile.roblox_username || '').trim().toLowerCase()) || isStoredSuper;
-  let tabs = savedTabs.filter(t => ALL_ADMIN_TABS.includes(t));
-  if (isSuper && tabs.length === 0) tabs = ALL_ADMIN_TABS.slice();
+  const tabs = isSuper ? ALL_ADMIN_TABS.slice() : savedTabs.filter(t => ALL_ADMIN_TABS.includes(t));
   return { tabs, isSuper, isAdmin: isSuper || tabs.length > 0 };
 }
 
@@ -1776,6 +1776,495 @@ app.get('/api/me/player-profile', async (req, res) => {
     });
   } catch (err) {
     apiError(res, 500, 'PLAYER_PROFILE_LOAD_FAILED', err.message);
+  }
+});
+
+// ── AWARDS ──
+
+// The full set of awards the league recognizes. Each has a short form (e.g. "MVP")
+// that the rest of the app should prefer for compact display. Anything pasted into
+// the legacy importer that doesn't match one of these (by full name or short form)
+// is rejected rather than created.
+const AWARD_CATALOG = [
+  { name: 'Most Valuable Player', short: 'MVP' },
+  { name: 'Offensive Player of the Year', short: 'OPOTY' },
+  { name: 'Defensive Player of the Year', short: 'DPOTY' },
+  { name: 'Quarterback of the Year', short: 'QBOTY' },
+  { name: 'Running Back of the Year', short: 'RBOTY' },
+  { name: 'Center of the Year', short: 'COTY' },
+  { name: 'Tight End of the Year', short: 'TEOTY' },
+  { name: 'Wide Receiver of the Year', short: 'WROTY' },
+  { name: 'Defensive End of the Year', short: 'DEOTY' },
+  { name: 'Linebacker of the Year', short: 'LBOTY', aliases: ['Middle Linebacker of the Year'] },
+  { name: 'Short Cornerback of the Year', short: 'SCBOTY' },
+  { name: 'Deep Cornerback of the Year', short: 'DCBOTY' },
+  { name: 'Free Safety of the Year', short: 'FSOTY' },
+  { name: 'Breakout Player of the Year', short: 'BPOTY' },
+  { name: 'Kicker of the Year', short: 'KOTY' },
+  { name: 'Most Improved Player', short: 'MIPOTY' },
+  { name: 'Rookie of the Year', short: 'ROTY' },
+  { name: 'DPP Player of the Year', short: 'DPPOTY' },
+  { name: 'Head Coach of the Year', short: 'HCOTY' },
+  { name: 'Franchise of the Year', short: 'FOTY', teamLevel: true }
+];
+const AWARD_CATALOG_BY_KEY = {};
+AWARD_CATALOG.forEach(entry => {
+  AWARD_CATALOG_BY_KEY[entry.name.toLowerCase()] = entry;
+  AWARD_CATALOG_BY_KEY[entry.short.toLowerCase()] = entry;
+  (entry.aliases || []).forEach(alias => { AWARD_CATALOG_BY_KEY[alias.toLowerCase()] = entry; });
+});
+function matchAwardCatalogEntry(rawName) {
+  const key = String(rawName || '').trim().toLowerCase();
+  return AWARD_CATALOG_BY_KEY[key] || null;
+}
+
+// Parse legacy season-awards text blocks like:
+// Season 47:
+// Most Valuable Player: (St. Louis Sabers) AviatorAce6
+// Franchise of the Year: Olympia Trident
+function parseLegacyAwardsText(text) {
+  const entries = [];
+  let currentSeason = null;
+  const lines = String(text || '').split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const seasonMatch = line.match(/^Season\s+(\d+)\s*:?\s*$/i);
+    if (seasonMatch) {
+      currentSeason = Number.parseInt(seasonMatch[1], 10);
+      continue;
+    }
+    const awardMatch = line.match(/^([^:]+):\s*(.+)$/);
+    if (!awardMatch) continue;
+    const awardName = awardMatch[1].trim();
+    const rest = awardMatch[2].trim();
+    if (!awardName || !rest) continue;
+    const teamPlayerMatch = rest.match(/^\(([^)]+)\)\s*(.+)$/);
+    if (teamPlayerMatch) {
+      entries.push({
+        season: currentSeason,
+        award_name: awardName,
+        team_name: teamPlayerMatch[1].trim(),
+        player_username: teamPlayerMatch[2].trim()
+      });
+    } else {
+      entries.push({
+        season: currentSeason,
+        award_name: awardName,
+        team_name: rest,
+        player_username: null
+      });
+    }
+  }
+  return entries;
+}
+
+// Discord emoji names are usually a team's slug, sometimes with a "_secondary"/"Primary"/
+// "Original" suffix for an alternate logo. Strip that suffix and try to find a current
+// team whose name (or abbreviation) contains the remaining slug.
+function normalizeEmojiTeamSlug(emojiName) {
+  if (!emojiName) return '';
+  return emojiName
+    .replace(/_?(original|primary|secondary|main|logo)$/i, '')
+    .replace(/_/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+function resolveTeamNameFromEmoji(emojiName, teams) {
+  const slug = normalizeEmojiTeamSlug(emojiName);
+  if (!slug) return null;
+  const match = (teams || []).find(t => {
+    const teamLower = String(t.name || '').toLowerCase();
+    return teamLower.includes(slug) || (t.abbreviation && String(t.abbreviation).toLowerCase() === slug);
+  });
+  return match ? match.name : null;
+}
+
+// Parse Discord-announcement style award text, e.g.:
+// # <:OFL:694994001883037862>  __Season 46 Award Winners__
+// **Most Valuable Player**: <:snowhawks:1346408760171560990> KEVINKEVINKEVlN (WR/DB)
+// **Franchise of the Year**: <:punishers:818684983199662111> Pemberley Punishers
+// Awards not in AWARD_CATALOG (e.g. "Executive of the Year") are parsed but flagged by
+// the caller as unrecognized, same as the legacy plain-text format.
+function parseDiscordAwardsText(text, teams) {
+  const entries = [];
+  let currentSeason = null;
+  const lines = String(text || '').split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const awardLineMatch = line.match(/^\*\*([^*]+)\*\*\s*:\s*(.+)$/);
+    if (!awardLineMatch) {
+      const seasonMatch = line.match(/Season\s+(\d+)/i);
+      if (seasonMatch) currentSeason = Number.parseInt(seasonMatch[1], 10);
+      continue;
+    }
+    const rawAwardName = awardLineMatch[1].trim();
+    let rest = awardLineMatch[2].trim();
+    if (!rawAwardName || !rest) continue;
+
+    const emojiMatch = rest.match(/^<a?:([a-zA-Z0-9_]+):\d+>\s*(.*)$/);
+    const emojiName = emojiMatch ? emojiMatch[1] : null;
+    if (emojiMatch) rest = emojiMatch[2].trim();
+    if (!rest) continue;
+
+    const catalogEntry = matchAwardCatalogEntry(rawAwardName);
+    if (catalogEntry && catalogEntry.teamLevel) {
+      entries.push({ season: currentSeason, award_name: rawAwardName, team_name: rest, player_username: null });
+      continue;
+    }
+
+    const resolvedTeamName = resolveTeamNameFromEmoji(emojiName, teams);
+    rest.split(',').map(part => part.trim()).filter(Boolean).forEach(part => {
+      const name = part.replace(/-\s*x\d+\s*$/i, '').replace(/\([^)]*\)\s*$/, '').trim();
+      if (!name) return;
+      entries.push({ season: currentSeason, award_name: rawAwardName, team_name: resolvedTeamName, player_username: name });
+    });
+  }
+  return entries;
+}
+
+// public — the recognized award catalog (full name + short form), for display and import validation
+app.get('/api/awards/catalog', (req, res) => {
+  res.json({ catalog: AWARD_CATALOG });
+});
+
+// public — historical + weekly awards
+app.get('/api/awards', async (req, res) => {
+  try {
+    const [teamsResult, playerAwardsResult, teamAwardsResult] = await Promise.all([
+      supabase.from('teams').select('*'),
+      supabase.from('player_awards').select('*').order('season', { ascending: false }).order('awarded_at', { ascending: false }),
+      supabase.from('team_awards').select('*').order('season', { ascending: false }).order('awarded_at', { ascending: false })
+    ]);
+    if (playerAwardsResult.error && !isMissingSupabaseTable(playerAwardsResult.error, 'player_awards')) throw playerAwardsResult.error;
+    if (teamAwardsResult.error && !isMissingSupabaseTable(teamAwardsResult.error, 'team_awards')) throw teamAwardsResult.error;
+
+    const teamMap = {};
+    (teamsResult.data || []).forEach(t => { teamMap[t.id] = t; });
+
+    const playerAwards = (playerAwardsResult.data || []).map(a => ({
+      ...a,
+      team: a.team_id ? publicTeamSummary(teamMap[a.team_id]) : null
+    }));
+    const teamAwards = (teamAwardsResult.data || []).map(a => ({
+      ...a,
+      team: a.team_id ? publicTeamSummary(teamMap[a.team_id]) : null
+    }));
+
+    const seasonSet = new Set();
+    playerAwards.forEach(a => { if (a.award_type !== 'weekly' && a.season != null) seasonSet.add(a.season); });
+    teamAwards.forEach(a => { if (a.award_type !== 'weekly' && a.season != null) seasonSet.add(a.season); });
+    const seasons = [...seasonSet].sort((a, b) => b - a).map(season => ({
+      season,
+      player_awards: playerAwards.filter(a => a.award_type !== 'weekly' && a.season === season),
+      team_awards: teamAwards.filter(a => a.award_type !== 'weekly' && a.season === season)
+    }));
+
+    const teamOfWeek = teamAwards
+      .filter(a => a.award_type === 'weekly')
+      .sort((a, b) => (b.season - a.season) || String(b.week || '').localeCompare(String(a.week || '')));
+    const playerOfWeek = playerAwards
+      .filter(a => a.award_type === 'weekly')
+      .sort((a, b) => (b.season - a.season) || String(b.week || '').localeCompare(String(a.week || '')));
+
+    res.json({ seasons, team_of_week: teamOfWeek, player_of_week: playerOfWeek });
+  } catch (err) {
+    apiError(res, 500, 'AWARDS_LOAD_FAILED', err.message);
+  }
+});
+
+// shared lookup tables used to match parsed award text against current players/teams
+async function buildAwardsMatchContext() {
+  const aliases = await fetchPlayerAliases();
+  const { aliasToCanonical } = buildAliasMaps(aliases);
+  const [{ data: rosterRows }, { data: registryRows }, { data: teamRows }] = await Promise.all([
+    supabase.from('players').select('roblox_username, roblox_user_id, team_id'),
+    supabase.from('league_players').select('roblox_username'),
+    supabase.from('teams').select('id, name, abbreviation')
+  ]);
+  const playerByKey = {};
+  (rosterRows || []).forEach(p => { playerByKey[canonicalUsernameKey(p.roblox_username, aliasToCanonical)] = p; });
+  (registryRows || []).forEach(p => {
+    const key = canonicalUsernameKey(p.roblox_username, aliasToCanonical);
+    if (!playerByKey[key]) playerByKey[key] = p;
+  });
+  const teamByName = {};
+  (teamRows || []).forEach(t => { teamByName[usernameKey(t.name)] = t; });
+  return { aliasToCanonical, playerByKey, teamByName, teams: teamRows || [] };
+}
+
+// Discord-pasted award announcements use **bold** markdown around the award name;
+// the original plain-text format never does, so this is enough to tell them apart.
+function looksLikeDiscordAwardsText(text) {
+  return /\*\*[^*]+\*\*\s*:/.test(text);
+}
+
+function matchAwardPlayer(username, { aliasToCanonical, playerByKey }) {
+  if (!username) return null;
+  const key = canonicalUsernameKey(username, aliasToCanonical);
+  return playerByKey[key] || null;
+}
+
+function awardDedupeKey(season, awardName) {
+  return `${season}::${String(awardName || '').toLowerCase()}`;
+}
+
+// A season can only have one winner per award (e.g. one MVP for Season 47). This loads
+// every existing season-award already on file for the given seasons so imports can be
+// checked against it and re-pasting the same season doesn't create duplicates.
+async function fetchExistingAwardKeys(seasons) {
+  const uniqueSeasons = [...new Set((seasons || []).filter(s => s != null))];
+  const playerKeys = new Set();
+  const teamKeys = new Set();
+  if (!uniqueSeasons.length) return { playerKeys, teamKeys };
+  const [playerResult, teamResult] = await Promise.all([
+    supabase.from('player_awards').select('season, award_name').eq('award_type', 'season').in('season', uniqueSeasons),
+    supabase.from('team_awards').select('season, award_name').eq('award_type', 'season').in('season', uniqueSeasons)
+  ]);
+  (playerResult.data || []).forEach(row => playerKeys.add(awardDedupeKey(row.season, row.award_name)));
+  (teamResult.data || []).forEach(row => teamKeys.add(awardDedupeKey(row.season, row.award_name)));
+  return { playerKeys, teamKeys };
+}
+
+// admin — parse legacy season awards text and report which players/teams matched, without writing anything
+app.post('/api/admin/awards/import/preview', async (req, res) => {
+  const me = await requireAdmin(req, res, 'awards');
+  if (!me) return;
+  try {
+    const { text } = req.body;
+    if (!text || !text.trim()) return res.status(400).json({ error: 'Award text is required' });
+
+    const ctx = await buildAwardsMatchContext();
+    const parsed = looksLikeDiscordAwardsText(text)
+      ? parseDiscordAwardsText(text, ctx.teams)
+      : parseLegacyAwardsText(text);
+    if (!parsed.length) return res.status(400).json({ error: 'No awards found in the pasted text' });
+
+    const { playerKeys: existingPlayerKeys, teamKeys: existingTeamKeys } = await fetchExistingAwardKeys(parsed.map(e => e.season));
+
+    const unrecognized = [];
+    const rows = [];
+    parsed.forEach(entry => {
+      const catalogEntry = matchAwardCatalogEntry(entry.award_name);
+      if (!catalogEntry) {
+        unrecognized.push({ season: entry.season, award_name: entry.award_name });
+        return;
+      }
+      const team = entry.team_name ? ctx.teamByName[usernameKey(entry.team_name)] : null;
+      const player = entry.player_username ? matchAwardPlayer(entry.player_username, ctx) : null;
+      const dedupeKey = awardDedupeKey(entry.season, catalogEntry.name);
+      const dedupeSet = catalogEntry.teamLevel ? existingTeamKeys : existingPlayerKeys;
+      const duplicate = dedupeSet.has(dedupeKey);
+      dedupeSet.add(dedupeKey); // a second occurrence in the same paste is also a duplicate
+      rows.push({
+        season: entry.season,
+        award_name: catalogEntry.name,
+        award_short: catalogEntry.short,
+        team_name: entry.team_name || null,
+        team_matched: team ? { id: team.id, name: team.name } : null,
+        parsed_player_username: entry.player_username || null,
+        player_username: player ? displayUsername(player.roblox_username) : (entry.player_username || ''),
+        matched: entry.player_username ? !!player : true,
+        duplicate
+      });
+    });
+
+    res.json({ rows, unmatched_count: rows.filter(r => !r.matched).length, duplicate_count: rows.filter(r => r.duplicate).length, unrecognized });
+  } catch (err) {
+    apiError(res, 500, 'AWARDS_IMPORT_PREVIEW_FAILED', err.message);
+  }
+});
+
+// admin — commit a reviewed/resolved set of award rows (see /preview). Rows with no
+// player_username are saved as team-only awards; the originally parsed name (if any)
+// is kept in award_detail so the record isn't lost.
+app.post('/api/admin/awards/import/commit', async (req, res) => {
+  const me = await requireAdmin(req, res, 'awards');
+  if (!me) return;
+  try {
+    const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
+    if (!rows.length) return res.status(400).json({ error: 'No award rows to import' });
+
+    const ctx = await buildAwardsMatchContext();
+    const { playerKeys: existingPlayerKeys, teamKeys: existingTeamKeys } = await fetchExistingAwardKeys(rows.map(r => r.season));
+
+    const playerAwardRows = [];
+    const teamAwardRows = [];
+    const failed = [];
+
+    rows.forEach(row => {
+      const catalogEntry = matchAwardCatalogEntry(row.award_name);
+      if (!catalogEntry) {
+        failed.push({ award_name: row.award_name, player_username: row.player_username || null, reason: 'Award is not in the recognized catalog' });
+        return;
+      }
+
+      const dedupeKey = awardDedupeKey(row.season, catalogEntry.name);
+      const dedupeSet = catalogEntry.teamLevel ? existingTeamKeys : existingPlayerKeys;
+      if (dedupeSet.has(dedupeKey)) {
+        failed.push({ award_name: catalogEntry.name, player_username: row.player_username || null, reason: `Season ${row.season} already has a ${catalogEntry.name} winner` });
+        return;
+      }
+
+      const team = row.team_name ? ctx.teamByName[usernameKey(row.team_name)] : null;
+      const typedPlayerName = displayUsername(row.player_username);
+
+      if (typedPlayerName) {
+        const player = matchAwardPlayer(typedPlayerName, ctx);
+        if (!player) {
+          failed.push({ award_name: catalogEntry.name, player_username: typedPlayerName, reason: 'No matching current player' });
+          return;
+        }
+        dedupeSet.add(dedupeKey);
+        playerAwardRows.push({
+          player_username: displayUsername(player.roblox_username),
+          roblox_username: displayUsername(player.roblox_username),
+          roblox_user_id: player.roblox_user_id || null,
+          season: row.season,
+          award_name: catalogEntry.name,
+          team_id: team ? team.id : (player.team_id || null),
+          team_name: row.team_name || null,
+          award_type: 'season'
+        });
+      } else {
+        const unresolvedName = displayUsername(row.parsed_player_username);
+        dedupeSet.add(dedupeKey);
+        teamAwardRows.push({
+          team_id: team ? team.id : null,
+          team_name: row.team_name || null,
+          season: row.season,
+          award_name: catalogEntry.name,
+          award_detail: unresolvedName ? `Awarded to ${unresolvedName}` : null,
+          award_type: 'season'
+        });
+      }
+    });
+
+    if (playerAwardRows.length) {
+      const { error } = await supabase.from('player_awards').insert(playerAwardRows);
+      if (error) throw error;
+    }
+    if (teamAwardRows.length) {
+      const { error } = await supabase.from('team_awards').insert(teamAwardRows);
+      if (error) throw error;
+    }
+
+    res.json({
+      success: true,
+      imported_player_awards: playerAwardRows.length,
+      imported_team_awards: teamAwardRows.length,
+      failed
+    });
+  } catch (err) {
+    apiError(res, 500, 'AWARDS_IMPORT_COMMIT_FAILED', err.message);
+  }
+});
+
+// admin — create a single Team of the Week (or other weekly team award)
+app.post('/api/admin/awards/team-of-week', async (req, res) => {
+  const me = await requireAdmin(req, res, 'awards');
+  if (!me) return;
+  try {
+    const { team_id, season, week, award_name, award_detail } = req.body;
+    if (!team_id) return res.status(400).json({ error: 'team_id is required' });
+    if (!season) return res.status(400).json({ error: 'season is required' });
+    const { data: team, error: teamErr } = await supabase.from('teams').select('id, name').eq('id', team_id).single();
+    if (teamErr || !team) return res.status(404).json({ error: 'Team not found' });
+    const { data, error } = await supabase.from('team_awards').insert({
+      team_id: team.id,
+      team_name: team.name,
+      season: Number.parseInt(season, 10),
+      week: week || null,
+      award_name: award_name || 'Team of the Week',
+      award_detail: award_detail || null,
+      award_type: 'weekly'
+    }).select().single();
+    if (error) throw error;
+    res.json({ success: true, award: data });
+  } catch (err) {
+    apiError(res, 500, 'TEAM_OF_WEEK_CREATE_FAILED', err.message);
+  }
+});
+
+// admin — delete an award entry
+// admin — edit an existing award (e.g. give a previously-imported season's award to a
+// different player/team, or fix the season it belongs to)
+app.patch('/api/admin/awards/:type/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'awards');
+  if (!me) return;
+  if (req.params.type !== 'player' && req.params.type !== 'team') {
+    return res.status(400).json({ error: 'type must be player or team' });
+  }
+  try {
+    const table = req.params.type === 'player' ? 'player_awards' : 'team_awards';
+    const { data: existing, error: existingErr } = await supabase.from(table).select('*').eq('id', req.params.id).single();
+    if (existingErr || !existing) return res.status(404).json({ error: 'Award not found' });
+
+    const seasonRaw = req.body.season;
+    const nextSeason = seasonRaw != null && String(seasonRaw).trim() !== '' ? Number.parseInt(seasonRaw, 10) : existing.season;
+    if (Number.isNaN(nextSeason)) return res.status(400).json({ error: 'season must be a number' });
+
+    const ctx = await buildAwardsMatchContext();
+
+    const { data: dupRows, error: dupErr } = await supabase
+      .from(table)
+      .select('id')
+      .eq('award_type', 'season')
+      .eq('season', nextSeason)
+      .eq('award_name', existing.award_name)
+      .neq('id', existing.id);
+    if (dupErr) throw dupErr;
+    if ((dupRows || []).length) {
+      return res.status(409).json({ error: `Season ${nextSeason} already has a ${existing.award_name} winner` });
+    }
+
+    if (req.params.type === 'player') {
+      const typedPlayerName = displayUsername(req.body.player_username);
+      if (!typedPlayerName) return res.status(400).json({ error: 'player_username is required' });
+      const player = matchAwardPlayer(typedPlayerName, ctx);
+      if (!player) return res.status(400).json({ error: `No current player matches "${typedPlayerName}"` });
+
+      const team = existing.team_name ? ctx.teamByName[usernameKey(existing.team_name)] : null;
+      const { data, error } = await supabase.from('player_awards').update({
+        player_username: displayUsername(player.roblox_username),
+        roblox_username: displayUsername(player.roblox_username),
+        roblox_user_id: player.roblox_user_id || null,
+        season: nextSeason,
+        team_id: team ? team.id : (player.team_id || existing.team_id || null)
+      }).eq('id', existing.id).select().single();
+      if (error) throw error;
+      res.json({ success: true, award: data });
+    } else {
+      const typedTeamName = displayUsername(req.body.team_name);
+      if (!typedTeamName) return res.status(400).json({ error: 'team_name is required' });
+      const team = ctx.teamByName[usernameKey(typedTeamName)];
+      const { data, error } = await supabase.from('team_awards').update({
+        team_name: typedTeamName,
+        team_id: team ? team.id : null,
+        season: nextSeason
+      }).eq('id', existing.id).select().single();
+      if (error) throw error;
+      res.json({ success: true, award: data });
+    }
+  } catch (err) {
+    apiError(res, 500, 'AWARD_UPDATE_FAILED', err.message);
+  }
+});
+
+app.delete('/api/admin/awards/:type/:id', async (req, res) => {
+  const me = await requireAdmin(req, res, 'awards');
+  if (!me) return;
+  if (req.params.type !== 'player' && req.params.type !== 'team') {
+    return res.status(400).json({ error: 'type must be player or team' });
+  }
+  try {
+    const table = req.params.type === 'player' ? 'player_awards' : 'team_awards';
+    const { error } = await supabase.from(table).delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    apiError(res, 500, 'AWARD_DELETE_FAILED', err.message);
   }
 });
 
